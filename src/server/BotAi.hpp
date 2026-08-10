@@ -201,7 +201,7 @@ private:
 
   [[nodiscard]] std::uint32_t randomU32();
   [[nodiscard]] float randomFloat(float minValue, float maxValue);
-  void planPath(
+  [[nodiscard]] bool planPath(
     const BotNavigationMap& navigation,
     Vec3 start,
     Vec3 target
@@ -231,7 +231,9 @@ private:
   int strafeDirection_ = 1;
   std::uint8_t targetPlayerIndex_ = kNoAssignedPlayer;
   std::size_t patrolNode_ = BotNavigationMap::kMaxNodes;
+  Vec3 carrierObjectiveDestination_ = {};
   std::uint32_t randomState_ = 0xB07D0D6EU;
+  bool hasCarrierObjectiveDestination_ = false;
   bool targetWasVisible_ = false;
   bool initialized_ = false;
 };

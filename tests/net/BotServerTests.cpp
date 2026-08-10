@@ -113,6 +113,34 @@ bool navPathExists(
   return false;
 }
 
+bool hasLongNavRoute(const lg::BotNavigationMap& map, float minimumDistance) {
+  std::array<bool, lg::BotNavigationMap::kMaxNodes> visited = {};
+  std::array<std::size_t, lg::BotNavigationMap::kMaxNodes> queue = {};
+  for (std::size_t start = 0; start < map.nodeCount; ++start) {
+    visited.fill(false);
+    std::size_t read = 0;
+    std::size_t written = 0;
+    queue[written++] = start;
+    visited[start] = true;
+    while (read < written) {
+      const std::size_t current = queue[read++];
+      if (std::hypot(
+            map.nodes[current].position.x - map.nodes[start].position.x,
+            map.nodes[current].position.y - map.nodes[start].position.y
+          ) >= minimumDistance) {
+        return true;
+      }
+      for (std::size_t index = 0; index < map.linkCount; ++index) {
+        const lg::BotNavLink& link = map.links[index];
+        if (link.from != current || visited[link.to]) continue;
+        visited[link.to] = true;
+        queue[written++] = link.to;
+      }
+    }
+  }
+  return false;
+}
+
 bool hasNavLink(
   const lg::BotNavigationMap& map,
   lg::BotNavLinkKind kind
@@ -236,6 +264,23 @@ int main() {
       reacquired.noFireReason == lg::BotNoFireReason::Reaction && !reacquired.command.attack,
       "reappearing after occlusion should restart the full reaction delay"
     );
+
+    lg::BotBrain gated;
+    gated.reset(0x789AU);
+    const int protectedTicks = static_cast<int>(std::ceil(
+      hard.reactionMinSeconds / lg::kFixedTickSeconds
+    ));
+    bool reactionHeldViewAndMovement = true;
+    for (int tick = 0; tick < protectedTicks; ++tick) {
+      const lg::BotMotor motor = gated.tick(sense, hard, {});
+      reactionHeldViewAndMovement = reactionHeldViewAndMovement &&
+        motor.noFireReason == lg::BotNoFireReason::Reaction &&
+        motor.command.viewYawRadians == sense.self.viewYawRadians &&
+        motor.command.viewPitchRadians == sense.self.viewPitchRadians &&
+        motor.command.forwardMove == 0.0F && motor.command.rightMove == 0.0F;
+    }
+    failures += expect(reactionHeldViewAndMovement,
+      "reaction should gate target-driven aim and chase movement for the full sampled delay");
   }
 
   {
@@ -272,6 +317,65 @@ int main() {
       floorNode < map.nodeCount && upperNode < map.nodeCount && floorNode != upperNode &&
         std::fabs(map.nodes[upperNode].position.z - 3.9F) < 0.15F,
       "nav sampling should retain grounded upper walkable levels and use full 3D node matching"
+    );
+  }
+
+  {
+    lg::Arena tall = flatArena();
+    tall.min = {-6.0F, -6.0F, 0.0F};
+    tall.max = {6.0F, 6.0F, 24.0F};
+    tall.spawnCount = 2;
+    tall.spawnPositions[0] = {-5.0F, -5.0F, 0.0F};
+    tall.spawnPositions[1] = {5.0F, 5.0F, 0.0F};
+    for (std::size_t index = 0; index < 10U; ++index) {
+      const float bottom = 2.2F * static_cast<float>(index + 1U);
+      tall.walls[index].min = {-1.0F, -1.0F, bottom};
+      tall.walls[index].max = {1.0F, 1.0F, bottom + 0.20F};
+    }
+    tall.wallCount = 10;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      tall, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    std::array<float, 16> levels = {};
+    std::size_t levelCount = 0;
+    for (std::size_t node = 0; node < map.nodeCount; ++node) {
+      const float level = map.nodes[node].position.z;
+      bool known = false;
+      for (std::size_t seen = 0; seen < levelCount; ++seen) {
+        known = known || std::fabs(levels[seen] - level) < 0.10F;
+      }
+      if (!known && levelCount < levels.size()) levels[levelCount++] = level;
+    }
+    failures += expect(levelCount > 8U,
+      "nav should retain more than eight collision-checked walkable levels within its node budget");
+  }
+
+  {
+    lg::Arena large = flatArena();
+    large.min = {-50.0F, -50.0F, 0.0F};
+    large.max = {50.0F, 50.0F, 6.0F};
+    large.spawnCount = 2;
+    large.spawnPositions[0] = {-45.0F, 0.0F, 0.0F};
+    large.spawnPositions[1] = {45.0F, 0.0F, 0.0F};
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      large, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    const std::size_t left = lg::nearestBotNavNode(map, {-45.0F, 0.0F, 0.9F});
+    const std::size_t right = lg::nearestBotNavNode(map, {45.0F, 0.0F, 0.9F});
+    failures += expect(
+      map.nodeCount > 100U && navPathExists(map, left, right),
+      "large-map grid spacing should still produce collision-validated connected routes"
+    );
+  }
+
+  {
+    const lg::Arena realArena = lg::makeDefaultServerArena();
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      realArena, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    failures += expect(
+      map.nodeCount > 0U && hasLongNavRoute(map, 4.0F),
+      "the packaged default arena should retain a generated player-valid route"
     );
   }
 
@@ -335,6 +439,28 @@ int main() {
   }
 
   {
+    lg::BotNavigationMap disconnected;
+    disconnected.nodeCount = 2;
+    disconnected.nodes[0].position = {0.0F, 0.0F, 0.9F};
+    disconnected.nodes[1].position = {6.0F, 0.0F, 0.9F};
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = disconnected.nodes[0].position;
+    sense.objective = {.position = disconnected.nodes[1].position, .active = true};
+    lg::BotBrain brain;
+    brain.reset(0xD15CU);
+    const lg::BotMotor motor = brain.tick(
+      sense, lg::botDifficultyProfile(lg::BotAttackMode::Medium), disconnected
+    );
+    failures += expect(
+      motor.goal == lg::BotGoalKind::Objective &&
+        motor.waypointNode == lg::BotNavigationMap::kMaxNodes &&
+        motor.command.forwardMove == 0.0F && motor.command.rightMove == 0.0F,
+      "a disconnected route should fail safe instead of steering directly into its blocked goal"
+    );
+  }
+
+  {
     lg::Arena aroundHealthWall = flatArena();
     aroundHealthWall.walls[0].min = {-0.25F, -2.0F, 0.0F};
     aroundHealthWall.walls[0].max = {0.25F, 2.0F, 4.0F};
@@ -356,13 +482,20 @@ int main() {
     sense.healthResourceCount = 1;
     lg::BotBrain brain;
     brain.reset(0x4567U);
-    const lg::BotMotor motor = brain.tick(
+    const lg::BotMotor routingMotor = brain.tick(
       sense, lg::botDifficultyProfile(lg::BotAttackMode::Medium), map
     );
+    lg::BotMotor combatMotor = routingMotor;
+    for (int tick = 0; tick < 50; ++tick) {
+      combatMotor = brain.tick(
+        sense, lg::botDifficultyProfile(lg::BotAttackMode::Medium), map
+      );
+    }
     failures += expect(
-      motor.goal == lg::BotGoalKind::RecoverHealth &&
-        motor.waypointNode < map.nodeCount &&
-        motor.command.weapon == lg::Weapon::PlasmaGun && motor.command.viewYawRadians > 0.0F,
+      routingMotor.goal == lg::BotGoalKind::RecoverHealth &&
+        routingMotor.waypointNode < map.nodeCount &&
+        combatMotor.command.weapon == lg::Weapon::PlasmaGun &&
+        combatMotor.command.viewYawRadians > 0.0F,
       "a low-health bot should route to a blocked seen pickup while aiming and choosing range from its enemy"
     );
   }
@@ -495,12 +628,12 @@ int main() {
     setup.match.phase = lg::MatchPhase::Live;
     setup.players[0] = {
       .bot = true, .ready = true, .team = lg::Team::Red,
-      .position = {0.0F, 0.0F, 0.9F}, .viewYawRadians = 3.14159265359F,
+      .position = {0.0F, 0.0F, 0.9F}, .viewYawRadians = 1.7681919F,
       .health = 100, .alive = true, .onGround = true, .ammo = std::nullopt
     };
     setup.players[1] = {
-      .bot = true, .ready = true, .team = lg::Team::Blue,
-      .position = {7.0F, 7.0F, 0.9F}, .viewYawRadians = 0.0F,
+      .connected = true, .ready = true, .team = lg::Team::Blue,
+      .position = {-1.0F, 5.0F, 0.9F}, .viewYawRadians = -1.3734008F,
       .health = 100, .alive = true, .onGround = true, .ammo = std::nullopt
     };
     std::string error;
@@ -511,7 +644,7 @@ int main() {
     failures += expect(
       server.snapshot().mcguffin.state == lg::McGuffinState::InstalledRed &&
         server.snapshot().mcguffin.lastEvent == lg::McGuffinEventType::Install,
-      "a carrying bot should seek its valid owned base and install through normal movement"
+      "a carrying bot should install at its base even while a visible enemy is present"
     );
   }
 
@@ -663,7 +796,7 @@ int main() {
     const float initialYaw = snapshot.players[1].viewYawRadians;
     bool turned = false;
     bool fired = false;
-    for (int tick = 0; tick < 80; ++tick) {
+    for (int tick = 0; tick < 450; ++tick) {
       server.tick(lg::kFixedTickSeconds);
       snapshot = latestSnapshot(transport);
       turned = turned || std::fabs(angleDelta(initialYaw, snapshot.players[1].viewYawRadians)) > 0.01F;
