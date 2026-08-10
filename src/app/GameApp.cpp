@@ -4830,20 +4830,9 @@ HudRenderState buildHud(
       break;
     }
   }
-  if (snapshot.matchRules.timeLimitMinutes > 0 &&
-      snapshot.gameMode != GameMode::McGuffin) {
-    const std::uint32_t limitTicks =
-      static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) * 60U * 125U;
-    const std::uint32_t remainingTicks =
-      snapshot.liveTicksElapsed < limitTicks
-      ? limitTicks - snapshot.liveTicksElapsed
-      : 0U;
-    const std::uint32_t remainingSeconds = remainingTicks / 125U;
-    hud.topRightLines.push_back(
-      "TIME " + std::to_string(remainingSeconds / 60U) + ':' +
-      (remainingSeconds % 60U < 10U ? "0" : "") +
-      std::to_string(remainingSeconds % 60U)
-    );
+  const std::string timeLine = matchTimeLine(snapshot);
+  if (!timeLine.empty()) {
+    hud.topRightLines.push_back(timeLine);
   }
   if (snapshot.matchRules.showOpponentHealth && remotePlayerIndex != localPlayerIndex) {
     hud.showOpponentHealthBar = true;

@@ -113,6 +113,8 @@ private:
   std::size_t localPlayerIndex
 );
 
+[[nodiscard]] std::string matchTimeLine(const ServerSnapshot& snapshot);
+
 [[nodiscard]] bool localPlayerWonResult(
   const ServerSnapshot& snapshot,
   std::size_t localPlayerIndex,

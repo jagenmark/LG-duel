@@ -77,6 +77,27 @@ int main() {
     lg::hudScoreLine(snapshot, 0) == "SCORE 4-2 / 10",
     "Clan Arena HUD score should use team scores"
   );
+  {
+    lg::ServerSnapshot timedSnapshot = snapshot;
+    timedSnapshot.gameMode = lg::GameMode::Duel;
+    timedSnapshot.matchRules.timeLimitMinutes = 2;
+    timedSnapshot.liveTicksElapsed = 61U * 125U;
+    failures += expect(
+      lg::matchTimeLine(timedSnapshot) == "TIME 0:59",
+      "timed match HUD should show the remaining clock"
+    );
+    timedSnapshot.overtime = true;
+    failures += expect(
+      lg::matchTimeLine(timedSnapshot) == "TIME OVERTIME",
+      "overtime HUD should replace the expired clock"
+    );
+    timedSnapshot.overtime = false;
+    timedSnapshot.matchRules.timeLimitMinutes = 0;
+    failures += expect(
+      lg::matchTimeLine(timedSnapshot).empty(),
+      "untimed match HUD should omit the clock"
+    );
+  }
   failures += expect(
     lg::localPlayerWonResult(snapshot, 0, false),
     "Clan Arena round result should use the winning team"

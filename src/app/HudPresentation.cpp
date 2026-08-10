@@ -230,6 +230,30 @@ std::string hudScoreLine(
     " / " + std::to_string(snapshot.matchRules.roundLimit);
 }
 
+std::string matchTimeLine(const ServerSnapshot& snapshot) {
+  if (snapshot.gameMode == GameMode::McGuffin) {
+    return {};
+  }
+  if (snapshot.overtime) {
+    return "TIME OVERTIME";
+  }
+  if (snapshot.matchRules.timeLimitMinutes == 0) {
+    return {};
+  }
+
+  const std::uint32_t limitTicks =
+    static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) *
+    60U * 125U;
+  const std::uint32_t remainingTicks =
+    snapshot.liveTicksElapsed < limitTicks
+    ? limitTicks - snapshot.liveTicksElapsed
+    : 0U;
+  const std::uint32_t remainingSeconds = remainingTicks / 125U;
+  return "TIME " + std::to_string(remainingSeconds / 60U) + ':' +
+    (remainingSeconds % 60U < 10U ? "0" : "") +
+    std::to_string(remainingSeconds % 60U);
+}
+
 bool localPlayerWonResult(
   const ServerSnapshot& snapshot,
   std::size_t localPlayerIndex,

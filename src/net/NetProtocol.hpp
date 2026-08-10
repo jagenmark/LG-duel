@@ -423,6 +423,7 @@ struct ServerSnapshot {
   };
   std::uint32_t phaseTicksRemaining = 0;
   std::uint32_t liveTicksElapsed = 0;
+  bool overtime = false;
   std::uint8_t roundWinner = 255;
   std::uint8_t matchWinner = 255;
   bool playersColliding = false;
