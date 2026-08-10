@@ -4062,6 +4062,7 @@ RenderSettings renderSettings(
   settings.shotgunWeaponModelStart =
     console.getBool("r_sg_weapon_model_start");
   settings.showOwnWeapons = console.getBool("r_show_weapons");
+  settings.viewModelHandsEnabled = console.getBool("r_viewmodel_hands");
   settings.weaponPosition = console.getInt("r_weapon_pos");
   settings.combatEffectsQuality = console.getInt("r_combat_effects");
   settings.muzzleLightIntensity = console.getFloat("r_muzzle_light_intensity");
@@ -5085,9 +5086,6 @@ int GameApp::run() const {
   float sniperAdsAmount = 0.0F;
   int pendingSpectateCycle = 0;
   Weapon selectedWeapon = Weapon::LightningGun;
-  Weapon viewWeapon = Weapon::LightningGun;
-  Weapon previousViewWeapon = Weapon::LightningGun;
-  float weaponSwitchSeconds = 1.0F;
   bool botDodgeEnabled = false;
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
@@ -6224,7 +6222,6 @@ int GameApp::run() const {
   float accumulatorSeconds = 0.0F;
   float titleAccumulatorSeconds = 0.0F;
   float frameStatsAccumulatorSeconds = 0.0F;
-  constexpr float kWeaponSwitchDurationSeconds = 0.16F;
   float droppedSimulationSeconds = 0.0F;
   std::uint32_t overloadFrameCount = 0;
   std::uint32_t renderedFrameCount = 0;
@@ -6238,6 +6235,12 @@ int GameApp::run() const {
   float pendingLateViewModelMouseDeltaY = 0.0F;
   std::array<PlayerPresentationState, kDuelPlayerCount> playerPresentationStates = {};
   ViewModelPresentationController viewModelPresentation;
+  WeaponSwitchPresentationController localWeaponSwitchPresentation;
+  std::array<WeaponSwitchPresentationController, kDuelPlayerCount>
+    remoteWeaponSwitchPresentations = {};
+  std::optional<std::size_t> weaponPresentationSubject;
+  DeathCameraMode previousWeaponPresentationDeathMode = DeathCameraMode::Alive;
+  std::array<std::string, kDuelPlayerCount> remoteWeaponPresentationBodies = {};
   ClientGame* presentationViewGame = nullptr;
   bool previousFrameUsedPresentationView = false;
   float localDeathElapsedSeconds = 0.0F;
@@ -8400,6 +8403,10 @@ int GameApp::run() const {
       presentationView = {};
       playerPresentationStates = {};
       viewModelPresentation.reset();
+      localWeaponSwitchPresentation.reset();
+      remoteWeaponSwitchPresentations = {};
+      weaponPresentationSubject.reset();
+      remoteWeaponPresentationBodies = {};
       pendingLateViewModelMouseDeltaX = 0.0F;
       pendingLateViewModelMouseDeltaY = 0.0F;
       presentationViewGame = currentPresentationGame;
@@ -9038,14 +9045,26 @@ int GameApp::run() const {
         selectedWeapon
       );
     }
-    if (displayedSelectedWeapon != viewWeapon) {
-      previousViewWeapon = viewWeapon;
-      viewWeapon = displayedSelectedWeapon;
-      weaponSwitchSeconds = 0.0F;
+    const std::optional<std::size_t> currentWeaponPresentationSubject =
+      deathCamera.mode == DeathCameraMode::Teammate
+        ? deathCamera.teammateIndex
+        : (!session.spectator()
+          ? std::optional<std::size_t>(session.playerIndex())
+          : std::nullopt);
+    if (
+      currentWeaponPresentationSubject != weaponPresentationSubject ||
+      deathCamera.mode != previousWeaponPresentationDeathMode
+    ) {
+      // A new body, death mode, or spectator target starts a new observed
+      // timeline; stale outgoing weapon state must never cross that boundary.
+      localWeaponSwitchPresentation.reset();
+      weaponPresentationSubject = currentWeaponPresentationSubject;
+      previousWeaponPresentationDeathMode = deathCamera.mode;
     }
-    weaponSwitchSeconds = std::min(
-      kWeaponSwitchDurationSeconds,
-      weaponSwitchSeconds + elapsed.count()
+    (void)localWeaponSwitchPresentation.update(
+      displayedSelectedWeapon,
+      elapsed.count(),
+      console.getBool("r_weapon_switch_animation")
     );
 
     const ClientGame* currentAudioGame = session.game();
@@ -9788,11 +9807,21 @@ int GameApp::run() const {
         if (playerIndex == cameraPlayerIndex ||
             (!session.spectator() && playerIndex == localPlayerIndex)) {
           playerPresentationStates[playerIndex] = {};
+          remoteWeaponSwitchPresentations[playerIndex].reset();
+          remoteWeaponPresentationBodies[playerIndex].clear();
           continue;
         }
         if (!renderSnapshot.participatingPlayers[playerIndex]) {
           playerPresentationStates[playerIndex] = {};
+          remoteWeaponSwitchPresentations[playerIndex].reset();
+          remoteWeaponPresentationBodies[playerIndex].clear();
           continue;
+        }
+        if (remoteWeaponPresentationBodies[playerIndex] !=
+            renderSnapshot.playerNames[playerIndex]) {
+          remoteWeaponSwitchPresentations[playerIndex].reset();
+          remoteWeaponPresentationBodies[playerIndex] =
+            renderSnapshot.playerNames[playerIndex];
         }
         const bool teammate = !session.spectator() && playerPresentedAsTeammate(
           renderSnapshot, localPlayerIndex, playerIndex
@@ -9827,6 +9856,14 @@ int GameApp::run() const {
           );
         }
         renderRemotePlayers[playerIndex].hasPresentation = true;
+        renderRemotePlayers[playerIndex].weaponSwitchPresentation =
+          remoteWeaponSwitchPresentations[playerIndex].update(
+            renderSnapshot.selectedWeapons[playerIndex],
+            elapsed.count(),
+            console.getBool("r_weapon_switch_animation")
+          );
+        renderRemotePlayers[playerIndex].selectedWeapon =
+          renderRemotePlayers[playerIndex].weaponSwitchPresentation.displayedWeapon;
         const int currentRemoteHealth =
           renderSnapshot.players[playerIndex].health;
         if (
@@ -9842,6 +9879,22 @@ int GameApp::run() const {
       renderLocalLightningGun =
         renderSnapshot.lightningGuns[cameraPlayerIndex];
       renderWeaponFires = renderSnapshot.weaponFires;
+      for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+        if (!renderRemotePlayers[playerIndex].visible) continue;
+        if (renderWeaponFires[playerIndex].fired) {
+          remoteWeaponSwitchPresentations[playerIndex].observeAuthoritativeFire(
+            renderWeaponFires[playerIndex].weapon
+          );
+        }
+        renderRemotePlayers[playerIndex].weaponSwitchPresentation =
+          remoteWeaponSwitchPresentations[playerIndex].update(
+            renderSnapshot.selectedWeapons[playerIndex],
+            0.0F,
+            console.getBool("r_weapon_switch_animation")
+          );
+        renderRemotePlayers[playerIndex].selectedWeapon =
+          renderRemotePlayers[playerIndex].weaponSwitchPresentation.displayedWeapon;
+      }
       renderRocketExplosions = renderSnapshot.rocketExplosions;
       renderRockets = renderClient->projectiles();
       renderIcePools = renderSnapshot.icePools;
@@ -9968,7 +10021,8 @@ int GameApp::run() const {
           )
         : (
             renderRemotePlayers[playerIndex].visible &&
-            renderRemotePlayers[playerIndex].selectedWeapon == Weapon::FreezeGun &&
+            renderRemotePlayers[playerIndex].weaponSwitchPresentation.incomingWeapon ==
+              Weapon::FreezeGun &&
             renderRemotePlayers[playerIndex].lightningGun.active
           );
       if (freezeDriven) {
@@ -10046,11 +10100,28 @@ int GameApp::run() const {
     weaponAnimationTiming.reset();
     if (deathCamera.mode != DeathCameraMode::Alive) {
       currentRenderSettings.crosshairEnabled = false;
-      currentRenderSettings.showOwnWeapons =
-        deathCamera.mode == DeathCameraMode::Teammate &&
-        console.getBool("r_show_weapons");
+      // A death or spectator discontinuity has no owned first-person arms.
+      currentRenderSettings.showOwnWeapons = false;
     }
-    currentRenderSettings.localSelectedWeapon = displayedSelectedWeapon;
+    if (renderWeaponFires[renderLocalPlayerIndex].fired) {
+      localWeaponSwitchPresentation.observeAuthoritativeFire(
+        renderWeaponFires[renderLocalPlayerIndex].weapon
+      );
+    }
+    const WeaponSwitchPresentationOutput renderedWeaponSwitch =
+      localWeaponSwitchPresentation.update(
+        displayedSelectedWeapon,
+        0.0F,
+        console.getBool("r_weapon_switch_animation")
+      );
+    currentRenderSettings.weaponSwitchPresentation = renderedWeaponSwitch;
+    // All first-person socket helpers take this same viewmodel presentation
+    // frame, so visual muzzles, casings, beams and hands move together.
+    currentRenderSettings.viewModelPresentation.translation.z +=
+      renderedWeaponSwitch.lift * 0.72F;
+    currentRenderSettings.viewModelPresentation.rotationRadians.x +=
+      renderedWeaponSwitch.pitchRadians;
+    currentRenderSettings.localSelectedWeapon = renderedWeaponSwitch.displayedWeapon;
     currentRenderSettings.localPlayerIndex =
       static_cast<std::uint8_t>(renderLocalPlayerIndex);
     currentRenderSettings.revolverCylinderRotationRadians =
@@ -10551,10 +10622,10 @@ int GameApp::run() const {
         hud.centerLines.push_back("WAITING FOR ROUND END");
       }
     }
-    hud.selectedWeapon = displayedSelectedWeapon;
+    hud.selectedWeapon = renderedWeaponSwitch.displayedWeapon;
     hud.sniperScopeActive = sniperScopeActive;
     hud.sniperScopeAmount = sniperAdsAmount;
-    hud.previousWeapon = previousViewWeapon;
+    hud.previousWeapon = renderedWeaponSwitch.outgoingWeapon;
     hud.damageNumbers = damageNumberState.presentation();
     hud.killFeedLines = killFeedPresentation(killFeedState);
     if (console.getBool("cl_showfps")) {
@@ -10562,9 +10633,7 @@ int GameApp::run() const {
         std::lround(displayedFramesPerSecond)
       )) + "fps";
     }
-    hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F
-      ? weaponSwitchSeconds / kWeaponSwitchDurationSeconds
-      : 1.0F;
+    hud.weaponSwitchProgress = renderedWeaponSwitch.normalizedTime;
     if (
       console.getBool("cl_showspeed") &&
       session.game() != nullptr &&

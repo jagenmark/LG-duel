@@ -123,6 +123,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_draw_remote_players", "Draw remote player body models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_show_weapons", "Draw local first-person weapon models.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_weapon_switch_animation", "Animate local and remote weapon presentation switches.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_viewmodel_hands", "Draw shared first-person gloved hands and forearms.", true, archivedClient, {}, {}});
   console.registerCvar({"r_weapon_pos", "First-person weapon position: 0 center, 1 wide right, 2 wide left.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_combat_effects", "Combat effects quality: 0 off, 1 low, 2 full.", 2, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_muzzle_light_intensity", "Presentation-only muzzle light intensity.", 2.4F, archivedClient, 0.0F, 12.0F});

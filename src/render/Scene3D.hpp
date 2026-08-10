@@ -70,6 +70,8 @@ enum class MeshHandle : std::uint16_t {
   RemotePlasmaGunCore,
   RemoteRevolverBody,
   RemoteRevolverCylinder,
+  ViewModelRightHand,
+  ViewModelLeftHand,
 };
 
 enum class PlayerBodyPartType : std::uint8_t {
@@ -495,6 +497,8 @@ struct GltfShadowCasterPlan {
 struct ViewModelRenderStats {
   std::uint32_t drawCalls = 0;
   std::uint32_t dynamicVertices = 0;
+  std::uint32_t sharedHandVertices = 0;
+  std::uint32_t sharedHandStaticGpuBytes = 0;
 };
 
 struct OutlineMaskDraw {

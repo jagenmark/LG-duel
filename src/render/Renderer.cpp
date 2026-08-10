@@ -256,6 +256,8 @@ struct GpuVertex {
   std::uint32_t materialSlot = 0;
 };
 
+static_assert(sizeof(GpuVertex) == 40U);
+
 struct GpuMaterialVertex {
   float position[3] = {};
   float normal[3] = {};
@@ -5184,7 +5186,7 @@ template <typename Vertex>
     billboard.handle = handle;
     resources->projectileBillboards.push_back(billboard);
   }
-  const std::array<MeshHandle, 18> staticMeshHandles = {{
+  const std::array<MeshHandle, 20> staticMeshHandles = {{
     MeshHandle::PlayerBoxCube,
     MeshHandle::RemoteMachineGunBody,
     MeshHandle::RemoteMachineGunBarrels,
@@ -5203,6 +5205,8 @@ template <typename Vertex>
     MeshHandle::RemotePlasmaGunCore,
     MeshHandle::RemoteRevolverBody,
     MeshHandle::RemoteRevolverCylinder,
+    MeshHandle::ViewModelRightHand,
+    MeshHandle::ViewModelLeftHand,
   }};
   resources->staticMeshes.reserve(staticMeshHandles.size());
   for (MeshHandle handle : staticMeshHandles) {

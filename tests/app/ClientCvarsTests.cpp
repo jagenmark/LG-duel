@@ -628,6 +628,17 @@ int main() {
     "local first-person weapon rendering should be toggleable"
   );
   failures += expect(
+    console.execute("r_weapon_switch_animation") ==
+        "r_weapon_switch_animation = 1 (default 1)" &&
+      console.execute("r_weapon_switch_animation 0") ==
+        "r_weapon_switch_animation = 0" &&
+      !console.getBool("r_weapon_switch_animation") &&
+      console.execute("r_viewmodel_hands") == "r_viewmodel_hands = 1 (default 1)" &&
+      console.execute("r_viewmodel_hands 0") == "r_viewmodel_hands = 0" &&
+      !console.getBool("r_viewmodel_hands"),
+    "weapon-switch animation and viewmodel hands should be independently toggleable"
+  );
+  failures += expect(
     console.execute("r_weapon_pos") == "r_weapon_pos = 0 (default 0)" &&
       console.execute("r_weapon_pos 1") == "r_weapon_pos = 1" &&
       console.getInt("r_weapon_pos") == 1 &&
