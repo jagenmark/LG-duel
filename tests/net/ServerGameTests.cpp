@@ -3251,6 +3251,260 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 10.0F};
+    arena.spawnCount = 2;
+    arena.spawnPositions[0] = {-6.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {6.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+
+    lg::MatchRules rules;
+    rules.timeLimitMinutes = 1;
+    rules.matchEndTicks = 1;
+    server.setMatchRules(rules);
+
+    lg::ScenarioSetup setup;
+    setup.seed = 42;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.match.liveTicksElapsed = 60U * 125U - 1U;
+    setup.players[0].connected = true;
+    setup.players[0].ready = true;
+    setup.players[0].alive = true;
+    setup.players[0].health = 100;
+    setup.players[0].position = {-6.0F, 0.0F, 0.9F};
+    setup.players[0].onGround = true;
+    setup.players[1].connected = true;
+    setup.players[1].ready = true;
+    setup.players[1].alive = true;
+    setup.players[1].health = 100;
+    setup.players[1].position = {6.0F, 0.0F, 0.9F};
+    setup.players[1].onGround = true;
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "timed duel scenario should load for overtime coverage"
+    );
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::Live &&
+        snapshot.overtime && snapshot.scores[0] == snapshot.scores[1],
+      "a tied timed Duel should enter server-authoritative overtime"
+    );
+
+    lg::UserCommand rail;
+    rail.weapon = lg::Weapon::Railgun;
+    rail.attack = true;
+    for (int tick = 0; tick < 100; ++tick) {
+      ++rail.sequence;
+      aimAtPlayerBody(rail, snapshot, 0, 1);
+      transport.sendCommand(lg::CommandPacket{0, rail, false});
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.matchPhase == lg::MatchPhase::MatchEnd) {
+        break;
+      }
+    }
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
+        snapshot.matchWinner == 0 && snapshot.scores[0] == 1 &&
+        snapshot.overtime,
+      "the first round lead should end a tied Duel in overtime"
+    );
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForReady &&
+        !snapshot.overtime,
+      "match reset should clear overtime state"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 10.0F};
+    arena.spawnCount = 2;
+    arena.spawnPositions[0] = {-6.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {6.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+
+    lg::MatchRules rules;
+    rules.timeLimitMinutes = 1;
+    rules.matchEndTicks = 1;
+    server.setMatchRules(rules);
+
+    lg::ScenarioSetup setup;
+    setup.seed = 43;
+    setup.match.gameMode = lg::GameMode::ClanArena;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.match.liveTicksElapsed = 60U * 125U - 1U;
+    setup.players[0].connected = true;
+    setup.players[0].ready = true;
+    setup.players[0].team = lg::Team::Red;
+    setup.players[0].alive = true;
+    setup.players[0].health = 100;
+    setup.players[0].position = {-6.0F, 0.0F, 0.9F};
+    setup.players[0].onGround = true;
+    setup.players[1].connected = true;
+    setup.players[1].ready = true;
+    setup.players[1].team = lg::Team::Blue;
+    setup.players[1].alive = true;
+    setup.players[1].health = 100;
+    setup.players[1].position = {6.0F, 0.0F, 0.9F};
+    setup.players[1].onGround = true;
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "timed Clan Arena scenario should load for overtime coverage"
+    );
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::Live && snapshot.overtime &&
+        snapshot.teamScores[0] == snapshot.teamScores[1],
+      "a tied timed Clan Arena should enter server-authoritative overtime"
+    );
+
+    lg::UserCommand rail;
+    rail.weapon = lg::Weapon::Railgun;
+    rail.attack = true;
+    for (int tick = 0; tick < 100; ++tick) {
+      ++rail.sequence;
+      aimAtPlayerBody(rail, snapshot, 0, 1);
+      transport.sendCommand(lg::CommandPacket{0, rail, false});
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.matchPhase == lg::MatchPhase::MatchEnd) {
+        break;
+      }
+    }
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
+        snapshot.matchWinningTeam == lg::Team::Red && snapshot.teamScores[0] == 1 &&
+        snapshot.overtime,
+      "the first round lead should end tied Clan Arena in overtime"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 10.0F};
+    arena.spawnCount = 2;
+    arena.spawnPositions[0] = {-6.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {6.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+
+    lg::MatchRules rules;
+    rules.timeLimitMinutes = 1;
+    server.setMatchRules(rules);
+
+    lg::ScenarioSetup setup;
+    setup.seed = 44;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.match.liveTicksElapsed = 60U * 125U - 1U;
+    setup.players[0].connected = true;
+    setup.players[0].ready = true;
+    setup.players[0].alive = true;
+    setup.players[0].health = 100;
+    setup.players[0].position = {-6.0F, 0.0F, 0.9F};
+    setup.players[0].onGround = true;
+    setup.players[1].connected = true;
+    setup.players[1].ready = true;
+    setup.players[1].alive = true;
+    setup.players[1].health = 80;
+    setup.players[1].position = {6.0F, 0.0F, 0.9F};
+    setup.players[1].onGround = true;
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "expiry-tick Duel scenario should load"
+    );
+
+    lg::ServerSnapshot snapshot = server.snapshot();
+    lg::UserCommand rail;
+    rail.sequence = 1;
+    rail.weapon = lg::Weapon::Railgun;
+    rail.attack = true;
+    aimAtPlayerBody(rail, snapshot, 0, 1);
+    transport.sendCommand(lg::CommandPacket{0, rail, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
+        snapshot.matchWinner == 0 && snapshot.scores[0] == 1 &&
+        snapshot.liveTicksElapsed == 60U * 125U,
+      "a Duel round-ending kill on the expiry tick should resolve the match"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 10.0F};
+    arena.spawnCount = 2;
+    arena.spawnPositions[0] = {-6.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {6.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+
+    lg::MatchRules rules;
+    rules.timeLimitMinutes = 1;
+    server.setMatchRules(rules);
+
+    lg::ScenarioSetup setup;
+    setup.seed = 45;
+    setup.match.gameMode = lg::GameMode::ClanArena;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.match.liveTicksElapsed = 60U * 125U - 1U;
+    setup.players[0].connected = true;
+    setup.players[0].ready = true;
+    setup.players[0].team = lg::Team::Red;
+    setup.players[0].alive = true;
+    setup.players[0].health = 100;
+    setup.players[0].position = {-6.0F, 0.0F, 0.9F};
+    setup.players[0].onGround = true;
+    setup.players[1].connected = true;
+    setup.players[1].ready = true;
+    setup.players[1].team = lg::Team::Blue;
+    setup.players[1].alive = true;
+    setup.players[1].health = 80;
+    setup.players[1].position = {6.0F, 0.0F, 0.9F};
+    setup.players[1].onGround = true;
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "expiry-tick Clan Arena scenario should load"
+    );
+
+    lg::ServerSnapshot snapshot = server.snapshot();
+    lg::UserCommand rail;
+    rail.sequence = 1;
+    rail.weapon = lg::Weapon::Railgun;
+    rail.attack = true;
+    aimAtPlayerBody(rail, snapshot, 0, 1);
+    transport.sendCommand(lg::CommandPacket{0, rail, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
+        snapshot.matchWinningTeam == lg::Team::Red &&
+        snapshot.teamScores[0] == 1 &&
+        snapshot.liveTicksElapsed == 60U * 125U,
+      "a Clan Arena round-ending kill on the expiry tick should resolve the match"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
     lg::ServerSnapshot snapshot = latestSnapshot(transport);
 
     lg::UserCommand rail;

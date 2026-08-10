@@ -625,6 +625,7 @@ void ServerGame::tick(float fixedDt) {
   spawnedProjectileCount_ = 0;
   receiveCommands();
   updateMatchState();
+  const bool tickStartedLive = snapshot_.matchPhase == MatchPhase::Live;
   updateBotCommands(fixedDt);
   snapshot_.weaponFires = {};
   snapshot_.rocketExplosions = {};
@@ -1292,11 +1293,16 @@ void ServerGame::tick(float fixedDt) {
 
   simulateRockets(fixedDt);
 
-  if (snapshot_.matchPhase == MatchPhase::Live) {
+  if (tickStartedLive) {
     ++snapshot_.liveTicksElapsed;
     // McGuffin rounds end through score control and the final-hold rule. A
     // generic match timer must not bypass its best-of-three round structure.
-    if (matchRules_.timeLimitMinutes > 0 && snapshot_.gameMode != GameMode::McGuffin) {
+    if (
+      matchRules_.timeLimitMinutes > 0 &&
+      snapshot_.gameMode != GameMode::McGuffin &&
+      !snapshot_.overtime &&
+      snapshot_.matchPhase != MatchPhase::MatchEnd
+    ) {
       const std::uint32_t limitTicks =
         static_cast<std::uint32_t>(matchRules_.timeLimitMinutes) * 60U * 125U;
       if (snapshot_.liveTicksElapsed >= limitTicks) {
@@ -1304,16 +1310,15 @@ void ServerGame::tick(float fixedDt) {
           const auto leader = uniqueScoreLeader(snapshot_.scores, occupiedPlayers());
           if (leader.has_value()) {
             beginMatchEnd(*leader);
+          } else {
+            snapshot_.overtime = true;
           }
         } else if (snapshot_.gameMode == GameMode::ClanArena) {
           const auto leader = clanArenaScoreLeader(snapshot_.teamScores);
           if (leader.has_value()) {
             beginMatchEnd(*leader);
-          }
-        } else {
-          const auto leader = clanArenaScoreLeader(snapshot_.mcguffinScores);
-          if (leader.has_value()) {
-            beginMatchEnd(*leader);
+          } else {
+            snapshot_.overtime = true;
           }
         }
       }
@@ -1671,6 +1676,7 @@ void ServerGame::setConnectedPlayers(
     snapshot_.mcguffinRound = 0;
     snapshot_.matchCombatStats = {};
     snapshot_.liveTicksElapsed = 0;
+    snapshot_.overtime = false;
     snapshot_.roundWinner = 255;
     snapshot_.matchWinner = 255;
     snapshot_.roundWinningTeam = Team::None;
@@ -2243,6 +2249,7 @@ void ServerGame::updateMatchState() {
       snapshot_.mcguffinRound = 0;
       snapshot_.matchCombatStats = {};
       snapshot_.liveTicksElapsed = 0;
+      snapshot_.overtime = false;
       snapshot_.roundWinner = 255;
       snapshot_.matchWinner = 255;
       snapshot_.roundWinningTeam = Team::None;
@@ -2251,12 +2258,14 @@ void ServerGame::updateMatchState() {
     }
     snapshot_.matchPhase = MatchPhase::WaitingForPlayers;
     snapshot_.phaseTicksRemaining = 0;
+    snapshot_.overtime = false;
     return;
   }
 
   switch (snapshot_.matchPhase) {
   case MatchPhase::WaitingForPlayers:
     snapshot_.matchPhase = MatchPhase::WaitingForReady;
+    snapshot_.overtime = false;
     break;
   case MatchPhase::WaitingForReady:
     if (allConnectedPlayersReady()) {
@@ -2294,6 +2303,7 @@ void ServerGame::updateMatchState() {
       snapshot_.matchCombatStats = {};
       snapshot_.readyPlayers = {};
       snapshot_.liveTicksElapsed = 0;
+      snapshot_.overtime = false;
       snapshot_.roundWinner = 255;
       snapshot_.matchWinner = 255;
       snapshot_.roundWinningTeam = Team::None;
@@ -2310,6 +2320,7 @@ void ServerGame::updateMatchState() {
 void ServerGame::beginCountdown() {
   if (warmupPhase()) {
     snapshot_.matchCombatStats = {};
+    snapshot_.overtime = false;
   }
   snapshot_.matchPhase = MatchPhase::Countdown;
   snapshot_.phaseTicksRemaining = matchRules_.countdownTicks;
@@ -2326,7 +2337,15 @@ void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
   snapshot_.roundWinner = static_cast<std::uint8_t>(winnerIndex);
   snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
   snapshot_.matchPhase = MatchPhase::RoundEnd;
-  if (hasWonDuel(snapshot_.scores, winnerIndex, matchRules_.roundLimit)) {
+  bool overtimeWinner = false;
+  if (snapshot_.overtime) {
+    const auto leader = uniqueScoreLeader(snapshot_.scores, occupiedPlayers());
+    overtimeWinner = leader.has_value() && *leader == winnerIndex;
+  }
+  if (
+    hasWonDuel(snapshot_.scores, winnerIndex, matchRules_.roundLimit) ||
+    overtimeWinner
+  ) {
     beginMatchEnd(winnerIndex);
   }
 }
@@ -2336,7 +2355,15 @@ void ServerGame::beginRoundEnd(Team winnerTeam) {
   snapshot_.roundWinningTeam = winnerTeam;
   snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
   snapshot_.matchPhase = MatchPhase::RoundEnd;
-  if (hasWonClanArena(snapshot_.teamScores, winnerTeam, matchRules_.roundLimit)) {
+  bool overtimeWinner = false;
+  if (snapshot_.overtime) {
+    const auto leader = clanArenaScoreLeader(snapshot_.teamScores);
+    overtimeWinner = leader.has_value() && *leader == winnerTeam;
+  }
+  if (
+    hasWonClanArena(snapshot_.teamScores, winnerTeam, matchRules_.roundLimit) ||
+    overtimeWinner
+  ) {
     beginMatchEnd(winnerTeam);
   }
 }
@@ -4359,6 +4386,7 @@ bool ServerGame::applyScenarioSetup(
   snapshot_.matchPhase = setup.match.phase;
   snapshot_.phaseTicksRemaining = setup.match.phaseTicksRemaining;
   snapshot_.liveTicksElapsed = setup.match.liveTicksElapsed;
+  snapshot_.overtime = setup.match.overtime;
   snapshot_.scores = setup.match.scores;
   snapshot_.teamScores = setup.match.teamScores;
   snapshot_.mcguffinScores = setup.match.mcguffinScores;
@@ -4590,6 +4618,7 @@ ScenarioState ServerGame::captureScenarioState() const {
   state.match.phase = snapshot_.matchPhase;
   state.match.phaseTicksRemaining = snapshot_.phaseTicksRemaining;
   state.match.liveTicksElapsed = snapshot_.liveTicksElapsed;
+  state.match.overtime = snapshot_.overtime;
   state.match.scores = snapshot_.scores;
   state.match.teamScores = snapshot_.teamScores;
   state.match.mcguffinScores = snapshot_.mcguffinScores;

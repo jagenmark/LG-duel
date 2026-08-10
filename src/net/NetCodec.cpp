@@ -2074,6 +2074,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeU8(static_cast<std::uint8_t>(snapshot.botWeapon)) &&
     writer.writeU32(snapshot.phaseTicksRemaining) &&
     writer.writeU32(snapshot.liveTicksElapsed) &&
+    writer.writeBool(snapshot.overtime) &&
     writer.writeU8(snapshot.roundWinner) &&
     writer.writeU8(snapshot.matchWinner) &&
     writer.writeBool(snapshot.playersColliding) &&
@@ -2473,6 +2474,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readU8(botWeapon) ||
     !reader.readU32(decoded.phaseTicksRemaining) ||
     !reader.readU32(decoded.liveTicksElapsed) ||
+    !reader.readBool(decoded.overtime) ||
     !reader.readU8(decoded.roundWinner) ||
     !reader.readU8(decoded.matchWinner) ||
     !reader.readBool(decoded.playersColliding) ||

@@ -8,13 +8,30 @@
 
 namespace lg {
 
+struct McGuffinNavigationProjection {
+  bool valid = false;
+  bool onScreen = false;
+  bool behind = false;
+  ScreenPoint screenPosition = {};
+  ScreenPoint edgePosition = {};
+  float distance = 0.0F;
+};
+
+[[nodiscard]] McGuffinNavigationProjection projectMcGuffinNavigationTarget(
+  const McGuffinNavigationTarget& target,
+  const PerspectiveCamera& camera,
+  int outputWidth,
+  int outputHeight
+);
+
 [[nodiscard]] DrawList2D buildScreenUi(
   int outputWidth,
   int outputHeight,
   const PlayerState& localPlayer,
   const RenderSettings& settings,
   const HudRenderState& hud,
-  const ConsoleRenderState& console
+  const ConsoleRenderState& console,
+  const PerspectiveCamera* navigationCamera = nullptr
 );
 
 [[nodiscard]] DrawList2D buildFloatingHealthBars(

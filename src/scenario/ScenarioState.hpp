@@ -33,6 +33,7 @@ struct ScenarioMatchSetup {
   MatchPhase phase = MatchPhase::Live;
   std::uint32_t phaseTicksRemaining = 0;
   std::uint32_t liveTicksElapsed = 0;
+  bool overtime = false;
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
   std::array<std::uint16_t, kPlayableTeamCount> teamScores = {};
   std::array<std::uint16_t, kPlayableTeamCount> mcguffinScores = {};
@@ -128,6 +129,7 @@ struct ScenarioMatchState {
   MatchPhase phase = MatchPhase::WaitingForPlayers;
   std::uint32_t phaseTicksRemaining = 0;
   std::uint32_t liveTicksElapsed = 0;
+  bool overtime = false;
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
   std::array<std::uint16_t, kPlayableTeamCount> teamScores = {};
   std::array<std::uint16_t, kPlayableTeamCount> mcguffinScores = {};

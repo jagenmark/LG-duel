@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -1147,6 +1148,394 @@ void addOutline(
   );
   addLine(drawList, {x, y + height}, {x, y}, color, 1.0F);
 }
+
+struct NavigationSafeBounds {
+  float left = 0.0F;
+  float right = 0.0F;
+  float top = 0.0F;
+  float bottom = 0.0F;
+};
+
+[[nodiscard]] NavigationSafeBounds navigationSafeBounds(
+  int outputWidth,
+  int outputHeight
+) {
+  const float width = static_cast<float>(std::max(1, outputWidth));
+  const float height = static_cast<float>(std::max(1, outputHeight));
+  const float horizontalMargin = std::min(
+    width * 0.25F,
+    std::max(24.0F, width * 0.06F)
+  );
+  const float verticalMargin = std::min(
+    height * 0.30F,
+    std::max(56.0F, height * 0.14F)
+  );
+  return {
+    horizontalMargin,
+    std::max(horizontalMargin, width - horizontalMargin),
+    verticalMargin,
+    std::max(verticalMargin, height - verticalMargin),
+  };
+}
+
+[[nodiscard]] ScreenPoint navigationScreenDirection(
+  ScreenPoint center,
+  ScreenPoint edge
+) {
+  const float x = edge.x - center.x;
+  const float y = edge.y - center.y;
+  const float magnitude = std::hypot(x, y);
+  if (magnitude <= 0.0001F) {
+    return {0.0F, -1.0F};
+  }
+  return {x / magnitude, y / magnitude};
+}
+
+void addNavigationArrow(
+  DrawList2D& drawList,
+  ScreenPoint center,
+  ScreenPoint edge,
+  RenderColor color
+) {
+  const ScreenPoint direction = navigationScreenDirection(center, edge);
+  const ScreenPoint perpendicular = {-direction.y, direction.x};
+  const ScreenPoint tip = {
+    edge.x + direction.x * 11.0F,
+    edge.y + direction.y * 11.0F,
+  };
+  const ScreenPoint left = {
+    edge.x - direction.x * 7.0F + perpendicular.x * 7.0F,
+    edge.y - direction.y * 7.0F + perpendicular.y * 7.0F,
+  };
+  const ScreenPoint back = {
+    edge.x - direction.x * 5.0F,
+    edge.y - direction.y * 5.0F,
+  };
+  const ScreenPoint right = {
+    edge.x - direction.x * 7.0F - perpendicular.x * 7.0F,
+    edge.y - direction.y * 7.0F - perpendicular.y * 7.0F,
+  };
+  drawList.overlayCommands.emplace_back(FilledQuad2D{
+    {tip, left, back, right},
+    color,
+  });
+}
+
+[[nodiscard]] ScreenPoint clampedNavigationEdgePosition(
+  const McGuffinNavigationProjection& projection,
+  const NavigationSafeBounds& bounds
+) {
+  ScreenPoint edgePosition = projection.edgePosition;
+  constexpr float arrowInset = 12.0F;
+  const float edgeInsetX = std::min(
+    arrowInset,
+    (bounds.right - bounds.left) * 0.5F
+  );
+  const float edgeInsetY = std::min(
+    arrowInset,
+    (bounds.bottom - bounds.top) * 0.5F
+  );
+  edgePosition.x = std::clamp(
+    edgePosition.x,
+    bounds.left + edgeInsetX,
+    bounds.right - edgeInsetX
+  );
+  edgePosition.y = std::clamp(
+    edgePosition.y,
+    bounds.top + edgeInsetY,
+    bounds.bottom - edgeInsetY
+  );
+  return edgePosition;
+}
+
+[[nodiscard]] RenderColor mcguffinNavigationColor(
+  McGuffinNavigationKind kind
+) {
+  switch (kind) {
+  case McGuffinNavigationKind::InstallBase:
+  case McGuffinNavigationKind::DefendBase:
+    return {112, 232, 142, 245};
+  case McGuffinNavigationKind::AttackBase:
+    return {255, 126, 102, 245};
+  case McGuffinNavigationKind::RecoverObjective:
+    return {255, 198, 88, 245};
+  case McGuffinNavigationKind::FollowCarrier:
+    return {116, 202, 255, 245};
+  case McGuffinNavigationKind::Objective:
+    return {255, 224, 96, 245};
+  case McGuffinNavigationKind::None:
+    break;
+  }
+  return {235, 242, 250, 245};
+}
+
+[[nodiscard]] std::string_view mcguffinNavigationCompactLabel(
+  McGuffinNavigationKind kind
+) {
+  switch (kind) {
+  case McGuffinNavigationKind::Objective:
+    return "OBJ";
+  case McGuffinNavigationKind::RecoverObjective:
+    return "GET";
+  case McGuffinNavigationKind::FollowCarrier:
+    return "C";
+  case McGuffinNavigationKind::InstallBase:
+    return "IN";
+  case McGuffinNavigationKind::DefendBase:
+    return "DEF";
+  case McGuffinNavigationKind::AttackBase:
+    return "ATK";
+  case McGuffinNavigationKind::None:
+    break;
+  }
+  return {};
+}
+
+[[nodiscard]] std::string_view mcguffinNavigationMicroLabel(
+  McGuffinNavigationKind kind
+) {
+  switch (kind) {
+  case McGuffinNavigationKind::Objective:
+    return "O";
+  case McGuffinNavigationKind::RecoverObjective:
+    return "R";
+  case McGuffinNavigationKind::FollowCarrier:
+    return "C";
+  case McGuffinNavigationKind::InstallBase:
+    return "I";
+  case McGuffinNavigationKind::DefendBase:
+    return "D";
+  case McGuffinNavigationKind::AttackBase:
+    return "A";
+  case McGuffinNavigationKind::None:
+    break;
+  }
+  return {};
+}
+
+[[nodiscard]] std::string mcguffinNavigationText(
+  float distance,
+  std::string_view label
+) {
+  const long roundedDistance = std::max(0L, std::lround(std::max(0.0F, distance)));
+  return std::string(label) +
+    " " + std::to_string(roundedDistance) + "u";
+}
+
+void addMcGuffinNavigation(
+  DrawList2D& drawList,
+  int outputWidth,
+  int outputHeight,
+  const PerspectiveCamera& camera,
+  const HudRenderState& hud
+) {
+  if (
+    !hud.mcguffinNavigation.active ||
+    hud.mcguffinNavigation.kind == McGuffinNavigationKind::None ||
+    hud.settingsOpen ||
+    hud.miscMenuOpen ||
+    hud.scoreboardOpen
+  ) {
+    return;
+  }
+  const McGuffinNavigationProjection projection =
+    projectMcGuffinNavigationTarget(
+      hud.mcguffinNavigation,
+      camera,
+      outputWidth,
+      outputHeight
+    );
+  if (!projection.valid) {
+    return;
+  }
+
+  const ScreenPoint screenCenter = {
+    static_cast<float>(outputWidth) * 0.5F,
+    static_cast<float>(outputHeight) * 0.5F,
+  };
+  const RenderColor color = mcguffinNavigationColor(
+    hud.mcguffinNavigation.kind
+  );
+  constexpr float textScale = 1.25F;
+  NavigationSafeBounds bounds = navigationSafeBounds(
+    outputWidth,
+    outputHeight
+  );
+  const std::size_t topLineCount = std::max({
+    hud.topLeftLines.size(),
+    hud.topCenterLines.size(),
+    hud.topRightLines.size(),
+  });
+  const float topHudBottom = topLineCount == 0U
+    ? 0.0F
+    : 12.0F + static_cast<float>(topLineCount) * 20.0F - 4.0F;
+  // Reserve the same top band for the card that the existing HUD uses.
+  bounds.top = std::max(bounds.top, topHudBottom + 12.0F);
+  bounds.bottom = std::max(bounds.top, bounds.bottom);
+
+  const float safeWidth = std::max(0.0F, bounds.right - bounds.left);
+  const auto cardWidthFor = [](
+    std::string_view value,
+    float cardPadding
+  ) {
+    return textWidth(value, textScale) + cardPadding * 2.0F;
+  };
+  std::string text = mcguffinNavigationText(
+    projection.distance,
+    mcguffinNavigationLabel(hud.mcguffinNavigation.kind)
+  );
+  float padding = 6.0F;
+  float panelWidth = cardWidthFor(text, padding);
+  if (panelWidth > safeWidth) {
+    text = mcguffinNavigationText(
+      projection.distance,
+      mcguffinNavigationCompactLabel(hud.mcguffinNavigation.kind)
+    );
+    padding = 4.0F;
+    panelWidth = cardWidthFor(text, padding);
+  }
+  if (panelWidth > safeWidth) {
+    text = mcguffinNavigationText(
+      projection.distance,
+      mcguffinNavigationMicroLabel(hud.mcguffinNavigation.kind)
+    );
+    padding = 2.0F;
+    panelWidth = cardWidthFor(text, padding);
+  }
+  const float panelHeight =
+    kGlyphSize * snappedTextScale(textScale) + padding * 2.0F;
+  const float maximumPanelTop = std::max(
+    0.0F,
+    static_cast<float>(outputHeight) - panelHeight - 8.0F
+  );
+  // Keep both the card and the arrow below the existing top HUD. The extra
+  // margin also keeps the arrow tip from touching the last status line.
+  bounds.top = std::min(bounds.top, maximumPanelTop);
+  bounds.bottom = std::max(bounds.top, bounds.bottom);
+  const float availableHeight = std::max(0.0F, bounds.bottom - bounds.top);
+  const bool cardFits =
+    panelWidth <= safeWidth && panelHeight <= availableHeight;
+  ScreenPoint edgePosition = {};
+  if (!projection.onScreen) {
+    edgePosition = clampedNavigationEdgePosition(projection, bounds);
+    addNavigationArrow(drawList, screenCenter, edgePosition, color);
+  }
+  if (!cardFits) {
+    // An extremely small viewport cannot hold the label and distance while
+    // keeping the card inside the safe area. Keep the directional arrow for
+    // off-screen targets and omit only the impossible card.
+    return;
+  }
+
+  const auto safeClamp = [](float value, float lower, float upper) {
+    if (lower > upper) {
+      return (lower + upper) * 0.5F;
+    }
+    return std::clamp(value, lower, upper);
+  };
+  const float minimumCardCenterX = bounds.left + panelWidth * 0.5F;
+  const float maximumCardCenterX = bounds.right - panelWidth * 0.5F;
+  const float minimumCardCenterY = bounds.top + panelHeight * 0.5F;
+  const float maximumCardCenterY = bounds.bottom - panelHeight * 0.5F;
+  ScreenPoint textPosition = {};
+  TextHorizontalAlignment textAlignment = TextHorizontalAlignment::Center;
+  if (projection.onScreen) {
+    textPosition = projection.screenPosition;
+    textPosition.y -= panelHeight + 7.0F;
+    const bool nearCrosshair =
+      std::fabs(projection.screenPosition.x - screenCenter.x) < 84.0F &&
+      std::fabs(projection.screenPosition.y - screenCenter.y) < 64.0F;
+    if (nearCrosshair) {
+      textPosition = {
+        screenCenter.x,
+        minimumCardCenterY,
+      };
+    }
+    textPosition.x = safeClamp(
+      textPosition.x,
+      minimumCardCenterX,
+      maximumCardCenterX
+    );
+    textPosition.y = safeClamp(
+      textPosition.y,
+      minimumCardCenterY,
+      maximumCardCenterY
+    );
+  } else {
+    const bool left = projection.edgePosition.x <= screenCenter.x - 1.0F &&
+      std::fabs(projection.edgePosition.x - bounds.left) < 1.0F;
+    const bool right = projection.edgePosition.x >= screenCenter.x + 1.0F &&
+      std::fabs(projection.edgePosition.x - bounds.right) < 1.0F;
+    if (left) {
+      textAlignment = TextHorizontalAlignment::Left;
+      textPosition = {
+        edgePosition.x + 16.0F,
+        edgePosition.y,
+      };
+    } else if (right) {
+      textAlignment = TextHorizontalAlignment::Right;
+      textPosition = {
+        edgePosition.x - 16.0F,
+        edgePosition.y,
+      };
+    } else if (edgePosition.y <= screenCenter.y) {
+      textPosition = {
+        edgePosition.x,
+        edgePosition.y + 16.0F + panelHeight * 0.5F,
+      };
+    } else {
+      textPosition = {
+        edgePosition.x,
+        edgePosition.y - 16.0F - panelHeight * 0.5F,
+      };
+    }
+    textPosition.x = safeClamp(
+      textPosition.x,
+      textAlignment == TextHorizontalAlignment::Left
+        ? bounds.left + padding
+        : textAlignment == TextHorizontalAlignment::Right
+          ? bounds.left + panelWidth - padding
+          : minimumCardCenterX,
+      textAlignment == TextHorizontalAlignment::Left
+        ? bounds.right - panelWidth + padding
+        : textAlignment == TextHorizontalAlignment::Right
+          ? bounds.right - padding
+          : maximumCardCenterX
+    );
+    textPosition.y = safeClamp(
+      textPosition.y,
+      minimumCardCenterY,
+      maximumCardCenterY
+    );
+  }
+
+  const float panelX = textPosition.x -
+    (textAlignment == TextHorizontalAlignment::Left
+      ? padding
+      : textAlignment == TextHorizontalAlignment::Right
+        ? panelWidth - padding
+        : panelWidth * 0.5F);
+  const float panelY = textPosition.y - panelHeight * 0.5F;
+  addRect(
+    drawList,
+    panelX,
+    panelY,
+    panelWidth,
+    panelHeight,
+    {7, 12, 17, 212}
+  );
+  addOutline(drawList, panelX, panelY, panelWidth, panelHeight, color);
+  addText(
+    drawList,
+    textPosition.x,
+    textPosition.y - kGlyphSize * snappedTextScale(textScale) * 0.5F,
+    text,
+    color,
+    textScale,
+    textAlignment
+  );
+}
+
 
 void addLocalHealthBar(
   DrawList2D& drawList,
@@ -3237,6 +3626,133 @@ void addConsole(
 
 } // namespace
 
+McGuffinNavigationProjection projectMcGuffinNavigationTarget(
+  const McGuffinNavigationTarget& target,
+  const PerspectiveCamera& camera,
+  int outputWidth,
+  int outputHeight
+) {
+  McGuffinNavigationProjection result;
+  if (
+    !target.active ||
+    target.kind == McGuffinNavigationKind::None ||
+    outputWidth <= 0 ||
+    outputHeight <= 0 ||
+    !std::isfinite(camera.aspectRatio) ||
+    camera.aspectRatio <= 0.0F ||
+    !std::isfinite(camera.focalLength) ||
+    camera.focalLength <= 0.0F ||
+    !std::isfinite(camera.nearPlane) ||
+    camera.nearPlane <= 0.0F
+  ) {
+    return result;
+  }
+
+  const Vec3 offset = target.worldPosition - camera.position;
+  result.distance = length(offset);
+  if (!std::isfinite(result.distance)) {
+    return {};
+  }
+  result.valid = true;
+  const ScreenPoint screenCenter = {
+    static_cast<float>(outputWidth) * 0.5F,
+    static_cast<float>(outputHeight) * 0.5F,
+  };
+  // A target at the camera is already reached. Keep the result finite and
+  // quiet instead of producing a false edge arrow from a zero vector.
+  if (result.distance <= 0.05F) {
+    result.onScreen = true;
+    result.screenPosition = screenCenter;
+    result.edgePosition = screenCenter;
+    return result;
+  }
+
+  const Vec3 view = perspectiveCameraSpace(camera, target.worldPosition);
+  if (
+    !std::isfinite(view.x) ||
+    !std::isfinite(view.y) ||
+    !std::isfinite(view.z)
+  ) {
+    return {};
+  }
+  result.behind = view.z < 0.0F;
+
+  ProjectedPoint projected;
+  ScreenPoint direction = {};
+  if (view.z >= camera.nearPlane && projectPerspectivePoint(
+      camera,
+      target.worldPosition,
+      projected
+    )) {
+    result.screenPosition = {
+      (projected.x + 1.0F) * 0.5F * static_cast<float>(outputWidth),
+      (1.0F - projected.y) * 0.5F * static_cast<float>(outputHeight),
+    };
+    if (
+      std::isfinite(projected.x) &&
+      std::isfinite(projected.y) &&
+      projected.x >= -1.0F && projected.x <= 1.0F &&
+      projected.y >= -1.0F && projected.y <= 1.0F
+    ) {
+      result.onScreen = true;
+      result.edgePosition = result.screenPosition;
+      return result;
+    }
+    direction = {projected.x, -projected.y};
+  } else {
+    // A point behind the camera cannot use perspective division. Its camera
+    // plane direction still gives a stable turn cue, including across yaw
+    // wrap and aspect changes.
+    direction = {
+      view.x / std::max(0.001F, camera.aspectRatio),
+      -view.y,
+    };
+  }
+
+  float directionLength = std::hypot(direction.x, direction.y);
+  if (!std::isfinite(directionLength) || directionLength <= 0.0001F) {
+    direction = result.behind ? ScreenPoint{0.0F, 1.0F}
+                              : ScreenPoint{0.0F, -1.0F};
+    directionLength = 1.0F;
+  }
+  direction.x /= directionLength;
+  direction.y /= directionLength;
+
+  const NavigationSafeBounds bounds = navigationSafeBounds(
+    outputWidth,
+    outputHeight
+  );
+  const float toLeft = direction.x < 0.0F
+    ? (bounds.left - screenCenter.x) / direction.x
+    : std::numeric_limits<float>::infinity();
+  const float toRight = direction.x > 0.0F
+    ? (bounds.right - screenCenter.x) / direction.x
+    : std::numeric_limits<float>::infinity();
+  const float toTop = direction.y < 0.0F
+    ? (bounds.top - screenCenter.y) / direction.y
+    : std::numeric_limits<float>::infinity();
+  const float toBottom = direction.y > 0.0F
+    ? (bounds.bottom - screenCenter.y) / direction.y
+    : std::numeric_limits<float>::infinity();
+  float distanceToEdge = std::min({toLeft, toRight, toTop, toBottom});
+  if (!std::isfinite(distanceToEdge) || distanceToEdge < 0.0F) {
+    distanceToEdge = 0.0F;
+  }
+  result.edgePosition = {
+    std::clamp(
+      screenCenter.x + direction.x * distanceToEdge,
+      bounds.left,
+      bounds.right
+    ),
+    std::clamp(
+      screenCenter.y + direction.y * distanceToEdge,
+      bounds.top,
+      bounds.bottom
+    ),
+  };
+  return result;
+}
+
 DrawList2D buildPerspectiveWeaponOverlay(
   int outputWidth,
   int outputHeight,
@@ -3838,7 +4354,8 @@ DrawList2D buildScreenUi(
   const PlayerState& localPlayer,
   const RenderSettings& settings,
   const HudRenderState& hud,
-  const ConsoleRenderState& console
+  const ConsoleRenderState& console,
+  const PerspectiveCamera* navigationCamera
 ) {
   DrawList2D drawList;
   drawList.clip = {
@@ -3888,6 +4405,15 @@ DrawList2D buildScreenUi(
   addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
   addDashIndicator(drawList, outputWidth, outputHeight, localPlayer, settings);
   addHud(drawList, outputWidth, outputHeight, localPlayer, hud, settings);
+  if (navigationCamera != nullptr) {
+    addMcGuffinNavigation(
+      drawList,
+      outputWidth,
+      outputHeight,
+      *navigationCamera,
+      hud
+    );
+  }
   addNetGraph(drawList, outputWidth, outputHeight, hud.netGraph);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud, settings);
   addConsole(drawList, outputWidth, outputHeight, console);

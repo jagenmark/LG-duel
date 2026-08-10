@@ -13163,7 +13163,8 @@ void Renderer::render(
         player,
         settings,
         hud,
-        console
+        console,
+        &camera
       )
     );
   }

@@ -54,6 +54,76 @@ std::size_t countText(
   return count;
 }
 
+bool hasFilledQuadColor(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color
+) {
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+      if (quad->color.red == color.red &&
+          quad->color.green == color.green &&
+          quad->color.blue == color.blue &&
+          quad->color.alpha == color.alpha) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+float minimumYForFilledQuadColor(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color
+) {
+  float minimumY = 100000.0F;
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    const auto* quad = std::get_if<lg::FilledQuad2D>(&command);
+    if (quad == nullptr || quad->color.red != color.red ||
+        quad->color.green != color.green || quad->color.blue != color.blue ||
+        quad->color.alpha != color.alpha) {
+      continue;
+    }
+    for (const lg::ScreenPoint& point : quad->points) {
+      minimumY = std::min(minimumY, point.y);
+    }
+  }
+  return minimumY;
+}
+
+bool findFilledQuadBounds(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color,
+  lg::ScreenRect& bounds
+) {
+  float minimumX = 100000.0F;
+  float maximumX = -100000.0F;
+  float minimumY = 100000.0F;
+  float maximumY = -100000.0F;
+  bool found = false;
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    const auto* quad = std::get_if<lg::FilledQuad2D>(&command);
+    if (quad == nullptr || quad->color.red != color.red ||
+        quad->color.green != color.green || quad->color.blue != color.blue ||
+        quad->color.alpha != color.alpha) {
+      continue;
+    }
+    found = true;
+    for (const lg::ScreenPoint& point : quad->points) {
+      minimumX = std::min(minimumX, point.x);
+      maximumX = std::max(maximumX, point.x);
+      minimumY = std::min(minimumY, point.y);
+      maximumY = std::max(maximumY, point.y);
+    }
+  }
+  bounds = {
+    minimumX,
+    minimumY,
+    maximumX - minimumX,
+    maximumY - minimumY,
+  };
+  return found;
+}
+
 const lg::Text2D* findTextWithRedAtLeast(
   const lg::DrawList2D& drawList,
   std::string_view value,
@@ -2453,6 +2523,290 @@ int main() {
         fovOverlays[0].openingScale == fovOverlays[1].openingScale &&
         fovOverlays[1].openingScale == fovOverlays[2].openingScale,
       "scope overlay geometry should not change at low, default, or high FOV"
+    );
+  }
+
+  {
+    constexpr float kPi = 3.14159265359F;
+    const lg::PerspectiveCamera camera = lg::makePerspectiveCamera(
+      {},
+      0.0F,
+      0.0F,
+      90.0F,
+      16.0F / 9.0F
+    );
+    lg::McGuffinNavigationTarget target;
+    target.active = true;
+    target.kind = lg::McGuffinNavigationKind::Objective;
+    target.worldPosition = {10.0F, 0.0F, 0.0F};
+    const lg::McGuffinNavigationProjection centered =
+      lg::projectMcGuffinNavigationTarget(target, camera, 1280, 720);
+    failures += expect(
+      centered.valid && centered.onScreen && !centered.behind &&
+        std::fabs(centered.screenPosition.x - 640.0F) < 0.01F &&
+        std::fabs(centered.screenPosition.y - 360.0F) < 0.01F &&
+        std::fabs(centered.distance - 10.0F) < 0.01F,
+      "an in-view objective should project to its screen position and distance"
+    );
+
+    target.worldPosition = {10.0F, -30.0F, 0.0F};
+    const lg::McGuffinNavigationProjection rightEdge =
+      lg::projectMcGuffinNavigationTarget(target, camera, 1280, 720);
+    failures += expect(
+      rightEdge.valid && !rightEdge.onScreen && !rightEdge.behind &&
+        rightEdge.edgePosition.x >= 76.0F &&
+        rightEdge.edgePosition.x <= 1204.0F &&
+        rightEdge.edgePosition.y >= 100.0F &&
+        rightEdge.edgePosition.y <= 620.0F,
+      "an off-screen objective should clamp to the safe screen edge"
+    );
+
+    target.worldPosition = {-10.0F, 0.0F, 0.0F};
+    const lg::McGuffinNavigationProjection behind =
+      lg::projectMcGuffinNavigationTarget(target, camera, 1280, 720);
+    failures += expect(
+      behind.valid && behind.behind && !behind.onScreen &&
+        std::isfinite(behind.edgePosition.x) &&
+        std::isfinite(behind.edgePosition.y) &&
+        behind.edgePosition.y >= 100.0F && behind.edgePosition.y <= 620.0F,
+      "a target behind the camera should produce a finite turn cue"
+    );
+
+    target.worldPosition = {0.00001F, 0.0F, 0.0F};
+    const lg::McGuffinNavigationProjection nearZero =
+      lg::projectMcGuffinNavigationTarget(target, camera, 1280, 720);
+    failures += expect(
+      nearZero.valid && nearZero.onScreen &&
+        std::isfinite(nearZero.screenPosition.x) &&
+        std::isfinite(nearZero.screenPosition.y),
+      "a reached objective should not create a zero-vector edge arrow"
+    );
+
+    const lg::PerspectiveCamera positivePiCamera = lg::makePerspectiveCamera(
+      {}, kPi, 0.0F, 90.0F, 16.0F / 9.0F
+    );
+    const lg::PerspectiveCamera negativePiCamera = lg::makePerspectiveCamera(
+      {}, -kPi, 0.0F, 90.0F, 16.0F / 9.0F
+    );
+    target.worldPosition = {-10.0F, 0.0F, 0.0F};
+    const lg::McGuffinNavigationProjection positivePi =
+      lg::projectMcGuffinNavigationTarget(
+        target,
+        positivePiCamera,
+        1280,
+        720
+      );
+    const lg::McGuffinNavigationProjection negativePi =
+      lg::projectMcGuffinNavigationTarget(
+        target,
+        negativePiCamera,
+        1280,
+        720
+      );
+    failures += expect(
+      positivePi.onScreen && negativePi.onScreen &&
+        std::fabs(positivePi.screenPosition.x - 640.0F) < 0.01F &&
+        std::fabs(negativePi.screenPosition.x - 640.0F) < 0.01F,
+      "navigation projection should remain stable across yaw angle wrap"
+    );
+
+    target.worldPosition = {10.0F, -30.0F, 0.0F};
+    const lg::PerspectiveCamera wideCamera = lg::makePerspectiveCamera(
+      {}, 0.0F, 0.0F, 90.0F, 2.0F
+    );
+    const lg::McGuffinNavigationProjection resized =
+      lg::projectMcGuffinNavigationTarget(target, wideCamera, 1600, 900);
+    failures += expect(
+      resized.valid && !resized.onScreen &&
+        resized.edgePosition.x >= 95.0F && resized.edgePosition.x <= 1505.0F &&
+        resized.edgePosition.y >= 125.0F && resized.edgePosition.y <= 775.0F,
+      "navigation projection should recompute safe bounds after aspect changes"
+    );
+
+    target.active = false;
+    failures += expect(
+      !lg::projectMcGuffinNavigationTarget(target, camera, 1280, 720).valid,
+      "inactive navigation state should emit no projection"
+    );
+
+    lg::PlayerState navigationPlayer;
+    lg::RenderSettings navigationSettings;
+    lg::HudRenderState navigationHud;
+    navigationHud.mcguffinNavigation = {
+      true,
+      lg::McGuffinNavigationKind::Objective,
+      {10.0F, -30.0F, 0.0F},
+    };
+    const lg::DrawList2D baselineUi = lg::buildScreenUi(
+      1280,
+      720,
+      navigationPlayer,
+      navigationSettings,
+      {},
+      {},
+      &camera
+    );
+    const lg::DrawList2D edgeUi = lg::buildScreenUi(
+      1280,
+      720,
+      navigationPlayer,
+      navigationSettings,
+      navigationHud,
+      {},
+      &camera
+    );
+    failures += expect(
+      findText(edgeUi, "OBJECTIVE 32u") != nullptr &&
+        edgeUi.overlayCommands.size() == baselineUi.overlayCommands.size() + 7U &&
+        hasFilledQuadColor(edgeUi, {255, 224, 96, 245}),
+      "off-screen navigation should draw one labeled card and one edge arrow"
+    );
+
+    navigationHud.mcguffinNavigation.worldPosition = {10.0F, 0.0F, 0.0F};
+    const lg::DrawList2D onScreenUi = lg::buildScreenUi(
+      1280,
+      720,
+      navigationPlayer,
+      navigationSettings,
+      navigationHud,
+      {},
+      &camera
+    );
+    failures += expect(
+      findText(onScreenUi, "OBJECTIVE 10u") != nullptr &&
+        onScreenUi.overlayCommands.size() == baselineUi.overlayCommands.size() + 6U &&
+        !hasFilledQuadColor(onScreenUi, {255, 224, 96, 245}),
+      "an in-view objective should show a quiet card without an edge arrow"
+    );
+
+    navigationHud.topCenterLines = {
+      "SCORE 50 / 100",
+      "MCGUFFIN CARRIED",
+      "YOU HAVE THE MCGUFFIN",
+      "OBJECTIVE THROWN",
+      "EVENT",
+    };
+    navigationHud.mcguffinNavigation.worldPosition = {10.0F, 0.0F, 30.0F};
+    const lg::DrawList2D topEdgeUi = lg::buildScreenUi(
+      1280,
+      720,
+      navigationPlayer,
+      navigationSettings,
+      navigationHud,
+      {},
+      &camera
+    );
+    failures += expect(
+      minimumYForFilledQuadColor(topEdgeUi, {255, 224, 96, 245}) > 108.0F,
+      "a top-edge arrow should stay below a multi-line score and objective HUD"
+    );
+
+    navigationHud.settingsOpen = true;
+    const lg::DrawList2D modalUi = lg::buildScreenUi(
+      1280,
+      720,
+      navigationPlayer,
+      navigationSettings,
+      navigationHud,
+      {},
+      &camera
+    );
+    failures += expect(
+      findText(modalUi, "OBJECTIVE 10u") == nullptr,
+      "modal HUD layers should suppress objective navigation"
+    );
+
+    navigationHud.settingsOpen = false;
+    navigationHud.topCenterLines.clear();
+    const auto expectedSafeBounds = [](int width, int height) {
+      const float outputWidth = static_cast<float>(width);
+      const float outputHeight = static_cast<float>(height);
+      const float horizontalMargin = std::min(
+        outputWidth * 0.25F,
+        std::max(24.0F, outputWidth * 0.06F)
+      );
+      const float verticalMargin = std::min(
+        outputHeight * 0.30F,
+        std::max(56.0F, outputHeight * 0.14F)
+      );
+      return lg::ScreenRect{
+        horizontalMargin,
+        verticalMargin,
+        outputWidth - horizontalMargin * 2.0F,
+        outputHeight - verticalMargin * 2.0F,
+      };
+    };
+    navigationHud.mcguffinNavigation.worldPosition = {10.0F, -15.0F, -9.0F};
+    const lg::PerspectiveCamera wideNavigationCamera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 16.0F / 9.0F);
+    const lg::DrawList2D wideNearEdgeUi = lg::buildScreenUi(
+      1920,
+      1080,
+      navigationPlayer,
+      navigationSettings,
+      navigationHud,
+      {},
+      &wideNavigationCamera
+    );
+    lg::ScreenRect wideCard;
+    const lg::ScreenRect wideSafe = expectedSafeBounds(1920, 1080);
+    failures += expect(
+      findFilledQuadBounds(wideNearEdgeUi, {7, 12, 17, 212}, wideCard) &&
+        !hasFilledQuadColor(wideNearEdgeUi, {255, 224, 96, 245}) &&
+        wideCard.x >= wideSafe.x - 0.1F &&
+        wideCard.y >= wideSafe.y - 0.1F &&
+        wideCard.x + wideCard.width <= wideSafe.x + wideSafe.width + 0.1F &&
+        wideCard.y + wideCard.height <= wideSafe.y + wideSafe.height + 0.1F,
+      "wide near-edge objective cards should stay inside the safe area"
+    );
+
+    navigationHud.mcguffinNavigation.worldPosition = {10.0F, -3.0F, -9.0F};
+    const lg::PerspectiveCamera tallNavigationCamera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 600.0F / 1600.0F);
+    const lg::DrawList2D tallNearEdgeUi = lg::buildScreenUi(
+      600,
+      1600,
+      navigationPlayer,
+      navigationSettings,
+      navigationHud,
+      {},
+      &tallNavigationCamera
+    );
+    lg::ScreenRect tallCard;
+    const lg::ScreenRect tallSafe = expectedSafeBounds(600, 1600);
+    failures += expect(
+      findFilledQuadBounds(tallNearEdgeUi, {7, 12, 17, 212}, tallCard) &&
+        !hasFilledQuadColor(tallNearEdgeUi, {255, 224, 96, 245}) &&
+        tallCard.x >= tallSafe.x - 0.1F &&
+        tallCard.y >= tallSafe.y - 0.1F &&
+        tallCard.x + tallCard.width <= tallSafe.x + tallSafe.width + 0.1F &&
+        tallCard.y + tallCard.height <= tallSafe.y + tallSafe.height + 0.1F,
+      "tall near-edge objective cards should stay inside the safe area"
+    );
+
+    navigationHud.mcguffinNavigation.worldPosition = {10.0F, -4.0F, -9.0F};
+    const lg::PerspectiveCamera narrowNavigationCamera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 120.0F / 240.0F);
+    const lg::DrawList2D narrowNearEdgeUi = lg::buildScreenUi(
+      120,
+      240,
+      navigationPlayer,
+      navigationSettings,
+      navigationHud,
+      {},
+      &narrowNavigationCamera
+    );
+    lg::ScreenRect narrowCard;
+    const lg::ScreenRect narrowSafe = expectedSafeBounds(120, 240);
+    failures += expect(
+      findText(narrowNearEdgeUi, "OBJ 14u") != nullptr &&
+        findFilledQuadBounds(narrowNearEdgeUi, {7, 12, 17, 212}, narrowCard) &&
+        !hasFilledQuadColor(narrowNearEdgeUi, {255, 224, 96, 245}) &&
+        narrowCard.x >= narrowSafe.x - 0.1F &&
+        narrowCard.y >= narrowSafe.y - 0.1F &&
+        narrowCard.x + narrowCard.width <= narrowSafe.x + narrowSafe.width + 0.1F &&
+        narrowCard.y + narrowCard.height <= narrowSafe.y + narrowSafe.height + 0.1F,
+      "a label wider than a narrow safe area should use a compact card without invalid clamping"
     );
   }
 

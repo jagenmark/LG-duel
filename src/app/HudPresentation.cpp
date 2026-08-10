@@ -3,6 +3,8 @@
 #include "sim/WeaponCatalog.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <string_view>
 
 namespace lg {
@@ -10,6 +12,67 @@ namespace {
 
 std::size_t teamScoreIndex(Team team) {
   return team == Team::Blue ? 1U : 0U;
+}
+
+[[nodiscard]] bool finitePosition(Vec3 position) {
+  return std::isfinite(position.x) &&
+    std::isfinite(position.y) &&
+    std::isfinite(position.z);
+}
+
+[[nodiscard]] Vec3 baseCenter(const ArenaMcGuffinBase& base) {
+  return (base.min + base.max) * 0.5F;
+}
+
+[[nodiscard]] const ArenaMcGuffinBase* baseOwnedBy(
+  const ArenaMcGuffinLayout& layout,
+  Team redBaseOwner,
+  Team blueBaseOwner,
+  Team team
+) {
+  if (layout.hasRedBase && redBaseOwner == team) {
+    return &layout.redBase;
+  }
+  if (layout.hasBlueBase && blueBaseOwner == team) {
+    return &layout.blueBase;
+  }
+  return nullptr;
+}
+
+[[nodiscard]] const ArenaMcGuffinBase* nearestBase(
+  const ArenaMcGuffinLayout& layout,
+  Vec3 source
+) {
+  const ArenaMcGuffinBase* nearest = nullptr;
+  float nearestDistance = std::numeric_limits<float>::infinity();
+  const auto consider = [&nearest, &nearestDistance, source](
+    const ArenaMcGuffinBase& base,
+    bool available
+  ) {
+    if (!available) {
+      return;
+    }
+    const float distance = length(baseCenter(base) - source);
+    if (!std::isfinite(distance) || distance >= nearestDistance) {
+      return;
+    }
+    nearest = &base;
+    nearestDistance = distance;
+  };
+  // Red wins exact ties so deciding-round guidance stays deterministic.
+  consider(layout.redBase, layout.hasRedBase);
+  consider(layout.blueBase, layout.hasBlueBase);
+  return nearest;
+}
+
+[[nodiscard]] McGuffinNavigationTarget makeNavigationTarget(
+  McGuffinNavigationKind kind,
+  Vec3 worldPosition
+) {
+  if (!finitePosition(worldPosition)) {
+    return {};
+  }
+  return {true, kind, worldPosition};
 }
 
 } // namespace
@@ -228,6 +291,110 @@ std::string hudScoreLine(
 
   return "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) +
     " / " + std::to_string(snapshot.matchRules.roundLimit);
+}
+
+std::string matchTimeLine(const ServerSnapshot& snapshot) {
+  if (snapshot.gameMode == GameMode::McGuffin) {
+    return {};
+  }
+  if (snapshot.overtime) {
+    return "TIME OVERTIME";
+  }
+  if (snapshot.matchRules.timeLimitMinutes == 0) {
+    return {};
+  }
+
+  const std::uint32_t limitTicks =
+    static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) *
+    60U * 125U;
+  const std::uint32_t remainingTicks =
+    snapshot.liveTicksElapsed < limitTicks
+    ? limitTicks - snapshot.liveTicksElapsed
+    : 0U;
+  const std::uint32_t remainingSeconds = remainingTicks / 125U;
+  return "TIME " + std::to_string(remainingSeconds / 60U) + ':' +
+    (remainingSeconds % 60U < 10U ? "0" : "") +
+    std::to_string(remainingSeconds % 60U);
+}
+
+McGuffinNavigationTarget selectMcGuffinNavigationTarget(
+  const ServerSnapshot& snapshot,
+  const Arena& arena,
+  std::size_t subjectPlayerIndex
+) {
+  if (
+    snapshot.gameMode != GameMode::McGuffin ||
+    snapshot.matchPhase != MatchPhase::Live ||
+    subjectPlayerIndex >= kDuelPlayerCount ||
+    snapshot.players[subjectPlayerIndex].health <= 0
+  ) {
+    return {};
+  }
+
+  const McGuffinSnapshot& objective = snapshot.mcguffin;
+  switch (objective.state) {
+  case McGuffinState::NeutralSpawn:
+    if (objective.stateTicks < snapshot.mcguffinConfig.initialSpawnTicks) {
+      return {};
+    }
+    return makeNavigationTarget(
+      McGuffinNavigationKind::Objective,
+      objective.position
+    );
+  case McGuffinState::Dropped:
+    return makeNavigationTarget(
+      McGuffinNavigationKind::RecoverObjective,
+      objective.position
+    );
+  case McGuffinState::Carried:
+    if (
+      objective.carrierIndex == subjectPlayerIndex &&
+      isPlayableTeam(objective.carrierTeam)
+    ) {
+      const Vec3 source = snapshot.players[subjectPlayerIndex].position;
+      const ArenaMcGuffinBase* base = baseOwnedBy(
+        arena.mcguffin,
+        snapshot.mcguffinRedBaseOwner,
+        snapshot.mcguffinBlueBaseOwner,
+        objective.carrierTeam
+      );
+      if (base == nullptr) {
+        base = nearestBase(arena.mcguffin, source);
+      }
+      return base == nullptr
+        ? McGuffinNavigationTarget{}
+        : makeNavigationTarget(
+            McGuffinNavigationKind::InstallBase,
+            baseCenter(*base)
+          );
+    }
+    return makeNavigationTarget(
+      McGuffinNavigationKind::FollowCarrier,
+      objective.position
+    );
+  case McGuffinState::InstalledRed:
+  case McGuffinState::InstalledBlue: {
+    const Team installedTeam = objective.state == McGuffinState::InstalledRed
+      ? Team::Red
+      : Team::Blue;
+    const McGuffinNavigationKind kind =
+      snapshot.teams[subjectPlayerIndex] == installedTeam
+        ? McGuffinNavigationKind::DefendBase
+        : McGuffinNavigationKind::AttackBase;
+    Vec3 position = objective.position;
+    if (!finitePosition(position)) {
+      const ArenaMcGuffinBase* base = installedTeam == Team::Red
+        ? (arena.mcguffin.hasRedBase ? &arena.mcguffin.redBase : nullptr)
+        : (arena.mcguffin.hasBlueBase ? &arena.mcguffin.blueBase : nullptr);
+      if (base == nullptr) {
+        return {};
+      }
+      position = baseCenter(*base);
+    }
+    return makeNavigationTarget(kind, position);
+  }
+  }
+  return {};
 }
 
 bool localPlayerWonResult(
