@@ -276,8 +276,17 @@ bool ReplayTransferSender::complete() const {
                      [](bool value) { return value; });
 }
 
+ReplayTransferReceiver::ReplayTransferReceiver(ReplayTransferReceiverConfig config)
+    : config_(config) {
+  if (config_.idleTimeoutMilliseconds == 0U)
+    config_.idleTimeoutMilliseconds = 1U;
+  if (config_.overallTimeoutMilliseconds < config_.idleTimeoutMilliseconds)
+    config_.overallTimeoutMilliseconds = config_.idleTimeoutMilliseconds;
+}
+
 std::optional<ReplayTransferAck>
-ReplayTransferReceiver::receiveBegin(const ReplayTransferBegin &begin) {
+ReplayTransferReceiver::receiveBegin(const ReplayTransferBegin &begin,
+                                     std::uint64_t now) {
   const bool valid =
       begin.transferId != 0U && begin.generation != 0U &&
       begin.chunkCount > 0U && begin.chunkCount <= kReplayTransferMaxChunks &&
@@ -296,20 +305,27 @@ ReplayTransferReceiver::receiveBegin(const ReplayTransferBegin &begin) {
     failed_ = true;
     return std::nullopt;
   }
-  if (active_)
+  if (active_) {
+    if (failed_)
+      return std::nullopt;
+    lastActivity_ = now;
     return ReplayTransferAck{begin_.transferId, begin_.generation,
                              kReplayTransferBeginAck};
+  }
   begin_ = begin;
   chunks_.assign(begin.chunkCount, {});
   received_.assign(begin.chunkCount, false);
   bytes_ = 0U;
   active_ = true;
   failed_ = false;
+  started_ = now;
+  lastActivity_ = now;
   return ReplayTransferAck{begin_.transferId, begin_.generation,
                            kReplayTransferBeginAck};
 }
 std::optional<ReplayTransferAck>
-ReplayTransferReceiver::receiveChunk(const ReplayTransferChunk &chunk) {
+ReplayTransferReceiver::receiveChunk(const ReplayTransferChunk &chunk,
+                                     std::uint64_t now) {
   if (!active_ || failed_)
     return std::nullopt;
   if (chunk.transferId != begin_.transferId ||
@@ -331,6 +347,7 @@ ReplayTransferReceiver::receiveChunk(const ReplayTransferChunk &chunk) {
     received_[chunk.index] = true;
     bytes_ += chunk.payload.size();
   }
+  lastActivity_ = now;
   return ReplayTransferAck{begin_.transferId, begin_.generation, chunk.index};
 }
 void ReplayTransferReceiver::cancel(const ReplayTransferCancel &cancel) {
@@ -339,6 +356,20 @@ void ReplayTransferReceiver::cancel(const ReplayTransferCancel &cancel) {
     active_ = false;
     failed_ = true;
   }
+}
+bool ReplayTransferReceiver::expire(std::uint64_t now) {
+  if (!active_ || now < started_ || now < lastActivity_)
+    return false;
+  if (now - started_ < config_.overallTimeoutMilliseconds &&
+      now - lastActivity_ < config_.idleTimeoutMilliseconds)
+    return false;
+  begin_ = {};
+  chunks_.clear();
+  received_.clear();
+  bytes_ = 0U;
+  active_ = false;
+  failed_ = true;
+  return true;
 }
 std::optional<std::vector<std::uint8_t>>
 ReplayTransferReceiver::takeCompleted() {

@@ -14,6 +14,11 @@ namespace lg::replay {
                               std::string* error = nullptr);
 [[nodiscard]] bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo,
                               std::string* error = nullptr);
+// Uses the same exhaustive bounded-field checks as checkpoint serialization.
+// Server restore calls this before it changes any live authoritative state.
+[[nodiscard]] bool validateReplayCheckpoint(const ReplayCheckpoint& checkpoint,
+                                            std::string* error = nullptr);
+[[nodiscard]] std::size_t encodedReplayCheckpointBytes(const ReplayCheckpoint& checkpoint);
 [[nodiscard]] std::uint64_t canonicalStateHash(const ReplayCheckpoint& checkpoint);
 
 } // namespace lg::replay

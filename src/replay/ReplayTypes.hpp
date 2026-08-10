@@ -13,7 +13,8 @@ namespace lg::replay {
 // The replay file stores inputs after server acceptance.  This boundary makes
 // bots ordinary recorded actors and keeps their private planning state out of
 // both hashes and checkpoints.
-inline constexpr std::uint16_t kReplayFormatVersion = 1;
+inline constexpr std::uint16_t kReplayFormatVersionV1 = 1;
+inline constexpr std::uint16_t kReplayFormatVersion = 2;
 inline constexpr std::uint16_t kReplayTickRate = 125;
 inline constexpr std::size_t kMaxReplayBytes = 64U * 1024U * 1024U;
 inline constexpr std::size_t kMaxReplayChunkBytes = 8U * 1024U * 1024U;
@@ -145,6 +146,15 @@ struct ReplayHistoryFrame {
   std::array<PlayerState, kDuelPlayerCount> players = {};
 };
 
+// Footstep state is gameplay-adjacent sequence state. Persist it so a seek
+// resumes cadence and audio sequence numbering exactly at the checkpoint.
+struct ReplayFootstepState {
+  Vec3 previousPosition = {};
+  float distanceSinceStep = 0.0F;
+  bool wasOnGround = false;
+  bool initialized = false;
+};
+
 struct ReplayMatchState {
   GameMode gameMode = GameMode::Duel;
   MatchPhase phase = MatchPhase::WaitingForPlayers;
@@ -192,6 +202,7 @@ struct ReplayCheckpoint {
   std::array<std::uint32_t, kDuelPlayerCount> fragEventSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> localHitFeedbackSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> footstepSequences = {};
+  std::array<ReplayFootstepState, kDuelPlayerCount> footstepStates = {};
   std::array<std::uint32_t, kDuelPlayerCount> grenadeBounceEventSequences = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> grenadeBounceSequences = {};
   std::array<std::uint32_t, Arena::kTeamSpawnCount> spawnLastUsedTicks = {};

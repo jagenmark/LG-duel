@@ -88,6 +88,22 @@ int main() {
   failures += expect(!buffer.extractSegment(lethal, 2U, 40U, &error).has_value(),
     "incomplete future replay segment should reject cleanly");
 
+  {
+    lg::replay::ReplayRollingBuffer gapBuffer;
+    failures += expect(gapBuffer.begin(metadata(), checkpoint(0U), 7U, config, &error),
+      "gap test should begin a rolling replay");
+    gapBuffer.recordResolvedInput(input(0U));
+    gapBuffer.recordResolvedInput(input(1U));
+    gapBuffer.recordResolvedInput(input(3U));
+    const lg::replay::ReplayLethalEvent gapLethal = {
+      1U, 7U, 1U, 0U, lg::Weapon::RocketLauncher, 1U, lg::replay::LethalKind::Direct,
+    };
+    failures += expect(gapBuffer.stats().droppedRecords == 1U,
+      "rolling recording must reject a non-adjacent resolved-input tick");
+    failures += expect(!gapBuffer.extractSegment(gapLethal, 1U, 2U, &error).has_value(),
+      "segment extraction must not bridge a rejected middle input gap");
+  }
+
   buffer.reset(metadata(), checkpoint(20U), 6U);
   failures += expect(buffer.stats().generation == 6U, "reset should advance to the new replay generation");
   failures += expect(!buffer.extractSegment(lethal, 1U, 1U, &error).has_value(),

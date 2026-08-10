@@ -1,6 +1,7 @@
 #include "server/ServerGame.hpp"
 
 #include "net/NetCodec.hpp"
+#include "replay/ReplayCodec.hpp"
 #include "shared/Sequence.hpp"
 #include "sim/BalanceConfig.hpp"
 #include "sim/ClanArenaRules.hpp"
@@ -641,12 +642,17 @@ void ServerGame::tick(float fixedDt) {
     pendingReplayInput_.reset();
   } else {
     updateBotCommands(fixedDt);
-    const replay::ReplayTickInput resolvedInput = captureResolvedReplayInput();
-    if (replayRecorder_ != nullptr && replayRecorder_->active()) {
-      (void)replayRecorder_->recordResolvedInput(resolvedInput);
-    }
-    if (rollingReplay_ != nullptr && rollingReplay_->active()) {
-      rollingReplay_->recordResolvedInput(resolvedInput);
+    const bool recording = replayRecorder_ != nullptr && replayRecorder_->active();
+    const bool rolling = rollingReplay_ != nullptr && rollingReplay_->active();
+    if (recording || rolling) {
+      const replay::ReplayTickInput resolvedInput = captureResolvedReplayInput();
+      ++replayCheckpointCaptureStats_.resolvedInputCaptures;
+      if (recording) {
+        (void)replayRecorder_->recordResolvedInput(resolvedInput);
+      }
+      if (rolling) {
+        rollingReplay_->recordResolvedInput(resolvedInput);
+      }
     }
   }
   snapshot_.weaponFires = {};
@@ -1372,7 +1378,7 @@ void ServerGame::tick(float fixedDt) {
       rollingReplay_->recordCompletedTick(checkpoint);
     }
   }
-  publishSnapshot();
+  if (!replayPlayback_) publishSnapshot();
 }
 
 bool ServerGame::beginReplayRecording(
@@ -1765,6 +1771,14 @@ replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
   checkpoint.fragEventSequences = fragEventSequences_;
   checkpoint.localHitFeedbackSequences = localHitFeedbackSequences_;
   checkpoint.footstepSequences = footstepSequences_;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    checkpoint.footstepStates[index] = {
+      footstepStates_[index].previousPosition,
+      footstepStates_[index].distanceSinceStep,
+      footstepStates_[index].wasOnGround,
+      footstepStates_[index].initialized,
+    };
+  }
   checkpoint.grenadeBounceEventSequences = grenadeBounceEventSequences_;
   checkpoint.grenadeBounceSequences = grenadeBounceSequences_;
   checkpoint.spawnLastUsedTicks = spawnLastUsedTicks_;
@@ -1787,13 +1801,18 @@ bool ServerGame::restoreReplayCheckpoint(
     if (error != nullptr) *error = message;
     return false;
   };
+  const bool validSpawnCursor = arena_.spawnCount == 0U
+    ? checkpoint.nextDeathmatchSpawnIndex == 0U
+    : checkpoint.nextDeathmatchSpawnIndex < arena_.spawnCount;
+  if (!replay::validateReplayCheckpoint(checkpoint) || !validSpawnCursor) {
+    return reject("replay checkpoint has invalid bounded state");
+  }
   if (metadata.mapName != mapDescriptor_.mapName ||
       metadata.mapContentHash != mapDescriptor_.contentHash ||
       checkpoint.mapRevision != metadata.mapRevision ||
       checkpoint.gameplayConfigHash != metadata.gameplayConfigHash ||
       replayGameplayConfigHash() != metadata.gameplayConfigHash ||
-      checkpoint.match.gameMode != metadata.gameMode ||
-      checkpoint.history.size() > replay::kMaxReplayHistoryFrames) {
+      checkpoint.match.gameMode != metadata.gameMode) {
     return reject("replay checkpoint does not match the loaded map or metadata");
   }
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
@@ -1935,7 +1954,6 @@ bool ServerGame::restoreReplayCheckpoint(
   for (const replay::ReplayHistoryFrame& frame : checkpoint.history) {
     history_.push_back({frame.serverTick, frame.players});
   }
-  if (history_.empty()) return reject("replay checkpoint has no lag-compensation history");
   receivedCommandThisTick_ = {};
   jumpEdgeThisTick_ = {};
   dashEdgeThisTick_ = {};
@@ -1948,6 +1966,14 @@ bool ServerGame::restoreReplayCheckpoint(
   botDodgeDirections_ = {};
   botDodgeSwitchSeconds_ = {};
   footstepStates_ = {};
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    footstepStates_[index] = {
+      checkpoint.footstepStates[index].previousPosition,
+      checkpoint.footstepStates[index].distanceSinceStep,
+      checkpoint.footstepStates[index].wasOnGround,
+      checkpoint.footstepStates[index].initialized,
+    };
+  }
   recentWeaponFires_ = {};
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};

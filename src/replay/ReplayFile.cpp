@@ -2,9 +2,23 @@
 
 #include "replay/ReplayCodec.hpp"
 
+#include <algorithm>
+#include <cerrno>
+#include <chrono>
 #include <fstream>
+#include <limits>
+#include <random>
+#include <string>
 #include <system_error>
 #include <vector>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace lg::replay {
 namespace {
@@ -19,15 +33,76 @@ bool validDemoPath(const std::filesystem::path &path) {
   return !path.empty() && path.extension() == ".lgdemo";
 }
 
-std::filesystem::path temporaryPath(const std::filesystem::path &path) {
+std::filesystem::path temporaryPath(const std::filesystem::path &path,
+                                    std::uint64_t nonce) {
   std::filesystem::path temporary = path;
-  temporary += ".partial";
+  temporary += ".partial." + std::to_string(nonce);
   return temporary;
 }
 
 void removeQuietly(const std::filesystem::path &path) {
   std::error_code error;
   std::filesystem::remove(path, error);
+}
+
+std::uint64_t randomNonce(std::random_device &random) {
+  const std::uint64_t high = static_cast<std::uint64_t>(random());
+  const std::uint64_t low = static_cast<std::uint64_t>(random());
+  return (high << 32U) ^ low ^ static_cast<std::uint64_t>(
+    std::chrono::steady_clock::now().time_since_epoch().count()
+  );
+}
+
+bool writeExclusive(const std::filesystem::path &path,
+                    const std::vector<std::uint8_t> &bytes,
+                    bool &collision) {
+  collision = false;
+#if defined(_WIN32)
+  const HANDLE file = CreateFileW(
+    path.c_str(), GENERIC_WRITE, 0U, nullptr, CREATE_NEW,
+    FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, nullptr
+  );
+  if (file == INVALID_HANDLE_VALUE) {
+    const DWORD result = GetLastError();
+    collision = result == ERROR_FILE_EXISTS || result == ERROR_ALREADY_EXISTS;
+    return false;
+  }
+  std::size_t offset = 0U;
+  bool written = true;
+  while (offset < bytes.size()) {
+    const DWORD request = static_cast<DWORD>(std::min<std::size_t>(
+      bytes.size() - offset, static_cast<std::size_t>(std::numeric_limits<DWORD>::max())
+    ));
+    DWORD count = 0U;
+    if (!WriteFile(file, bytes.data() + offset, request, &count, nullptr) || count != request) {
+      written = false;
+      break;
+    }
+    offset += count;
+  }
+  written = written && FlushFileBuffers(file) != 0;
+  CloseHandle(file);
+  return written;
+#else
+  const int file = open(path.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0600);
+  if (file < 0) {
+    collision = errno == EEXIST;
+    return false;
+  }
+  std::size_t offset = 0U;
+  bool written = true;
+  while (offset < bytes.size()) {
+    const ssize_t count = write(file, bytes.data() + offset, bytes.size() - offset);
+    if (count <= 0) {
+      written = false;
+      break;
+    }
+    offset += static_cast<std::size_t>(count);
+  }
+  written = written && fsync(file) == 0;
+  close(file);
+  return written;
+#endif
 }
 
 } // namespace
@@ -42,7 +117,6 @@ bool saveDemoFile(const std::filesystem::path &path, const ReplayDemo &demo,
 
   const std::filesystem::path parent =
       path.has_parent_path() ? path.parent_path() : ".";
-  const std::filesystem::path temporary = temporaryPath(path);
   std::error_code filesystemError;
   if (!std::filesystem::is_directory(parent, filesystemError) ||
       filesystemError) {
@@ -51,23 +125,27 @@ bool saveDemoFile(const std::filesystem::path &path, const ReplayDemo &demo,
   if (std::filesystem::exists(path, filesystemError) || filesystemError) {
     return fail(error, "refusing to replace an existing replay file");
   }
-  if (std::filesystem::exists(temporary, filesystemError) || filesystemError) {
-    return fail(error, "replay temporary file already exists");
-  }
-
-  {
-    std::ofstream stream(temporary, std::ios::binary | std::ios::out);
-    if (!stream.is_open())
-      return fail(error, "could not create replay temporary file");
-    stream.write(reinterpret_cast<const char *>(bytes.data()),
-                 static_cast<std::streamsize>(bytes.size()));
-    stream.flush();
-    if (!stream.good()) {
-      stream.close();
-      removeQuietly(temporary);
-      return fail(error, "could not write replay temporary file");
+  std::filesystem::path temporary;
+  bool created = false;
+  try {
+    std::random_device random;
+    for (std::uint32_t attempt = 0U; attempt < 32U; ++attempt) {
+      temporary = temporaryPath(path, randomNonce(random));
+      bool collision = false;
+      if (writeExclusive(temporary, bytes, collision)) {
+        created = true;
+        break;
+      }
+      if (!collision) {
+        removeQuietly(temporary);
+        return fail(error, "could not create replay temporary file");
+      }
     }
+  } catch (...) {
+    if (!temporary.empty()) removeQuietly(temporary);
+    return fail(error, "could not create replay temporary file");
   }
+  if (!created) return fail(error, "could not reserve a unique replay temporary file");
 
   // Linking creates the final name only if it does not already exist. Unlike
   // rename, it cannot replace a racing user file on platforms that replace a

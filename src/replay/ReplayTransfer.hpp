@@ -84,6 +84,11 @@ struct ReplayTransferStats {
   bool cancelled = false;
 };
 
+struct ReplayTransferReceiverConfig {
+  std::uint32_t idleTimeoutMilliseconds = 500U;
+  std::uint32_t overallTimeoutMilliseconds = 3000U;
+};
+
 class ReplayTransferSender {
 public:
   [[nodiscard]] bool begin(std::uint32_t id, std::uint32_t generation,
@@ -115,13 +120,17 @@ private:
 
 class ReplayTransferReceiver {
 public:
+  explicit ReplayTransferReceiver(ReplayTransferReceiverConfig config = {});
   // A duplicate begin is idempotent and returns the begin ack without losing
   // chunks.
   [[nodiscard]] std::optional<ReplayTransferAck>
-  receiveBegin(const ReplayTransferBegin &begin);
+  receiveBegin(const ReplayTransferBegin &begin,
+               std::uint64_t nowMilliseconds = 0U);
   [[nodiscard]] std::optional<ReplayTransferAck>
-  receiveChunk(const ReplayTransferChunk &chunk);
+  receiveChunk(const ReplayTransferChunk &chunk,
+               std::uint64_t nowMilliseconds = 0U);
   void cancel(const ReplayTransferCancel &cancel);
+  [[nodiscard]] bool expire(std::uint64_t nowMilliseconds);
   [[nodiscard]] std::optional<std::vector<std::uint8_t>> takeCompleted();
   [[nodiscard]] bool failed() const;
 
@@ -130,6 +139,9 @@ private:
   std::vector<std::vector<std::uint8_t>> chunks_;
   std::vector<bool> received_;
   std::size_t bytes_ = 0;
+  ReplayTransferReceiverConfig config_ = {};
+  std::uint64_t started_ = 0;
+  std::uint64_t lastActivity_ = 0;
   bool active_ = false;
   bool failed_ = false;
 };

@@ -41,6 +41,7 @@ lg::replay::ReplayDemo sampleDemo() {
   checkpoint.projectileRevision = 1U;
   checkpoint.spawnRandomState = 1U;
   checkpoint.match.gameMode = lg::GameMode::Duel;
+  checkpoint.history.push_back({checkpoint.serverTick, {}});
   demo.checkpoints.push_back(checkpoint);
   demo.hashes.push_back(
       {checkpoint.serverTick, lg::replay::canonicalStateHash(checkpoint)});
@@ -82,14 +83,20 @@ int main() {
 
   const lg::replay::ReplayDemo source = sampleDemo();
   const std::filesystem::path savedPath = directory / "saved.lgdemo";
+  {
+    std::ofstream legacyCollision(savedPath.string() + ".partial",
+                                  std::ios::binary | std::ios::out);
+    legacyCollision.put('x');
+  }
   std::string error;
   failures += expect(
       lg::replay::saveDemoFile(savedPath, source, &error),
       "new demo save should encode and atomically publish a .lgdemo file");
-  failures +=
-      expect(std::filesystem::is_regular_file(savedPath) &&
-                 !std::filesystem::exists(savedPath.string() + ".partial"),
-             "successful save should leave no partial file");
+  failures += expect(
+      std::filesystem::is_regular_file(savedPath) &&
+          std::filesystem::exists(savedPath.string() + ".partial"),
+      "exclusive temporary creation should ignore and preserve a predictable "
+      "legacy partial-file collision");
 
   lg::replay::ReplayDemo loaded;
   failures += expect(lg::replay::loadDemoFile(savedPath, loaded, &error),
@@ -99,10 +106,11 @@ int main() {
                  loaded.hashes.size() == 1U &&
                  loaded.hashes[0].value == source.hashes[0].value,
              "loaded demo should retain authoritative metadata and state hash");
-  failures +=
-      expect(!lg::replay::saveDemoFile(savedPath, source, &error) &&
-                 !std::filesystem::exists(savedPath.string() + ".partial"),
-             "save should refuse overwrite and clean its temporary path");
+  failures += expect(
+      !lg::replay::saveDemoFile(savedPath, source, &error) &&
+          std::filesystem::exists(savedPath.string() + ".partial"),
+      "save should refuse overwrite without touching another writer's partial "
+      "path");
 
   const std::filesystem::path corruptPath = directory / "corrupt.lgdemo";
   {

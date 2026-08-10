@@ -1,6 +1,7 @@
 #include "replay/ReplayCodec.hpp"
 
 #include "net/NetCodec.hpp"
+#include "sim/Arena.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -146,6 +147,18 @@ int main() {
     lg::replay::ReplayDemo invalid = source;
     invalid.checkpoints[0].projectiles[0].owner = static_cast<std::uint8_t>(lg::kDuelPlayerCount);
     failures += expect(!lg::replay::encodeDemo(invalid, wire, &error), "invalid projectile owner should not encode");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.checkpoints[0].history.clear();
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "a playable checkpoint must encode at least one lag-history frame");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.checkpoints[0].nextDeathmatchSpawnIndex = lg::Arena::kSpawnCount;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "spawn cursor outside the static arena bound should not encode");
   }
   {
     lg::replay::ReplayDemo invalid = source;

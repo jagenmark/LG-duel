@@ -64,6 +64,9 @@ int main() {
   failures += expect(
       disabled.replayCheckpointCaptureStats().captures == 0U,
       "disabled replay paths must not copy a checkpoint from the tick loop");
+  failures += expect(
+      disabled.replayCheckpointCaptureStats().resolvedInputCaptures == 0U,
+      "disabled replay paths must not copy resolved input from the tick loop");
 
   lg::replay::ReplayRollingBufferConfig rollingConfig;
   rollingConfig.retainedTicks = kMeasuredTicks;
@@ -91,6 +94,8 @@ int main() {
                          kMeasuredTicks / rollingConfig.hashIntervalTicks,
                      "rolling tick checkpoint copies should follow the due "
                      "interval, not every tick");
+  failures += expect(rollingCaptureStats.resolvedInputCaptures == kMeasuredTicks,
+                     "active rolling replay should capture one resolved input per tick");
 
   lg::replay::ReplayRecordingConfig recordingConfig;
   recordingConfig.checkpointIntervalTicks = 64U;
@@ -111,6 +116,25 @@ int main() {
       expect(recordingStats.inputTicks == kMeasuredTicks &&
                  recordingStats.estimatedBytes > 0U && demo.has_value(),
              "full recording measure should retain every resolved input");
+  failures += expect(source.replayCheckpointCaptureStats().resolvedInputCaptures == kMeasuredTicks,
+                     "active full recording should capture one resolved input per tick");
+
+  lg::LoopbackTransport cappedTransport;
+  lg::ServerGame capped(cappedTransport);
+  capped.setArena(arena());
+  discardSnapshots(cappedTransport);
+  lg::replay::ReplayRecordingConfig cappedConfig;
+  cappedConfig.checkpointIntervalTicks = 64U;
+  cappedConfig.hashIntervalTicks = 32U;
+  cappedConfig.maximumBytes = 600U * 1024U;
+  failures += expect(capped.beginReplayRecording(cappedConfig, &error),
+                     "bounded full recording should reserve initial and final state");
+  (void)tickFor(capped, cappedTransport, 2048U);
+  const lg::replay::ReplayRecorderStats cappedStats = capped.replayRecorderStats();
+  failures += expect(cappedStats.inputTicks > 0U && cappedStats.inputTicks < 2048U &&
+                         cappedStats.estimatedBytes <= cappedConfig.maximumBytes &&
+                         !capped.finishReplayRecording().has_value(),
+                     "full recording should stop cleanly at its conservative byte cap before final encode");
 
   lg::LoopbackTransport playbackTransport;
   lg::ServerGame playback(playbackTransport);
@@ -151,9 +175,14 @@ int main() {
             << static_cast<double>(recordingTime.count()) / kMeasuredTicks
             << " rolling-bytes=" << rollingStats.estimatedBytes
             << " rolling-checkpoint-captures=" << rollingCaptureStats.captures
+            << " rolling-resolved-input-captures=" << rollingCaptureStats.resolvedInputCaptures
             << " rolling-checkpoint-us="
             << static_cast<double>(rollingCaptureStats.nanoseconds) / 1000.0
             << " full-estimated-bytes=" << recordingStats.estimatedBytes
+            << " full-resolved-input-captures="
+            << source.replayCheckpointCaptureStats().resolvedInputCaptures
+            << " capped-input-ticks=" << cappedStats.inputTicks
+            << " capped-estimated-bytes=" << cappedStats.estimatedBytes
             << " playback-us=" << playbackTime.count()
             << " playback-ticks-per-second=" << playbackRate
             << " playback-x-realtime=" << realtimeMultiple << '\n';

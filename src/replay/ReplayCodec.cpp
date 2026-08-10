@@ -1,6 +1,7 @@
 #include "replay/ReplayCodec.hpp"
 
 #include "net/NetCodec.hpp"
+#include "sim/McGuffinRules.hpp"
 
 #include <algorithm>
 #include <array>
@@ -385,39 +386,57 @@ bool readMetadata(Reader& reader, ReplayMetadata& metadata) {
   return true;
 }
 
+bool writeReplaySlotInput(Writer& writer, const ReplaySlotInput& slot) {
+  return writer.boolean(slot.hasCommand) && writer.boolean(slot.receivedThisTick) &&
+    writeCommand(writer, slot.command) && writer.u32(slot.viewedServerTick) &&
+    writeActionEdges(writer, slot.consumedActionEdges) && writer.boolean(slot.jumpEdgeAccepted) &&
+    writer.boolean(slot.dashEdgeAccepted) && writer.boolean(slot.attackEdgeAccepted) &&
+    writeCommand(writer, slot.attackEdgeCommand) && writer.u32(slot.attackEdgeViewedServerTick) &&
+    writer.boolean(slot.mcguffinThrowAccepted) && writeCommand(writer, slot.mcguffinThrowCommand);
+}
+
+bool readReplaySlotInput(Reader& reader, ReplaySlotInput& slot) {
+  return reader.boolean(slot.hasCommand) && reader.boolean(slot.receivedThisTick) &&
+    readCommand(reader, slot.command) && reader.u32(slot.viewedServerTick) &&
+    readActionEdges(reader, slot.consumedActionEdges) && reader.boolean(slot.jumpEdgeAccepted) &&
+    reader.boolean(slot.dashEdgeAccepted) && reader.boolean(slot.attackEdgeAccepted) &&
+    readCommand(reader, slot.attackEdgeCommand) && reader.u32(slot.attackEdgeViewedServerTick) &&
+    reader.boolean(slot.mcguffinThrowAccepted) && readCommand(reader, slot.mcguffinThrowCommand);
+}
+
 bool writeTickInput(Writer& writer, const ReplayTickInput& input) {
-  if (!writer.u32(input.tick)) return false;
-  for (const ReplaySlotInput& slot : input.slots) {
-    if (!writer.boolean(slot.present) || !writer.boolean(slot.hasCommand) ||
-        !writer.boolean(slot.receivedThisTick) || !writeCommand(writer, slot.command) ||
-        !writer.u32(slot.viewedServerTick) || !writeActionEdges(writer, slot.consumedActionEdges) ||
-        !writer.boolean(slot.jumpEdgeAccepted) || !writer.boolean(slot.dashEdgeAccepted) ||
-        !writer.boolean(slot.attackEdgeAccepted) || !writeCommand(writer, slot.attackEdgeCommand) ||
-        !writer.u32(slot.attackEdgeViewedServerTick) ||
-        !writer.boolean(slot.mcguffinThrowAccepted) || !writeCommand(writer, slot.mcguffinThrowCommand)) return false;
+  static_assert(kDuelPlayerCount <= 16U);
+  std::uint16_t presentMask = 0U;
+  for (std::size_t index = 0U; index < input.slots.size(); ++index) {
+    if (input.slots[index].present) presentMask |= static_cast<std::uint16_t>(1U << index);
+  }
+  if (!writer.u32(input.tick) || !writer.u16(presentMask)) return false;
+  for (std::size_t index = 0U; index < input.slots.size(); ++index) {
+    if ((presentMask & static_cast<std::uint16_t>(1U << index)) != 0U &&
+        !writeReplaySlotInput(writer, input.slots[index])) return false;
   }
   return true;
 }
 
 bool readTickInput(Reader& reader, ReplayTickInput& input) {
-  if (!reader.u32(input.tick)) return false;
-  for (ReplaySlotInput& slot : input.slots) {
-    if (!reader.boolean(slot.present) || !reader.boolean(slot.hasCommand) ||
-        !reader.boolean(slot.receivedThisTick) || !readCommand(reader, slot.command) ||
-        !reader.u32(slot.viewedServerTick) || !readActionEdges(reader, slot.consumedActionEdges) ||
-        !reader.boolean(slot.jumpEdgeAccepted) || !reader.boolean(slot.dashEdgeAccepted) ||
-        !reader.boolean(slot.attackEdgeAccepted) || !readCommand(reader, slot.attackEdgeCommand) ||
-        !reader.u32(slot.attackEdgeViewedServerTick) ||
-        !reader.boolean(slot.mcguffinThrowAccepted) || !readCommand(reader, slot.mcguffinThrowCommand)) return false;
-    if (!slot.present && (slot.hasCommand || slot.receivedThisTick || slot.jumpEdgeAccepted ||
-        slot.dashEdgeAccepted || slot.attackEdgeAccepted || slot.mcguffinThrowAccepted)) return false;
+  static_assert(kDuelPlayerCount <= 16U);
+  std::uint16_t presentMask = 0U;
+  constexpr std::uint32_t kSlotMask = (1U << kDuelPlayerCount) - 1U;
+  if (!reader.u32(input.tick) || !reader.u16(presentMask) ||
+      (static_cast<std::uint32_t>(presentMask) & ~kSlotMask) != 0U) return false;
+  for (std::size_t index = 0U; index < input.slots.size(); ++index) {
+    ReplaySlotInput& slot = input.slots[index];
+    if ((presentMask & static_cast<std::uint16_t>(1U << index)) == 0U) continue;
+    slot.present = true;
+    if (!readReplaySlotInput(reader, slot)) return false;
   }
   return true;
 }
 
 bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
   if (checkpoint.mapRevision == 0U || checkpoint.projectileRevision == 0U ||
-      checkpoint.history.size() > kMaxReplayHistoryFrames || checkpoint.spawnRandomState == 0U) return false;
+      checkpoint.history.empty() || checkpoint.history.size() > kMaxReplayHistoryFrames ||
+      checkpoint.spawnRandomState == 0U || checkpoint.nextDeathmatchSpawnIndex >= Arena::kSpawnCount) return false;
   if (!writer.u32(checkpoint.serverTick) || !writer.u32(checkpoint.mapRevision) ||
       !writer.u32(checkpoint.projectileRevision) || !writer.u64(checkpoint.gameplayConfigHash)) return false;
   for (const ReplayCheckpointPlayer& player : checkpoint.players) {
@@ -465,8 +484,7 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
         !writer.f32(ice.radius) || !writer.f32(ice.lifetimeSeconds)) return false;
   }
   const McGuffinObjective& objective = checkpoint.mcguffin;
-  if (!validMcGuffinState(objective.state) || !isValidTeam(objective.associatedTeam) ||
-      !isValidTeam(objective.carrierTeam) || objective.carrierIndex > kNoMcGuffinCarrier ||
+  if (!validMcGuffinState(objective.state) || !isValidMcGuffinObjective(objective) ||
       !validVec3(objective.position) || !validVec3(objective.velocity) || !validVec3(objective.spawnPosition) ||
       !isValidTeam(checkpoint.mcguffinRedBaseOwner) || !isValidTeam(checkpoint.mcguffinBlueBaseOwner)) return false;
   if (!writer.u8(static_cast<std::uint8_t>(objective.state)) || !writer.u8(static_cast<std::uint8_t>(objective.associatedTeam)) ||
@@ -487,6 +505,12 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
       !writeU32Array(checkpoint.fragEventSequences) || !writeU32Array(checkpoint.localHitFeedbackSequences) ||
       !writeU32Array(checkpoint.footstepSequences) || !writeU32Array(checkpoint.grenadeBounceEventSequences) ||
       !writeU32Array(checkpoint.grenadeBounceSequences) || !writeU32Array(checkpoint.spawnLastUsedTicks)) return false;
+  for (const ReplayFootstepState& footstep : checkpoint.footstepStates) {
+    if (!validVec3(footstep.previousPosition) || !std::isfinite(footstep.distanceSinceStep) ||
+        footstep.distanceSinceStep < 0.0F || !writeVec3(writer, footstep.previousPosition) ||
+        !writer.f32(footstep.distanceSinceStep) || !writer.boolean(footstep.wasOnGround) ||
+        !writer.boolean(footstep.initialized)) return false;
+  }
   for (const bool used : checkpoint.spawnWasUsed) if (!writer.boolean(used)) return false;
   if (!writer.u32(checkpoint.nextDeathmatchSpawnIndex) || !writer.boolean(checkpoint.playersColliding) ||
       !writer.u32(static_cast<std::uint32_t>(checkpoint.history.size()))) return false;
@@ -570,8 +594,7 @@ bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
   objective.carrierTeam = static_cast<Team>(carrierTeam);
   checkpoint.mcguffinRedBaseOwner = static_cast<Team>(redOwner);
   checkpoint.mcguffinBlueBaseOwner = static_cast<Team>(blueOwner);
-  if (!validMcGuffinState(objective.state) || !isValidTeam(objective.associatedTeam) ||
-      !isValidTeam(objective.carrierTeam) || objective.carrierIndex > kNoMcGuffinCarrier ||
+  if (!validMcGuffinState(objective.state) || !isValidMcGuffinObjective(objective) ||
       !isValidTeam(checkpoint.mcguffinRedBaseOwner) || !isValidTeam(checkpoint.mcguffinBlueBaseOwner)) return false;
   for (std::uint32_t& value : checkpoint.mcguffinStealTicks) if (!reader.u32(value)) return false;
   if (!reader.u32(checkpoint.mcguffinCarrySubPoints) || !reader.u16(checkpoint.mcguffinCarriedPoints) ||
@@ -586,10 +609,17 @@ bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
       !readU32Array(checkpoint.fragEventSequences) || !readU32Array(checkpoint.localHitFeedbackSequences) ||
       !readU32Array(checkpoint.footstepSequences) || !readU32Array(checkpoint.grenadeBounceEventSequences) ||
       !readU32Array(checkpoint.grenadeBounceSequences) || !readU32Array(checkpoint.spawnLastUsedTicks)) return false;
+  for (ReplayFootstepState& footstep : checkpoint.footstepStates) {
+    if (!readVec3(reader, footstep.previousPosition) || !reader.f32(footstep.distanceSinceStep) ||
+        !reader.boolean(footstep.wasOnGround) || !reader.boolean(footstep.initialized) ||
+        !validVec3(footstep.previousPosition) || !std::isfinite(footstep.distanceSinceStep) ||
+        footstep.distanceSinceStep < 0.0F) return false;
+  }
   for (bool& used : checkpoint.spawnWasUsed) if (!reader.boolean(used)) return false;
   std::uint32_t historyCount = 0;
-  if (!reader.u32(checkpoint.nextDeathmatchSpawnIndex) || !reader.boolean(checkpoint.playersColliding) ||
-      !reader.u32(historyCount) || historyCount > kMaxReplayHistoryFrames) return false;
+  if (!reader.u32(checkpoint.nextDeathmatchSpawnIndex) ||
+      checkpoint.nextDeathmatchSpawnIndex >= Arena::kSpawnCount || !reader.boolean(checkpoint.playersColliding) ||
+      !reader.u32(historyCount) || historyCount == 0U || historyCount > kMaxReplayHistoryFrames) return false;
   checkpoint.history.clear();
   checkpoint.history.reserve(historyCount);
   std::uint32_t previousTick = 0;
@@ -668,6 +698,22 @@ std::uint64_t canonicalStateHash(const ReplayCheckpoint& checkpoint) {
     value *= 1099511628211ULL;
   }
   return value;
+}
+
+bool validateReplayCheckpoint(const ReplayCheckpoint& checkpoint, std::string* error) {
+  std::vector<std::uint8_t> bytes;
+  Writer writer(bytes);
+  if (!writeCheckpoint(writer, checkpoint) || !writer.ok()) {
+    return fail(error, "replay checkpoint fields are invalid");
+  }
+  if (error != nullptr) error->clear();
+  return true;
+}
+
+std::size_t encodedReplayCheckpointBytes(const ReplayCheckpoint& checkpoint) {
+  std::vector<std::uint8_t> bytes;
+  Writer writer(bytes);
+  return writeCheckpoint(writer, checkpoint) && writer.ok() ? bytes.size() : 0U;
 }
 
 bool encodeDemo(const ReplayDemo& demo, std::vector<std::uint8_t>& bytes, std::string* error) {

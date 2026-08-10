@@ -1,6 +1,7 @@
 #include "replay/ReplayTransfer.hpp"
 
 #include "net/NetCodec.hpp"
+#include "replay/ReplayCodec.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -25,6 +26,59 @@ bool decodeBegin(const std::vector<std::uint8_t> &wire,
 bool decodeChunk(const std::vector<std::uint8_t> &wire,
                  lg::replay::ReplayTransferChunk &chunk) {
   return lg::replay::decodeReplayTransferChunk(wire, chunk);
+}
+
+lg::replay::ReplayDemo compactDuelDemo() {
+  lg::replay::ReplayDemo demo;
+  demo.metadata.protocolRevision = lg::kProtocolVersion;
+  demo.metadata.initialServerTick = 100U;
+  demo.metadata.mapRevision = 1U;
+  demo.metadata.mapName = "compact_duel";
+  demo.metadata.mapContentHash = 1U;
+  demo.metadata.gameMode = lg::GameMode::Duel;
+  demo.metadata.visibility = lg::replay::ReplayVisibility::DuelOnly;
+  for (std::size_t index = 0U; index < demo.metadata.players.size(); ++index) {
+    demo.metadata.players[index].slot = static_cast<std::uint8_t>(index);
+  }
+  demo.metadata.players[0].occupied = true;
+  demo.metadata.players[1].occupied = true;
+
+  lg::replay::ReplayCheckpoint checkpoint;
+  checkpoint.serverTick = demo.metadata.initialServerTick;
+  checkpoint.mapRevision = demo.metadata.mapRevision;
+  checkpoint.projectileRevision = 1U;
+  checkpoint.spawnRandomState = 1U;
+  checkpoint.match.gameMode = lg::GameMode::Duel;
+  checkpoint.history.push_back({checkpoint.serverTick, {}});
+  demo.checkpoints.push_back(checkpoint);
+  demo.hashes.push_back(
+      {checkpoint.serverTick, lg::replay::canonicalStateHash(checkpoint)});
+
+  for (std::uint32_t offset = 0U; offset < 1000U; ++offset) {
+    lg::replay::ReplayTickInput input;
+    input.tick = demo.metadata.initialServerTick + offset;
+    for (std::size_t slot = 0U; slot < 2U; ++slot) {
+      lg::replay::ReplaySlotInput &value = input.slots[slot];
+      value.present = true;
+      value.hasCommand = true;
+      value.receivedThisTick = true;
+      value.command.sequence = offset + 1U;
+      value.command.clientTick = 1000U + offset;
+      value.command.forwardMove = (offset % 7U) < 4U ? 1.0F : -1.0F;
+      value.command.rightMove = slot == 0U ? 0.25F : -0.25F;
+      value.command.viewYawRadians = static_cast<float>(offset) * 0.01F;
+      value.command.viewPitchRadians = static_cast<float>(slot) * -0.1F;
+      value.command.attack = (offset % 11U) == 0U;
+      value.command.weapon = lg::Weapon::MachineGun;
+      value.viewedServerTick = input.tick;
+      value.consumedActionEdges.attack = offset;
+      value.consumedActionEdges.attackYawRadians =
+          value.command.viewYawRadians;
+      value.consumedActionEdges.attackWeapon = lg::Weapon::MachineGun;
+    }
+    demo.ticks.push_back(input);
+  }
+  return demo;
 }
 
 } // namespace
@@ -205,6 +259,96 @@ int main() {
   failures += expect(
       !lg::replay::permitsRemoteKillcam(metadata, false),
       "developer-full metadata must not cross the ordinary remote boundary");
+
+  lg::replay::ReplayTransferReceiver expiringReceiver({5U, 20U});
+  failures += expect(
+      expiringReceiver.receiveBegin({90U, 1U, 1U, 1U}, 1U).has_value() &&
+          !expiringReceiver.expire(5U) && expiringReceiver.expire(6U),
+      "a lost cancel should expire a stalled receiver instead of pinning it "
+      "forever");
+  failures += expect(
+      expiringReceiver.receiveBegin({91U, 1U, 1U, 1U}, 7U).has_value() &&
+          !expiringReceiver.failed(),
+      "receiver expiry should reset state and accept a later transfer");
+
+  const lg::replay::ReplayDemo duelDemo = compactDuelDemo();
+  std::vector<std::uint8_t> duelBytes;
+  lg::replay::ReplayDemo decodedDuel;
+  failures += expect(
+      lg::replay::encodeDemo(duelDemo, duelBytes) &&
+          duelBytes.size() <= lg::replay::kReplayTransferMaxSegmentBytes,
+      "an eight-second two-player duel segment must fit the bounded killcam "
+      "transfer");
+  constexpr std::size_t kTenMinutesAtEightSecondSamples = 75U;
+  failures += expect(
+      duelBytes.size() <=
+          lg::replay::kMaxReplayBytes / kTenMinutesAtEightSecondSamples,
+      "the measured sparse two-player sample should conservatively fit a "
+      "ten-minute full-demo byte cap");
+  failures += expect(
+      lg::replay::decodeDemo(duelBytes, decodedDuel) &&
+          decodedDuel.ticks.size() == 1000U &&
+          decodedDuel.ticks[999].slots[1].command.sequence == 1000U,
+      "compact replay input records should strictly round trip changing duel "
+      "commands");
+
+  lg::replay::ReplayTransferConfig segmentConfig;
+  segmentConfig.retryMilliseconds = 1U;
+  segmentConfig.timeoutMilliseconds = 100000U;
+  segmentConfig.minimumPacketIntervalMilliseconds = 1U;
+  lg::replay::ReplayTransferSender segmentSender;
+  failures += expect(
+      segmentSender.begin(77U, 9U, duelBytes, 1U, segmentConfig),
+      "compact duel segment should start a bounded transfer");
+  lg::replay::ReplayTransferReceiver segmentReceiver;
+  std::uint64_t now = 1U;
+  const std::optional<std::vector<std::uint8_t>> segmentBeginWire =
+      segmentSender.nextPacket(now);
+  lg::replay::ReplayTransferBegin segmentBegin;
+  failures += expect(
+      segmentBeginWire.has_value() &&
+          segmentBeginWire->size() <=
+              lg::replay::kReplayTransferMaxDatagramBytes &&
+          lg::replay::decodeReplayTransferBegin(*segmentBeginWire,
+                                                segmentBegin),
+      "compact segment begin should remain a bounded datagram");
+  const std::optional<lg::replay::ReplayTransferAck> segmentBeginAck =
+      segmentReceiver.receiveBegin(segmentBegin, now);
+  if (segmentBeginAck.has_value())
+    segmentSender.acknowledge(*segmentBeginAck);
+  std::size_t packetCount = 1U;
+  while (!segmentSender.complete() &&
+         packetCount <= lg::replay::kReplayTransferMaxChunks + 1U) {
+    ++now;
+    const std::optional<std::vector<std::uint8_t>> wirePacket =
+        segmentSender.nextPacket(now);
+    if (!wirePacket.has_value())
+      continue;
+    ++packetCount;
+    lg::replay::ReplayTransferChunk chunk;
+    failures += expect(
+        wirePacket->size() <= lg::replay::kReplayTransferMaxDatagramBytes &&
+            lg::replay::decodeReplayTransferChunk(*wirePacket, chunk),
+        "every compact segment packet should stay within the UDP bound");
+    const std::optional<lg::replay::ReplayTransferAck> acknowledgement =
+        segmentReceiver.receiveChunk(chunk, now);
+    if (acknowledgement.has_value())
+      segmentSender.acknowledge(*acknowledgement);
+  }
+  const std::optional<std::vector<std::uint8_t>> reassembled =
+      segmentReceiver.takeCompleted();
+  lg::replay::ReplayDemo transferredDuel;
+  failures += expect(
+      segmentSender.complete() && reassembled.has_value() &&
+          *reassembled == duelBytes &&
+          lg::replay::decodeDemo(*reassembled, transferredDuel) &&
+          transferredDuel.ticks.size() == 1000U,
+      "packetized compact duel segment should reassemble and decode without "
+      "widening transfer bounds");
+  std::cout << "replay-transfer-measure compact-duel-bytes=" << duelBytes.size()
+            << " compact-duel-chunks=" << segmentSender.stats().chunks
+            << " compact-duel-ten-minute-upper-bytes="
+            << duelBytes.size() * kTenMinutesAtEightSecondSamples << '\n';
 
   return failures == 0 ? 0 : 1;
 }

@@ -32,6 +32,20 @@ void discardSnapshots(lg::LoopbackTransport& transport) {
   while (transport.receiveSnapshot(snapshot)) {}
 }
 
+class CountingTransport final : public lg::NetTransport {
+public:
+  void sendCommand(const lg::CommandPacket&) override {}
+  [[nodiscard]] bool receiveCommand(lg::CommandPacket&) override { return false; }
+  void sendSnapshot(const lg::ServerSnapshot&) override { ++snapshots; }
+  [[nodiscard]] bool receiveSnapshot(lg::ServerSnapshot&) override { return false; }
+  void sendProjectileUpdates(const lg::ProjectileUpdatePacket&) override { ++projectileUpdates; }
+  void publishChatHistory(const lg::ChatHistory&) override { ++chatPublishes; }
+
+  std::uint32_t snapshots = 0U;
+  std::uint32_t projectileUpdates = 0U;
+  std::uint32_t chatPublishes = 0U;
+};
+
 void makeHumanAndBot(lg::ServerGame& game, lg::LoopbackTransport& transport) {
   game.setArena(replayArena());
   game.setConnectedPlayers({true, false, false, false, false, false, false, false,
@@ -63,36 +77,42 @@ int main() {
     "test match should enter live play before recording");
 
   std::string error;
-  // Both normal intervals exceed the short recording. finishReplayRecording
-  // must still record the exact stop-time checkpoint and state hash.
-  failures += expect(source.beginReplayRecording({1000U, 1000U}, &error),
+  lg::replay::ReplayRecordingConfig recordingConfig;
+  recordingConfig.checkpointIntervalTicks = 24U;
+  recordingConfig.hashIntervalTicks = 12U;
+  failures += expect(source.beginReplayRecording(recordingConfig, &error),
     "server should start authoritative replay recording");
-  for (std::uint32_t tick = 0U; tick < 8U; ++tick) {
+  for (std::uint32_t tick = 0U; tick < 96U; ++tick) {
     lg::CommandPacket command;
     command.playerIndex = 0U;
     command.command.sequence = 2U + tick;
     command.command.clientTick = 100U + tick;
-    command.command.forwardMove = tick < 4U ? 1.0F : 0.0F;
+    command.command.forwardMove = 1.0F;
     command.command.viewYawRadians = 0.0F;
     command.command.viewPitchRadians = 0.0F;
     command.command.planarAim = false;
-    command.command.attack = (tick % 2U) == 0U;
+    command.command.attack = false;
     command.command.weapon = lg::Weapon::MachineGun;
     command.viewedServerTick = source.snapshot().serverTick;
     sourceTransport.sendCommand(command);
     source.tick(lg::kFixedTickSeconds);
+    if (tick == 0U) {
+      lg::ServerSnapshot published;
+      failures += expect(sourceTransport.receiveSnapshot(published),
+        "live authoritative recording must still publish snapshots");
+    }
     discardSnapshots(sourceTransport);
   }
   const lg::replay::ReplayCheckpoint sourceFinalCheckpoint = source.captureReplayCheckpoint();
   const std::optional<lg::replay::ReplayDemo> recorded = source.finishReplayRecording();
   failures += expect(recorded.has_value(), "server should finalize the replay");
-  failures += expect(recorded.has_value() && recorded->ticks.size() == 8U,
+  failures += expect(recorded.has_value() && recorded->ticks.size() == 96U,
     "recording should contain resolved input for every server tick");
-  failures += expect(recorded.has_value() && recorded->hashes.size() == 2U &&
+  failures += expect(recorded.has_value() && recorded->hashes.size() > 2U &&
     recorded->hashes.back().tick == sourceFinalCheckpoint.serverTick &&
     recorded->hashes.back().value == lg::replay::canonicalStateHash(sourceFinalCheckpoint),
     "recording should append an exact final authoritative hash off interval");
-  failures += expect(recorded.has_value() && recorded->checkpoints.size() == 2U &&
+  failures += expect(recorded.has_value() && recorded->checkpoints.size() > 2U &&
     recorded->checkpoints.back().serverTick == sourceFinalCheckpoint.serverTick,
     "recording should append an exact final checkpoint off interval");
   failures += expect(recorded.has_value() && recorded->metadata.players[1].bot,
@@ -112,6 +132,19 @@ int main() {
   discardSnapshots(playbackTransport);
   playback.setArena(replayArena());
   playback.setMatchRules(savedDemo.metadata.matchRules);
+  const lg::replay::ReplayCheckpoint beforeRejectedRestore = playback.captureReplayCheckpoint();
+  lg::replay::ReplayCheckpoint invalidRestore = savedDemo.checkpoints.front();
+  invalidRestore.history.clear();
+  failures += expect(!playback.restoreReplayCheckpoint(invalidRestore, savedDemo.metadata, &error) &&
+    lg::replay::canonicalStateHash(playback.captureReplayCheckpoint()) ==
+      lg::replay::canonicalStateHash(beforeRejectedRestore),
+    "invalid empty lag history must reject before changing any playback state");
+  invalidRestore = savedDemo.checkpoints.front();
+  invalidRestore.nextDeathmatchSpawnIndex = playback.arena().spawnCount;
+  failures += expect(!playback.restoreReplayCheckpoint(invalidRestore, savedDemo.metadata, &error) &&
+    lg::replay::canonicalStateHash(playback.captureReplayCheckpoint()) ==
+      lg::replay::canonicalStateHash(beforeRejectedRestore),
+    "runtime-invalid spawn cursor must reject before an out-of-bounds spawn path");
   // Do not add a bot. The runner restores actor metadata but never calls the
   // bot generator; it must reproduce the recorded final bot commands.
   lg::replay::ReplayPlaybackRunner runner(playback, savedDemo);
@@ -124,12 +157,29 @@ int main() {
     lg::replay::canonicalStateHash(sourceFinalCheckpoint),
     "final playback state should match the original stop-time checkpoint");
 
-  if (savedDemo.ticks.size() >= 5U) {
-    const std::uint32_t target = savedDemo.ticks[4].tick + 1U;
+  if (savedDemo.ticks.size() >= 49U) {
+    const std::uint32_t target = savedDemo.ticks[48].tick + 1U;
     failures += expect(runner.seek(target, &error), "checkpoint seek should reproduce the target state");
+    while (runner.step(&error)) {}
     failures += expect(!runner.divergence().diverged,
-      "checkpoint seek should retain authoritative hash agreement");
+      "periodic checkpoint seek should retain footstep and gameplay hash agreement");
   }
   runner.stop();
+
+  CountingTransport headlessTransport;
+  lg::ServerGame headlessPlayback(headlessTransport);
+  headlessPlayback.setArena(replayArena());
+  headlessPlayback.setMatchRules(savedDemo.metadata.matchRules);
+  headlessTransport.snapshots = 0U;
+  headlessTransport.projectileUpdates = 0U;
+  headlessTransport.chatPublishes = 0U;
+  lg::replay::ReplayPlaybackRunner headlessRunner(headlessPlayback, savedDemo);
+  failures += expect(headlessRunner.initialize(&error), "headless playback should initialize");
+  while (headlessRunner.step(&error)) {}
+  failures += expect(headlessRunner.finished() && !headlessRunner.divergence().diverged &&
+    headlessTransport.snapshots == 0U && headlessTransport.projectileUpdates == 0U &&
+    headlessTransport.chatPublishes == 0U,
+    "headless replay must not publish snapshot, projectile, or chat transport output");
+  headlessRunner.stop();
   return failures == 0 ? 0 : 1;
 }

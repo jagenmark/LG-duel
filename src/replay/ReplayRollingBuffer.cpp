@@ -56,7 +56,8 @@ void ReplayRollingBuffer::reset(
 
 void ReplayRollingBuffer::recordResolvedInput(const ReplayTickInput& input) {
   if (!active_ || input.tick < metadata_.initialServerTick ||
-      (!inputs_.empty() && input.tick <= inputs_.back().tick)) {
+      (!inputs_.empty() && (inputs_.back().tick == std::numeric_limits<std::uint32_t>::max() ||
+        input.tick != inputs_.back().tick + 1U))) {
     ++droppedRecords_;
     return;
   }
@@ -144,6 +145,13 @@ std::optional<ReplayDemo> ReplayRollingBuffer::extractSegment(
       segment.ticks.back().tick != end) {
     fail(error, "rolling replay has a gap in the requested segment");
     return std::nullopt;
+  }
+  for (std::size_t index = 1U; index < segment.ticks.size(); ++index) {
+    if (segment.ticks[index - 1U].tick == std::numeric_limits<std::uint32_t>::max() ||
+        segment.ticks[index].tick != segment.ticks[index - 1U].tick + 1U) {
+      fail(error, "rolling replay has a gap in the requested segment");
+      return std::nullopt;
+    }
   }
   if (error != nullptr) error->clear();
   return segment;

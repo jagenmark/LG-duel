@@ -2,6 +2,7 @@
 
 #include "replay/ReplayTypes.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -11,6 +12,7 @@ namespace lg::replay {
 struct ReplayRecordingConfig {
   std::uint32_t checkpointIntervalTicks = 250U;
   std::uint32_t hashIntervalTicks = 125U;
+  std::size_t maximumBytes = kMaxReplayBytes;
 };
 
 struct ReplayRecorderStats {
@@ -23,6 +25,7 @@ struct ReplayRecorderStats {
 // Counts only checkpoint copies requested from ServerGame::tick. Start, stop,
 // restore, and direct inspection captures do not affect this hot-path measure.
 struct ReplayCheckpointCaptureStats {
+  std::uint64_t resolvedInputCaptures = 0;
   std::uint64_t captures = 0;
   std::uint64_t nanoseconds = 0;
 };
@@ -54,6 +57,7 @@ private:
   ReplayDemo demo_ = {};
   bool active_ = false;
   std::uint64_t estimatedBytes_ = 0;
+  std::size_t maximumBytes_ = 0;
 };
 
 } // namespace lg::replay
