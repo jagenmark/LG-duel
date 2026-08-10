@@ -218,8 +218,10 @@ namespace {
       << arena.teleportCount << '\n';
     ++failures;
   }
-  std::cout << "nav ok: " << mapPath.string() << " nodes=" << map.nodeCount
-    << " links=" << map.linkCount << " anchors=" << map.requiredAnchorCount << '\n';
+  std::cout << "nav " << (failures == 0 ? "PASS: " : "FAIL: ") << mapPath.string()
+    << " nodes=" << map.nodeCount << " links=" << map.linkCount
+    << " anchors=" << map.requiredAnchorCount
+    << " missing_anchors=" << map.missingRequiredAnchorCount << '\n';
   return failures;
 }
 

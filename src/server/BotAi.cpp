@@ -22,9 +22,16 @@ constexpr float kNavReachRadius = 0.55F;
 // Every longer candidate still has to complete normal player movement.
 constexpr float kNavLinkSpacingFactor = 2.20F;
 constexpr float kBotNavDt = 1.0F / 125.0F;
-constexpr std::size_t kMaxNavLinkCandidatesPerNode = 16U;
+// Six nearest candidates preserve the local grid's cardinal/diagonal exits
+// while placing a deterministic cap on map-load movement simulations.
+constexpr std::size_t kMaxNavLinkCandidatesPerNode = 6U;
 constexpr float kCommonBotTargetFovDegrees = 108.0F;
 constexpr float kMaximumObservedSpeed = 60.0F;
+
+struct NavSamplingBounds {
+  Vec3 min = {};
+  Vec3 max = {};
+};
 
 [[nodiscard]] std::uint32_t mixSeed(std::uint32_t value) {
   value ^= value >> 16U;
@@ -71,6 +78,72 @@ constexpr float kMaximumObservedSpeed = 60.0F;
 
 [[nodiscard]] float distance3d(Vec3 first, Vec3 second) {
   return length(first - second);
+}
+
+// Imported maps may retain a generous world bounds box around a much smaller
+// playable layout. Sampling that empty box would consume all fixed nav nodes
+// before reaching any authored route. Collision and gameplay anchors define
+// the area the player can actually use; plain test arenas keep their bounds.
+[[nodiscard]] NavSamplingBounds navSamplingBounds(const Arena& arena) {
+  Vec3 minimum = {std::numeric_limits<float>::infinity(),
+    std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()};
+  Vec3 maximum = {-std::numeric_limits<float>::infinity(),
+    -std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()};
+  bool haveAuthoredExtent = false;
+  const auto include = [&](Vec3 position) {
+    minimum.x = std::min(minimum.x, position.x);
+    minimum.y = std::min(minimum.y, position.y);
+    minimum.z = std::min(minimum.z, position.z);
+    maximum.x = std::max(maximum.x, position.x);
+    maximum.y = std::max(maximum.y, position.y);
+    maximum.z = std::max(maximum.z, position.z);
+    haveAuthoredExtent = true;
+  };
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    include(arena.walls[index].min);
+    include(arena.walls[index].max);
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    include(arena.brushes[index].min);
+    include(arena.brushes[index].max);
+  }
+  for (std::size_t index = 0; index < arena.spawnCount; ++index) {
+    include(arena.spawnPositions[index]);
+  }
+  for (std::size_t index = 0; index < arena.teamSpawnCount; ++index) {
+    include(arena.teamSpawns[index].position);
+  }
+  for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
+    include(arena.healthPickups[index].position);
+  }
+  if (arena.mcguffin.hasNeutralSpawn) include(arena.mcguffin.neutralSpawn);
+  if (arena.mcguffin.hasRedBase) {
+    include(arena.mcguffin.redBase.min);
+    include(arena.mcguffin.redBase.max);
+  }
+  if (arena.mcguffin.hasBlueBase) {
+    include(arena.mcguffin.blueBase.min);
+    include(arena.mcguffin.blueBase.max);
+  }
+  for (std::size_t index = 0; index < arena.jumpPadCount; ++index) {
+    include(arena.jumpPads[index].min);
+    include(arena.jumpPads[index].max);
+    include(arena.jumpPads[index].targetPosition);
+  }
+  for (std::size_t index = 0; index < arena.teleportCount; ++index) {
+    include(arena.teleports[index].min);
+    include(arena.teleports[index].max);
+    include(arena.teleports[index].destination);
+  }
+  if (!haveAuthoredExtent) return {arena.min, arena.max};
+  constexpr float kMargin = 2.0F * kNavSpacing;
+  minimum.x = std::max(arena.min.x, minimum.x - kMargin);
+  minimum.y = std::max(arena.min.y, minimum.y - kMargin);
+  minimum.z = std::max(arena.min.z, minimum.z - kMargin);
+  maximum.x = std::min(arena.max.x, maximum.x + kMargin);
+  maximum.y = std::min(arena.max.y, maximum.y + kMargin);
+  maximum.z = std::min(arena.max.z, maximum.z + kMargin);
+  return {minimum, maximum};
 }
 
 [[nodiscard]] bool canStandAt(
@@ -156,7 +229,9 @@ constexpr float kMaximumObservedSpeed = 60.0F;
     static_cast<int>(std::ceil(distance / std::max(1.0F, movement.maxGroundSpeed) /
       kBotNavDt * 2.5F)),
     12,
-    600
+    // Candidate links are local samples. A bounded trial keeps malformed or
+    // blocked maps from making validation scale with failed long routes.
+    120
   );
   for (int tick = 0; tick < ticks; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
@@ -312,6 +387,7 @@ BotNavigationMap buildBotNavigationMap(
   CollisionBounds bounds
 ) {
   BotNavigationMap map;
+  const NavSamplingBounds samplingBounds = navSamplingBounds(arena);
   auto addGroundedNode = [&](Vec3 hint) {
     Vec3 position = {};
     if (!groundedNodePosition(arena, bounds, hint, position)) {
@@ -374,7 +450,10 @@ BotNavigationMap buildBotNavigationMap(
     const Vec3 target = pad.hasTarget
       ? pad.targetPosition
       : Vec3{pad.max.x, pad.max.y, pad.max.z + bounds.halfHeight};
-    requireAnchor(addExactNode(target));
+    // A pad target commonly names an airborne launch point. The route must
+    // end at the first normal grounded landing, not reject that valid trigger
+    // because the authored destination itself is in the air.
+    requireAnchor(addGroundedNode(target));
   }
   for (std::size_t index = 0; index < arena.teleportCount; ++index) {
     const ArenaTeleport& teleport = arena.teleports[index];
@@ -393,17 +472,17 @@ BotNavigationMap buildBotNavigationMap(
   std::array<GroundLevel, BotNavigationMap::kMaxNodes> groundLevels = {};
   std::size_t groundLevelCount = 0;
   const auto addGroundLevel = [&](float level, Vec3 representative) {
-    if (groundLevelCount == groundLevels.size() || level < arena.min.z ||
-        level > arena.max.z - bounds.halfHeight) return;
+    if (groundLevelCount == groundLevels.size() || level < samplingBounds.min.z ||
+        level > samplingBounds.max.z - bounds.halfHeight) return;
     for (std::size_t index = 0; index < groundLevelCount; ++index) {
       if (std::fabs(groundLevels[index].height - level) <= 0.05F) return;
     }
     groundLevels[groundLevelCount++] = {level, representative};
   };
-  addGroundLevel(arena.min.z, {
-    (arena.min.x + arena.max.x) * 0.5F,
-    (arena.min.y + arena.max.y) * 0.5F,
-    arena.min.z,
+  addGroundLevel(samplingBounds.min.z, {
+    (samplingBounds.min.x + samplingBounds.max.x) * 0.5F,
+    (samplingBounds.min.y + samplingBounds.max.y) * 0.5F,
+    samplingBounds.min.z,
   });
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
@@ -425,10 +504,10 @@ BotNavigationMap buildBotNavigationMap(
     [](const GroundLevel& first, const GroundLevel& second) {
       return first.height < second.height;
     });
-  const float startX = arena.min.x + bounds.radius + 0.15F;
-  const float startY = arena.min.y + bounds.radius + 0.15F;
-  const float endX = arena.max.x - bounds.radius - 0.15F;
-  const float endY = arena.max.y - bounds.radius - 0.15F;
+  const float startX = samplingBounds.min.x + bounds.radius + 0.15F;
+  const float startY = samplingBounds.min.y + bounds.radius + 0.15F;
+  const float endX = samplingBounds.max.x - bounds.radius - 0.15F;
+  const float endY = samplingBounds.max.y - bounds.radius - 0.15F;
   // Keep at least half the node budget for a connected grid. Every selected
   // level receives an anchored, collision-checked surface sample first. This
   // retains all normal maps' levels and deterministically spreads coverage
@@ -466,17 +545,24 @@ BotNavigationMap buildBotNavigationMap(
   }
   // If a map's collision leaves most of the global grid empty, fill only a
   // small fixed reserve at player spacing. This restores narrow corridors
-  // without allowing map-load work to scale with the map's empty volume.
+  // without allowing map-load work to scale with the map's empty volume. The
+  // probe cap makes an empty or malformed map fail validation promptly.
   constexpr std::size_t kFinePassNodeTarget = 96U;
+  constexpr std::size_t kFinePassProbeLimit = 4096U;
   if (map.nodeCount < kFinePassNodeTarget) {
+    std::size_t fineProbeCount = 0;
     for (std::size_t sample = 0;
-         sample < sampledLevelCount && map.nodeCount < kFinePassNodeTarget;
+         sample < sampledLevelCount && map.nodeCount < kFinePassNodeTarget &&
+           fineProbeCount < kFinePassProbeLimit;
          ++sample) {
       const float z = groundLevels[sampledLevelIndex(sample)].height + bounds.halfHeight;
-      for (float y = startY; y <= endY && map.nodeCount < kFinePassNodeTarget;
+      for (float y = startY; y <= endY && map.nodeCount < kFinePassNodeTarget &&
+           fineProbeCount < kFinePassProbeLimit;
            y += kNavSpacing) {
-        for (float x = startX; x <= endX && map.nodeCount < kFinePassNodeTarget;
+        for (float x = startX; x <= endX && map.nodeCount < kFinePassNodeTarget &&
+             fineProbeCount < kFinePassProbeLimit;
              x += kNavSpacing) {
+          ++fineProbeCount;
           addGroundedNode({x, y, z});
         }
       }
@@ -537,8 +623,9 @@ BotNavigationMap buildBotNavigationMap(
       : Vec3{pad.max.x, pad.max.y, pad.max.z + bounds.halfHeight};
     const std::size_t from = nearestNodeWithin(map, entry, kNavSpacing);
     const std::size_t to = nearestNodeWithin(map, exit, kNavSpacing * 2.0F);
-    if (from < map.nodeCount && to < map.nodeCount && canTraverse(
-          arena, movement, bounds, map.nodes[from].position, map.nodes[to].position, false)) {
+    if (from < map.nodeCount && to < map.nodeCount) {
+      // A pad link is legal only through the real trigger. It is not a
+      // walkable straight line and therefore must not use walk validation.
       addLink(from, to, BotNavLinkKind::JumpPad);
     }
   }
@@ -550,8 +637,9 @@ BotNavigationMap buildBotNavigationMap(
     const Vec3 exit = teleport.destination;
     const std::size_t from = nearestNodeWithin(map, entry, kNavSpacing);
     const std::size_t to = nearestNodeWithin(map, exit, kNavSpacing * 2.0F);
-    if (from < map.nodeCount && to < map.nodeCount && canTraverse(
-          arena, movement, bounds, map.nodes[from].position, map.nodes[to].position, false)) {
+    if (from < map.nodeCount && to < map.nodeCount) {
+      // Movement::applyTeleports performs this directed transition when the
+      // player enters the authored trigger; do not invent a direct walk link.
       addLink(from, to, BotNavLinkKind::Teleport);
     }
   }
@@ -796,16 +884,18 @@ BotMotor BotBrain::tick(
       memory.valid = false;
     }
   }
-  output.observedHealthResourceCount = sense.healthResourceCount;
-  for (std::size_t index = 0; index < sense.healthResourceCount; ++index) {
-    const BotHealthResourceSense& resource = sense.healthResources[index];
-    if (resource.resourceIndex >= resourceMemory_.size()) continue;
-    ResourceMemory& memory = resourceMemory_[resource.resourceIndex];
-    memory.position = resource.position;
-    memory.value = resource.value;
-    memory.available = resource.available;
-    memory.ageSeconds = 0.0F;
-    memory.valid = true;
+  output.observedHealthResourceCount = sense.perceptionFresh ? sense.healthResourceCount : 0U;
+  if (sense.perceptionFresh) {
+    for (std::size_t index = 0; index < sense.healthResourceCount; ++index) {
+      const BotHealthResourceSense& resource = sense.healthResources[index];
+      if (resource.resourceIndex >= resourceMemory_.size()) continue;
+      ResourceMemory& memory = resourceMemory_[resource.resourceIndex];
+      memory.position = resource.position;
+      memory.value = resource.value;
+      memory.available = resource.available;
+      memory.ageSeconds = 0.0F;
+      memory.valid = true;
+    }
   }
   std::size_t visibleTarget = kDuelPlayerCount;
   float visibleDistance = std::numeric_limits<float>::infinity();
@@ -815,26 +905,28 @@ BotMotor BotBrain::tick(
     const BotObservedEnemy& enemy = sense.visibleEnemies[index];
     if (enemy.playerIndex >= kDuelPlayerCount) continue;
     Memory& memory = memory_[enemy.playerIndex];
-    // The input has no target velocity. Derive it only when a later visible
-    // sample arrives. Holding an old sighting therefore cannot react to a
-    // hidden authoritative velocity change, and the first sighting has no lead.
-    if (!memory.hasObservation) {
-      memory.velocity = {};
-    } else if (enemy.observationServerTick > memory.lastObservationServerTick) {
-      const std::uint32_t elapsedTicks = enemy.observationServerTick -
-        memory.lastObservationServerTick;
-      const float elapsed = std::max(dt, static_cast<float>(elapsedTicks) * dt);
-      Vec3 estimate = (enemy.position - memory.position) / elapsed;
-      const float speed = length(estimate);
-      if (speed > kMaximumObservedSpeed) estimate *= kMaximumObservedSpeed / speed;
-      memory.velocity = estimate;
+    if (sense.perceptionFresh) {
+      // The input has no target velocity. Derive it only when a later visible
+      // sample arrives. Holding an old sighting therefore cannot react to a
+      // hidden authoritative velocity change, and the first sighting has no lead.
+      if (!memory.hasObservation) {
+        memory.velocity = {};
+      } else if (enemy.observationServerTick > memory.lastObservationServerTick) {
+        const std::uint32_t elapsedTicks = enemy.observationServerTick -
+          memory.lastObservationServerTick;
+        const float elapsed = std::max(dt, static_cast<float>(elapsedTicks) * dt);
+        Vec3 estimate = (enemy.position - memory.position) / elapsed;
+        const float speed = length(estimate);
+        if (speed > kMaximumObservedSpeed) estimate *= kMaximumObservedSpeed / speed;
+        memory.velocity = estimate;
+      }
+      memory.position = enemy.position;
+      memory.lastObservationServerTick = enemy.observationServerTick;
+      memory.hasObservation = true;
+      memory.ageSeconds = 0.0F;
+      memory.confidence = 1.0F;
+      memory.valid = true;
     }
-    memory.position = enemy.position;
-    memory.lastObservationServerTick = enemy.observationServerTick;
-    memory.hasObservation = true;
-    memory.ageSeconds = 0.0F;
-    memory.confidence = 1.0F;
-    memory.valid = true;
     const float distance = horizontalDistance(sense.self.position, enemy.position);
     if (distance < visibleDistance) {
       visibleDistance = distance;
@@ -868,23 +960,31 @@ BotMotor BotBrain::tick(
     stuckSamplePosition_ = sense.self.position;
     targetPlayerIndex_ = kNoAssignedPlayer;
   }
-  const bool acquiredTarget = targetVisible &&
-    (!targetWasVisible_ || targetPlayerIndex_ != target);
-  if (acquiredTarget) {
-    targetPlayerIndex_ = static_cast<std::uint8_t>(target);
-    reactionSeconds_ = std::max(0.0F, randomFloat(RandomStream::Tactics,
-      profile.reactionMinSeconds, profile.reactionMaxSeconds) +
-      traits_.reactionLatencyOffsetSeconds);
-  } else if (!targetVisible && target == kDuelPlayerCount) {
-    targetPlayerIndex_ = kNoAssignedPlayer;
+  bool acquiredTarget = false;
+  if (sense.perceptionFresh) {
+    acquiredTarget = targetVisible &&
+      (!targetWasVisible_ || targetPlayerIndex_ != target);
+    if (acquiredTarget) {
+      targetPlayerIndex_ = static_cast<std::uint8_t>(target);
+      reactionSeconds_ = std::max(0.0F, randomFloat(RandomStream::Tactics,
+        profile.reactionMinSeconds, profile.reactionMaxSeconds) +
+        traits_.reactionLatencyOffsetSeconds);
+    } else if (!targetVisible && target == kDuelPlayerCount) {
+      targetPlayerIndex_ = kNoAssignedPlayer;
+    }
+    targetWasVisible_ = targetVisible;
   }
   // Keep the first acquisition tick in the stated reaction range. Reducing it
   // here would make every sampled delay one fixed tick shorter than its tune.
   if (!acquiredTarget) reactionSeconds_ = std::max(0.0F, reactionSeconds_ - dt);
-  targetWasVisible_ = targetVisible;
   // Seeing a target refreshes memory immediately, but it cannot steer the
-  // motor or aim until the sampled human reaction delay has elapsed.
-  const bool targetDecisionAllowed = target < kDuelPlayerCount && reactionSeconds_ <= 0.0F;
+  // motor or aim until the sampled human reaction delay has elapsed. The
+  // motor may keep turning and moving from the last sample at 125 Hz, while
+  // firing requires a fresh LOS/FOV sample.
+  const bool targetDecisionAllowed = target < kDuelPlayerCount &&
+    reactionSeconds_ <= 0.0F;
+  const bool targetFireAllowed = sense.perceptionFresh && targetVisible &&
+    targetDecisionAllowed;
 
   Vec3 movementGoal = sense.self.position;
   const bool carrierDelivery = sense.objective.carrying &&
@@ -1157,7 +1257,7 @@ BotMotor BotBrain::tick(
     profile.maxTurnRadiansPerSecond < 4.0F ? 0.66F : 0.74F;
   if (!sense.combatEnabled) {
     output.noFireReason = BotNoFireReason::Disabled;
-  } else if (!targetVisible) {
+  } else if (!targetFireAllowed && (!targetVisible || !sense.perceptionFresh)) {
     output.noFireReason = BotNoFireReason::NoVisibleTarget;
   } else if (reactionSeconds_ > 0.0F) {
     output.noFireReason = BotNoFireReason::Reaction;

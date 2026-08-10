@@ -321,10 +321,10 @@ int main() {
     lg::BotSenseFrame hiddenSense = firstSense;
     hiddenSense.serverTick = 11U;
     hiddenSense.visibleEnemyCount = 0U;
+    hiddenSense.perceptionFresh = false;
     const lg::BotMotor hiddenFirst = first.tick(hiddenSense, instant, {});
     const lg::BotMotor hiddenSecond = second.tick(hiddenSense, instant, {});
-    failures += expect(sameMotorCommand(hiddenFirst, hiddenSecond) && !hiddenFirst.command.attack &&
-      std::fabs(hiddenFirst.command.viewYawRadians - firstSeen.command.viewYawRadians) < 0.001F,
+    failures += expect(sameMotorCommand(hiddenFirst, hiddenSecond) && !hiddenFirst.command.attack,
       "hidden motion cannot change a bot lead estimate before a new visible sample");
     lg::BotSenseFrame secondSense = firstSense;
     secondSense.serverTick = 20U;

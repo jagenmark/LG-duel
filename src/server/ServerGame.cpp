@@ -1380,6 +1380,8 @@ void ServerGame::resetMatch() {
   receivedCommandThisTick_ = {};
   playerSessions_ = {};
   botMotors_ = {};
+  botSenseFrames_ = {};
+  botSenseFrameValid_ = {};
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     botBrains_[index].reset(0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U));
   }
@@ -1429,6 +1431,8 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   mcguffinThrowRequestedThisTick_[playerIndex] = false;
   mcguffinThrowCommands_[playerIndex] = {};
   botMotors_[playerIndex] = {};
+  botSenseFrames_[playerIndex] = {};
+  botSenseFrameValid_[playerIndex] = false;
   botBrains_[playerIndex].reset(
     0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
   );
@@ -1690,6 +1694,8 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
   refillAmmo(playerIndex);
   botMotors_[playerIndex] = {};
+  botSenseFrames_[playerIndex] = {};
+  botSenseFrameValid_[playerIndex] = false;
   botBrains_[playerIndex].reset(
     0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
   );
@@ -2036,6 +2042,8 @@ void ServerGame::setBotBehavior(
 void ServerGame::setBotAttackMode(BotAttackMode mode) {
   if (botAttackMode_ != mode) {
     botMotors_ = {};
+    botSenseFrames_ = {};
+    botSenseFrameValid_ = {};
     for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
       botBrains_[index].reset(
         0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U)
@@ -4189,11 +4197,56 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
 }
 
 void ServerGame::updateBotCommands(float fixedDt) {
+  const auto perceptionIntervalTicks = [&](BotAttackMode mode) {
+    // Motor commands remain 125 Hz. LOS/FOV is deterministic, slot-phased,
+    // and slow enough that 16 bots do not trace every opponent every tick.
+    switch (mode) {
+    case BotAttackMode::Easy: return 16U;
+    case BotAttackMode::Medium: return 12U;
+    case BotAttackMode::Hard: return 8U;
+    case BotAttackMode::Off: return 16U;
+    }
+    return 16U;
+  };
+  const auto refreshMotorSense = [&](BotSenseFrame& sense, std::size_t playerIndex,
+                                      bool perceptionFresh) {
+    const PlayerState& self = snapshot_.players[playerIndex];
+    sense.serverTick = snapshot_.serverTick;
+    sense.fixedDt = fixedDt;
+    sense.perceptionFresh = perceptionFresh;
+    sense.self.position = self.position;
+    sense.self.velocity = self.velocity;
+    sense.self.viewYawRadians = self.viewYawRadians;
+    sense.self.viewPitchRadians = self.viewPitchRadians;
+    sense.self.radius = self.bounds.radius;
+    sense.self.halfHeight = self.bounds.halfHeight;
+    sense.self.health = self.health;
+    sense.self.onGround = self.onGround;
+    sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
+    sense.selectedWeapon = selectedWeapons_[playerIndex];
+    sense.forceWeapon = !botWeaponAuto_;
+    sense.forcedWeapon = botWeapon_;
+    sense.combatEnabled = botAttackMode_ != BotAttackMode::Off &&
+      isActiveCombatant(playerIndex);
+    sense.standstill = botStandstillEnabled_;
+    sense.dodgeOverride = botDodgeEnabled_;
+    sense.dodgeMinIntervalMs = botDodgeMinIntervalMs_;
+    sense.dodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
+  };
+  const std::uint32_t perceptionInterval = perceptionIntervalTicks(botAttackMode_);
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     if (!botPlayers_[playerIndex]) {
       continue;
     }
-    const BotSenseFrame sense = buildBotSenseFrame(playerIndex, fixedDt);
+    const bool freshPerception = !botSenseFrameValid_[playerIndex] ||
+      ((snapshot_.serverTick + static_cast<std::uint32_t>(playerIndex * 5U)) %
+        perceptionInterval == 0U);
+    if (freshPerception) {
+      botSenseFrames_[playerIndex] = buildBotSenseFrame(playerIndex, fixedDt);
+      botSenseFrameValid_[playerIndex] = true;
+    }
+    BotSenseFrame sense = botSenseFrames_[playerIndex];
+    refreshMotorSense(sense, playerIndex, freshPerception);
     botMotors_[playerIndex] = botBrains_[playerIndex].tick(
       sense, botDifficultyProfile(botAttackMode_), botNavigation_);
     UserCommand command = botMotors_[playerIndex].command;
@@ -4203,7 +4256,7 @@ void ServerGame::updateBotCommands(float fixedDt) {
     }
     // bot_stare is a legacy training override. It can face a sensed target,
     // but still cannot see through a wall or outside its FOV.
-    if (botAttackMode_ == BotAttackMode::Off && botStareEnabled_ &&
+    if (botAttackMode_ == BotAttackMode::Off && botStareEnabled_ && sense.perceptionFresh &&
         sense.visibleEnemyCount > 0U) {
       const BotObservedEnemy& target = sense.visibleEnemies.front();
       const Vec3 delta = botTargetAimPoint(PlayerState{
@@ -4337,6 +4390,8 @@ void ServerGame::addBotAtPlayerIndex(std::size_t playerIndex) {
   resetPlayerInputState(playerIndex);
   botDodgeSwitchSeconds_[playerIndex] = 0.0F;
   botMotors_[playerIndex] = {};
+  botSenseFrames_[playerIndex] = {};
+  botSenseFrameValid_[playerIndex] = false;
   botBrains_[playerIndex].reset(
     0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
   );
@@ -4357,6 +4412,8 @@ void ServerGame::removeBotAtPlayerIndex(std::size_t playerIndex) {
   resetPlayerInputState(playerIndex);
   botDodgeSwitchSeconds_[playerIndex] = 0.0F;
   botMotors_[playerIndex] = {};
+  botSenseFrames_[playerIndex] = {};
+  botSenseFrameValid_[playerIndex] = false;
   botBrains_[playerIndex].reset(
     0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
   );

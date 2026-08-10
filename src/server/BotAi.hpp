@@ -108,6 +108,10 @@ struct BotObjectiveSense {
 struct BotSenseFrame {
   std::uint32_t serverTick = 0;
   float fixedDt = 0.0F;
+  // The server refreshes LOS/FOV traces at a deterministic lower cadence.
+  // The brain still ticks the motor at 125 Hz, but only a fresh sample may
+  // start acquisition or allow an attack.
+  bool perceptionFresh = true;
   BotSelfSense self = {};
   std::array<BotObservedEnemy, kDuelPlayerCount> visibleEnemies = {};
   std::size_t visibleEnemyCount = 0;

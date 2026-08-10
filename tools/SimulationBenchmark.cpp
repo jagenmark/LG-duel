@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,6 +35,7 @@ struct Options {
   std::size_t warmupBatches = 5;
   std::size_t measuredBatches = 40;
   std::size_t operationsPerBatch = 256;
+  std::size_t serverBotTicks = 500;
   bool forceLinear = false;
 };
 
@@ -69,7 +71,8 @@ volatile std::uint64_t gChecksumSink = 0;
     if (argument == "--help") {
       std::cout << "Usage: lg_duel_sim_benchmark --workload movement-collision|trace-projectile|server-bots "
                    "--output DIR [--map NAME] [--map-directory DIR] [--repetitions N] "
-                   "[--warmup-batches N] [--measured-batches N] [--operations-per-batch N]\n";
+                   "[--warmup-batches N] [--measured-batches N] [--operations-per-batch N] "
+                   "[--server-bot-ticks 500..1000]\n";
       return false;
     }
     if (argument == "--force-linear") {
@@ -86,7 +89,8 @@ volatile std::uint64_t gChecksumSink = 0;
     else if (argument == "--map-directory") options.mapDirectory = value;
     else if (argument == "--output") options.outputDirectory = value;
     else if (argument == "--repetitions" || argument == "--warmup-batches" ||
-             argument == "--measured-batches" || argument == "--operations-per-batch") {
+             argument == "--measured-batches" || argument == "--operations-per-batch" ||
+             argument == "--server-bot-ticks") {
       const auto parsed = positiveSize(value);
       if (!parsed) {
         error = std::string(argument) + " must be a positive integer";
@@ -95,7 +99,8 @@ volatile std::uint64_t gChecksumSink = 0;
       if (argument == "--repetitions") options.repetitions = *parsed;
       else if (argument == "--warmup-batches") options.warmupBatches = *parsed;
       else if (argument == "--measured-batches") options.measuredBatches = *parsed;
-      else options.operationsPerBatch = *parsed;
+      else if (argument == "--operations-per-batch") options.operationsPerBatch = *parsed;
+      else options.serverBotTicks = *parsed;
     } else {
       error = "unknown argument " + std::string(argument);
       return false;
@@ -116,7 +121,11 @@ volatile std::uint64_t gChecksumSink = 0;
     // informational benchmark into an unstable CI timeout.
     options.warmupBatches = 1U;
     options.measuredBatches = 1U;
-    options.operationsPerBatch = 500U;
+    if (options.serverBotTicks < 500U || options.serverBotTicks > 1000U) {
+      error = "--server-bot-ticks must be between 500 and 1000";
+      return false;
+    }
+    options.operationsPerBatch = options.serverBotTicks;
   }
   return true;
 }
@@ -240,12 +249,49 @@ struct ServerBenchmarkFixture {
   ServerBenchmarkFixture(const lg::Arena& arena, std::size_t botCount)
     : server(transport) {
     server.setArena(arena);
+    server.setConnectedPlayers({});
     if (botCount > 0U) {
-      (void)server.addBots(botCount);
+      const lg::BotRosterChange added = server.addBots(botCount);
+      if (!added.ok || added.changed != botCount) {
+        throw std::runtime_error("could not create requested benchmark bots");
+      }
       server.setBotAttackMode(lg::BotAttackMode::Hard);
     }
   }
 };
+
+[[nodiscard]] lg::Arena makeModerateBotArena() {
+  lg::Arena arena;
+  arena.min = {-16.0F, -12.0F, 0.0F};
+  arena.max = {16.0F, 12.0F, 6.0F};
+  arena.spawnCount = lg::kDuelPlayerCount;
+  constexpr std::array<lg::Vec3, lg::kDuelPlayerCount> spawns = {{
+    {-13.0F, -9.0F, 0.0F}, {-9.0F, -9.0F, 0.0F}, {-5.0F, -9.0F, 0.0F},
+    {5.0F, -9.0F, 0.0F}, {9.0F, -9.0F, 0.0F}, {13.0F, -9.0F, 0.0F},
+    {-13.0F, 9.0F, 0.0F}, {-9.0F, 9.0F, 0.0F}, {-5.0F, 9.0F, 0.0F},
+    {5.0F, 9.0F, 0.0F}, {9.0F, 9.0F, 0.0F}, {13.0F, 9.0F, 0.0F},
+    {-13.0F, 0.0F, 0.0F}, {-9.0F, 0.0F, 0.0F}, {9.0F, 0.0F, 0.0F},
+    {13.0F, 0.0F, 0.0F},
+  }};
+  for (std::size_t index = 0; index < spawns.size(); ++index) {
+    arena.spawnPositions[index] = spawns[index];
+  }
+  // Two central blocks leave three player-sized routes. They force ordinary
+  // graph routing without making a fixed-capacity benchmark map expensive.
+  arena.walls[0].min = {-1.0F, -10.0F, 0.0F};
+  arena.walls[0].max = {1.0F, -2.0F, 3.0F};
+  arena.walls[1].min = {-1.0F, 2.0F, 0.0F};
+  arena.walls[1].max = {1.0F, 10.0F, 3.0F};
+  arena.walls[2].min = {-8.0F, -1.0F, 0.0F};
+  arena.walls[2].max = {-3.0F, 1.0F, 2.5F};
+  arena.walls[3].min = {3.0F, -1.0F, 0.0F};
+  arena.walls[3].max = {8.0F, 1.0F, 2.5F};
+  arena.wallCount = 4;
+  arena.healthPickups[0] = {{-6.0F, 3.5F, 0.0F}, lg::HealthPickupType::Large};
+  arena.healthPickups[1] = {{6.0F, -3.5F, 0.0F}, lg::HealthPickupType::Large};
+  arena.healthPickupCount = 2;
+  return arena;
+}
 
 [[nodiscard]] std::uint64_t runServerTicks(
   ServerBenchmarkFixture& fixture,
@@ -307,10 +353,19 @@ int main(int argc, char** argv) {
     if (!error.empty()) std::cerr << "LG simulation benchmark error: " << error << '\n';
     return error.empty() ? 0 : 2;
   }
-  lg::LocalMapLoadResult loaded = lg::loadLocalMap(options.map, options.mapDirectory);
-  if (!loaded.ok) {
-    std::cerr << "LG simulation benchmark error: " << loaded.error << '\n';
-    return 3;
+  lg::LocalMapLoadResult loaded;
+  if (options.workload == "server-bots") {
+    // This fixture isolates per-tick bot work from map parsing and offline
+    // nav validation. Real-map navigation remains covered by --nav tests.
+    loaded.arena = makeModerateBotArena();
+    loaded.descriptor = lg::describeMap("bot-moderate-fixture", loaded.arena);
+    loaded.ok = true;
+  } else {
+    loaded = lg::loadLocalMap(options.map, options.mapDirectory);
+    if (!loaded.ok) {
+      std::cerr << "LG simulation benchmark error: " << loaded.error << '\n';
+      return 3;
+    }
   }
   if (options.forceLinear) loaded.arena.collisionIndex.reset();
   std::error_code directoryError;
@@ -416,12 +471,15 @@ int main(int argc, char** argv) {
   root.object["collision_query_mode"] = lg::dev::JsonValue::stringValue(
     options.forceLinear ? "forced-linear" : "indexed-when-available"
   );
-  root.object["map"] = lg::dev::JsonValue::stringValue(options.map);
+  root.object["map"] = lg::dev::JsonValue::stringValue(loaded.descriptor.mapName);
   root.object["map_content_hash"] = lg::dev::JsonValue::numberValue(loaded.descriptor.contentHash);
   if (options.workload == "server-bots") {
     root.object["bot_count"] = lg::dev::JsonValue::numberValue(16.0);
     root.object["fixed_tick_rate"] = lg::dev::JsonValue::numberValue(lg::kFixedTickRate);
     root.object["seed"] = lg::dev::JsonValue::numberValue(0xB07D0D6EU);
+    root.object["server_bot_ticks"] = lg::dev::JsonValue::numberValue(
+      static_cast<double>(options.serverBotTicks)
+    );
   }
   root.object["wall_count"] = lg::dev::JsonValue::numberValue(static_cast<double>(loaded.arena.wallCount));
   root.object["brush_count"] = lg::dev::JsonValue::numberValue(static_cast<double>(loaded.arena.brushCount));
@@ -433,6 +491,11 @@ int main(int argc, char** argv) {
   root.object["deterministic_replay"] = lg::dev::JsonValue::booleanValue(deterministic);
   root.object["valid"] = lg::dev::JsonValue::booleanValue(deterministic && !samples.empty());
   root.object["checksum"] = lg::dev::JsonValue::stringValue(std::to_string(expectedChecksum.value_or(0U)));
+  if (options.workload == "server-bots") {
+    root.object["final_hash"] = lg::dev::JsonValue::stringValue(
+      std::to_string(expectedChecksum.value_or(0U))
+    );
+  }
   lg::dev::JsonValue metrics = lg::dev::JsonValue::objectValue();
   if (!movementSamples.empty()) metrics.object["movement_collision_us_per_operation"] = summaryJson(movementSamples);
   if (!hitscanSamples.empty()) metrics.object["hitscan_us_per_trace"] = summaryJson(hitscanSamples);

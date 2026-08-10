@@ -349,6 +349,10 @@ private:
   Weapon botWeapon_ = Weapon::MachineGun;
   bool botWeaponAuto_ = true;
   BotNavigationMap botNavigation_ = {};
+  // These retain only already-filtered frames. They keep expensive LOS/FOV
+  // work below the 125 Hz motor rate and never expose raw server state to AI.
+  std::array<BotSenseFrame, kDuelPlayerCount> botSenseFrames_ = {};
+  std::array<bool, kDuelPlayerCount> botSenseFrameValid_ = {};
   std::array<BotBrain, kDuelPlayerCount> botBrains_ = {};
   std::array<BotMotor, kDuelPlayerCount> botMotors_ = {};
   std::array<std::uint64_t, kDuelPlayerCount> botCommandIngressCounts_ = {};
