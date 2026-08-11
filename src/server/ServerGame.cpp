@@ -1781,6 +1781,7 @@ replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
   checkpoint.rocketExplosionSequences = rocketExplosionSequences_;
   checkpoint.fragEventSequences = fragEventSequences_;
   checkpoint.localHitFeedbackSequences = localHitFeedbackSequences_;
+  checkpoint.damageTakenSequences = damageTakenSequences_;
   checkpoint.footstepSequences = footstepSequences_;
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     checkpoint.footstepStates[index] = {
@@ -1835,6 +1836,11 @@ bool ServerGame::restoreReplayCheckpoint(
     }
   }
 
+  ++damageFeedbackRevision_;
+  if (damageFeedbackRevision_ == 0U) {
+    damageFeedbackRevision_ = 1U;
+  }
+
   // Preserve the loaded arena and current gameplay tuning. A replay rejects a
   // different map above; callers must configure an equivalent server before
   // playback rather than silently simulating with changed rules.
@@ -1844,6 +1850,7 @@ bool ServerGame::restoreReplayCheckpoint(
   projectileRevision_ = checkpoint.projectileRevision;
   snapshot_.serverTick = checkpoint.serverTick;
   snapshot_.mapRevision = checkpoint.mapRevision;
+  snapshot_.damageFeedbackRevision = damageFeedbackRevision_;
   snapshot_.projectileRevision = checkpoint.projectileRevision;
   snapshot_.map = mapDescriptor_;
   snapshot_.gameMode = checkpoint.match.gameMode;
@@ -1954,6 +1961,7 @@ bool ServerGame::restoreReplayCheckpoint(
   rocketExplosionSequences_ = checkpoint.rocketExplosionSequences;
   fragEventSequences_ = checkpoint.fragEventSequences;
   localHitFeedbackSequences_ = checkpoint.localHitFeedbackSequences;
+  damageTakenSequences_ = checkpoint.damageTakenSequences;
   footstepSequences_ = checkpoint.footstepSequences;
   grenadeBounceEventSequences_ = checkpoint.grenadeBounceEventSequences;
   grenadeBounceSequences_ = checkpoint.grenadeBounceSequences;

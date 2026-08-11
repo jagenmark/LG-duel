@@ -185,6 +185,25 @@ std::size_t findDamageEventPayload(
     : static_cast<std::size_t>(std::distance(wire.begin(), found));
 }
 
+std::size_t findAmmoValuePayload(
+  const lg::WirePacket& wire,
+  std::int32_t value
+) {
+  const std::uint32_t encodedValue = static_cast<std::uint32_t>(value);
+  const std::array<std::uint8_t, 6U> payload = {
+    0xffU,
+    0xffU,
+    static_cast<std::uint8_t>(encodedValue),
+    static_cast<std::uint8_t>(encodedValue >> 8U),
+    static_cast<std::uint8_t>(encodedValue >> 16U),
+    static_cast<std::uint8_t>(encodedValue >> 24U),
+  };
+  const auto found = std::search(wire.begin(), wire.end(), payload.begin(), payload.end());
+  return found == wire.end()
+    ? wire.size()
+    : static_cast<std::size_t>(std::distance(wire.begin(), found));
+}
+
 } // namespace
 
 int main() {
@@ -1213,6 +1232,23 @@ int main() {
         compactSnapshotForMutation(malformedWire, damageEventOffset + 6U) &&
           !lg::decodeServerSnapshot(malformedWire, decoded),
         "decoder should reject self-damage without the self flag"
+      );
+    }
+    const std::size_t ammoExtendedOffset =
+      findAmmoValuePayload(expandedWire, 1'000'000);
+    failures += expect(
+      ammoExtendedOffset != expandedWire.size(),
+      "extended ammo payload should be located for canonical-form tests"
+    );
+    if (ammoExtendedOffset != expandedWire.size()) {
+      malformedWire = expandedWire;
+      malformedWire[ammoExtendedOffset + 2U] = 0xfeU;
+      malformedWire[ammoExtendedOffset + 3U] = 0xffU;
+      malformedWire[ammoExtendedOffset + 4U] = 0U;
+      malformedWire[ammoExtendedOffset + 5U] = 0U;
+      failures += expect(
+        !lg::decodeServerSnapshot(malformedWire, decoded),
+        "decoder should reject an extended ammo value below the marker"
       );
     }
     lg::ServerSnapshot malformedDamage = source;

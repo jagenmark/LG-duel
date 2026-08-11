@@ -5,6 +5,7 @@
 #include "shared/Constants.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
@@ -63,6 +64,29 @@ void makeHumanAndBot(lg::ServerGame& game, lg::LoopbackTransport& transport) {
   discardSnapshots(transport);
 }
 
+void aimAtPlayerBody(
+  lg::UserCommand& command,
+  const lg::ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  std::size_t targetIndex
+) {
+  constexpr float kWeaponEyeHeight = 0.65F;
+  constexpr float kDefaultPlayerHalfHeight = 0.9F;
+  const lg::PlayerState& attacker = snapshot.players[attackerIndex];
+  const lg::PlayerState& target = snapshot.players[targetIndex];
+  const float scaledEyeHeight = kWeaponEyeHeight *
+    (attacker.bounds.halfHeight / kDefaultPlayerHalfHeight);
+  const lg::Vec3 muzzle = attacker.position +
+    lg::Vec3{0.0F, 0.0F, scaledEyeHeight};
+  const lg::Vec3 offset = target.position - muzzle;
+  command.viewYawRadians = std::atan2(offset.y, offset.x);
+  command.viewPitchRadians = std::atan2(
+    offset.z,
+    std::hypot(offset.x, offset.y)
+  );
+  command.planarAim = false;
+}
+
 } // namespace
 
 int main() {
@@ -76,6 +100,25 @@ int main() {
   failures += expect(source.snapshot().matchPhase == lg::MatchPhase::Live,
     "test match should enter live play before recording");
 
+  lg::CommandPacket initialDamage;
+  initialDamage.playerIndex = 0U;
+  initialDamage.command.sequence = 2U;
+  initialDamage.command.attack = true;
+  initialDamage.command.weapon = lg::Weapon::Railgun;
+  aimAtPlayerBody(initialDamage.command, source.snapshot(), 0U, 1U);
+  initialDamage.viewedServerTick = source.snapshot().serverTick;
+  sourceTransport.sendCommand(initialDamage);
+  source.tick(lg::kFixedTickSeconds);
+  discardSnapshots(sourceTransport);
+  const lg::replay::ReplayCheckpoint initialDamageCheckpoint =
+    source.captureReplayCheckpoint();
+  const std::uint32_t initialDamageSequence =
+    initialDamageCheckpoint.damageTakenSequences[1];
+  failures += expect(
+    initialDamageSequence != 0U,
+    "replay seek fixture should create a retained damage sequence"
+  );
+
   std::string error;
   lg::replay::ReplayRecordingConfig recordingConfig;
   recordingConfig.checkpointIntervalTicks = 24U;
@@ -85,14 +128,17 @@ int main() {
   for (std::uint32_t tick = 0U; tick < 96U; ++tick) {
     lg::CommandPacket command;
     command.playerIndex = 0U;
-    command.command.sequence = 2U + tick;
+    command.command.sequence = 3U + tick;
     command.command.clientTick = 100U + tick;
     command.command.forwardMove = 1.0F;
     command.command.viewYawRadians = 0.0F;
     command.command.viewPitchRadians = 0.0F;
     command.command.planarAim = false;
-    command.command.attack = false;
+    command.command.attack = tick == 0U;
     command.command.weapon = lg::Weapon::MachineGun;
+    if (tick == 0U) {
+      aimAtPlayerBody(command.command, source.snapshot(), 0U, 1U);
+    }
     command.viewedServerTick = source.snapshot().serverTick;
     sourceTransport.sendCommand(command);
     source.tick(lg::kFixedTickSeconds);
@@ -104,6 +150,10 @@ int main() {
     discardSnapshots(sourceTransport);
   }
   const lg::replay::ReplayCheckpoint sourceFinalCheckpoint = source.captureReplayCheckpoint();
+  failures += expect(
+    sourceFinalCheckpoint.damageTakenSequences[1] == initialDamageSequence + 1U,
+    "recorded damage should advance from the restored sequence"
+  );
   const std::optional<lg::replay::ReplayDemo> recorded = source.finishReplayRecording();
   failures += expect(recorded.has_value(), "server should finalize the replay");
   failures += expect(recorded.has_value() && recorded->ticks.size() == 96U,
@@ -125,6 +175,11 @@ int main() {
       "saved demo should encode");
     failures += expect(lg::replay::decodeDemo(bytes, savedDemo, &error),
       "saved demo should decode");
+    failures += expect(
+      !savedDemo.checkpoints.empty() &&
+        savedDemo.checkpoints.front().damageTakenSequences[1] == initialDamageSequence,
+      "saved replay should preserve the initial damage sequence"
+    );
   }
 
   lg::LoopbackTransport playbackTransport;
@@ -147,8 +202,18 @@ int main() {
     "runtime-invalid spawn cursor must reject before an out-of-bounds spawn path");
   // Do not add a bot. The runner restores actor metadata but never calls the
   // bot generator; it must reproduce the recorded final bot commands.
+  const std::uint32_t revisionBeforePlaybackRestore =
+    playback.snapshot().damageFeedbackRevision;
   lg::replay::ReplayPlaybackRunner runner(playback, savedDemo);
   failures += expect(runner.initialize(&error), "playback should restore the initial checkpoint");
+  failures += expect(
+    playback.snapshot().damageFeedbackRevision != revisionBeforePlaybackRestore,
+    "replay restore should advance the damage-feedback timeline revision"
+  );
+  failures += expect(
+    playback.captureReplayCheckpoint().damageTakenSequences[1] == initialDamageSequence,
+    "replay restore should restore the damage sequence before emitting damage"
+  );
   while (runner.step(&error)) {}
   failures += expect(runner.finished(), "playback should consume all recorded ticks");
   failures += expect(!runner.divergence().diverged,
@@ -159,7 +224,18 @@ int main() {
 
   if (savedDemo.ticks.size() >= 49U) {
     const std::uint32_t target = savedDemo.ticks[48].tick + 1U;
+    const std::uint32_t revisionBeforeSeek =
+      playback.snapshot().damageFeedbackRevision;
     failures += expect(runner.seek(target, &error), "checkpoint seek should reproduce the target state");
+    failures += expect(
+      playback.snapshot().damageFeedbackRevision != revisionBeforeSeek,
+      "checkpoint seek should advance the damage-feedback timeline revision"
+    );
+    failures += expect(
+      playback.captureReplayCheckpoint().damageTakenSequences[1] ==
+        sourceFinalCheckpoint.damageTakenSequences[1],
+      "checkpoint seek should restore history-dependent damage sequences"
+    );
     while (runner.step(&error)) {}
     failures += expect(!runner.divergence().diverged,
       "periodic checkpoint seek should retain footstep and gameplay hash agreement");

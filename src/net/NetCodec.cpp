@@ -339,6 +339,7 @@ bool readAmmoValue(Reader& reader, std::int32_t& value) {
   std::uint32_t extended = 0;
   if (
     !reader.readU32(extended) ||
+    extended < static_cast<std::uint32_t>(kAmmoExtendedMarker) ||
     extended > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max())
   ) {
     return false;

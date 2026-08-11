@@ -73,12 +73,12 @@ The table records compressed packet bytes from `lg_duel_protocol_tests` on the s
 | Gameplay duel | 485 | 383 | -102 (-21.0%) | yes | config, names, stats omitted |
 | Configuration retry | 692 | 585 | -107 (-15.5%) | yes | config only |
 | Name refresh | 485 | 447 | -38 (-7.8%) | yes | names only |
-| Full duel | 972 | 927 | -45 (-4.6%) | yes | config, names, stats |
+| Full duel | 972 | 929 | -43 (-4.4%) | yes | config, names, stats |
 | Six-player | 490 | 386 | -104 (-21.2%) | yes | config, names, stats omitted |
-| Active combat | 1,066 | 1,011 | -55 (-5.2%) | yes | config and names; combat events |
+| Active combat | 1,068 | 1,017 | -51 (-4.8%) | yes | config and names; combat events |
 | Sixteen-player | 685 | 583 | -102 (-14.9%) | yes | config, names, stats omitted |
-| Full retained damage ring | n/a | 444 | new | yes | eight victim events |
-| Control command bundle | 1,140 | 1,110 | -30 (-2.6%) | no | control commands |
+| Full retained damage ring | n/a | 445 | new | yes | eight victim events |
+| Control command bundle | 1,140 | 1,122 | -18 (-1.6%) | no | control commands |
 | Gameplay command bundle | 549 | 597 | +48 (+8.7%) | no | name-revision acknowledgement |
 | Maximum projectile update | 1,173 | 1,173 | 0 | no | projectile updates |
 

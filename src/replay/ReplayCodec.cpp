@@ -533,6 +533,7 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
   };
   if (!writeU32Array(checkpoint.projectileSequences) || !writeU32Array(checkpoint.rocketExplosionSequences) ||
       !writeU32Array(checkpoint.fragEventSequences) || !writeU32Array(checkpoint.localHitFeedbackSequences) ||
+      !writeU32Array(checkpoint.damageTakenSequences) ||
       !writeU32Array(checkpoint.footstepSequences) || !writeU32Array(checkpoint.grenadeBounceEventSequences) ||
       !writeU32Array(checkpoint.grenadeBounceSequences) || !writeU32Array(checkpoint.spawnLastUsedTicks)) return false;
   for (const ReplayFootstepState& footstep : checkpoint.footstepStates) {
@@ -637,6 +638,7 @@ bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
   };
   if (!readU32Array(checkpoint.projectileSequences) || !readU32Array(checkpoint.rocketExplosionSequences) ||
       !readU32Array(checkpoint.fragEventSequences) || !readU32Array(checkpoint.localHitFeedbackSequences) ||
+      !readU32Array(checkpoint.damageTakenSequences) ||
       !readU32Array(checkpoint.footstepSequences) || !readU32Array(checkpoint.grenadeBounceEventSequences) ||
       !readU32Array(checkpoint.grenadeBounceSequences) || !readU32Array(checkpoint.spawnLastUsedTicks)) return false;
   for (ReplayFootstepState& footstep : checkpoint.footstepStates) {
