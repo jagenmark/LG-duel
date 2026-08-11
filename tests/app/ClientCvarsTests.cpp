@@ -633,9 +633,9 @@ int main() {
       console.execute("r_weapon_switch_animation 0") ==
         "r_weapon_switch_animation = 0" &&
       !console.getBool("r_weapon_switch_animation") &&
-      console.execute("r_viewmodel_hands") == "r_viewmodel_hands = 1 (default 1)" &&
-      console.execute("r_viewmodel_hands 0") == "r_viewmodel_hands = 0" &&
-      !console.getBool("r_viewmodel_hands") &&
+      console.execute("r_viewmodel_hands") == "r_viewmodel_hands = 0 (default 0)" &&
+      console.execute("r_viewmodel_hands 1") == "r_viewmodel_hands = 1" &&
+      console.getBool("r_viewmodel_hands") &&
       console.execute("r_dev_camera_draw_connected_body") ==
         "r_dev_camera_draw_connected_body = 0 (default 0)" &&
       console.execute("r_dev_camera_draw_connected_body 1") ==

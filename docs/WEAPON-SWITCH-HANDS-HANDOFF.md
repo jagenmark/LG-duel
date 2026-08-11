@@ -18,7 +18,8 @@ The final design choices are:
 - Third person: use the inverse motion. The Worker arms and held weapon lift
   toward the head, swap near the top, then return to the normal grip.
 - Hands: keep the weapon as the main shape. Hands should be small, natural,
-  mostly below the weapon, and easy to turn off with `r_viewmodel_hands 0`.
+  mostly below the weapon, and opt-in with `r_viewmodel_hands 1` until their
+  visual work passes review.
 - The Revolver may use only the right hand.
 
 ## Worktree and branch
@@ -317,4 +318,3 @@ Likely overlap with the replay branch remains in:
 A future replay path should provide selected-weapon observations, existing
 authoritative fire events and visual seeds, explicit replay delta, and a hard
 presentation reset after seek. It should not add switch state to the protocol.
-

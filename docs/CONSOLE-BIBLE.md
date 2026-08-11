@@ -117,7 +117,7 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_camera_position_response` | float | `0` | `0..0.15` | None | Archive | Optional extremely subtle translation-only camera response derived from presentation motion. Default `0` is exactly neutral; no camera rotation is ever added. |
 | `r_player_model` | int | `1` | `0..1` | None | Archive | Remote player body renderer. `0` uses legacy boxes and `1` uses the Quaternius Worker GLB default. The Duelist asset stays archived and is not a runtime option. |
 | `r_weapon_switch_animation` | bool | `1` | bool | None | Archive | Enables the deterministic 0.16-second first-person drop/hidden-swap/raise presentation and the inverse third-person arm lift. It never changes weapon authority or fire timing. |
-| `r_viewmodel_hands` | bool | `1` | bool | None | Archive | Draws the shared static trigger-grip and support-grip hand/forearm meshes in the first-person ViewModel pass. |
+| `r_viewmodel_hands` | bool | `0` | bool | None | Archive | Draws the shared static trigger-grip and support-grip hand/forearm meshes in the first-person ViewModel pass. The work-in-progress hands remain opt-in. |
 | `r_dev_camera_draw_connected_body` | bool | `0` | bool | None | Session | Draws the connected player through the third-person Worker path only while the development camera is active. This supports fixed-camera switch checks and never changes normal camera ownership. |
 | `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
 | `cl_health_style` | int | `0` | `0..2` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra med dynamisk färg, `2` crosshair-nära HP vänster och ammo höger. |
