@@ -1232,7 +1232,7 @@ BotNavigationMap buildBotNavigationMap(
   const std::size_t totalSeedCount = seedCount;
   std::size_t activeSeedCount = semanticSeedCount;
   const auto enqueue = [&](std::size_t region, std::size_t node, std::size_t direction,
-                           std::uint8_t resumeDirection = kNoResumeDirection,
+                           std::uint8_t resumeDirection = UINT8_MAX,
                            bool resumeProbe = false) {
     if (region >= totalSeedCount || node >= map.nodeCount ||
         direction >= kRegionDirections.size()) return;
