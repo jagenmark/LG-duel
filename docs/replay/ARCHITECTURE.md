@@ -70,12 +70,15 @@ command and the data used with it:
 - slot/body connection changes, human-or-bot marker, name, team, ready state,
   spectator state, phase, rules, map, and configuration changes.
 
-The current v2 `ReplayTickInput` records only present slots. It keeps each
+The current v3 `ReplayTickInput` records only present slots. It keeps each
 present slot’s resolved command, `viewedServerTick`, consumed action edges,
 accepted jump/dash/attack/throw edges, and original attack edge command. An
 absent slot has no replay payload and must have default input state. It does not
 yet encode separate dynamic roster, name, team, ready, rule, map, or
 configuration-change records. Those records remain pending.
+
+The replay decoder accepts only format v3. It rejects v1 and v2 before
+restoring any state.
 
 During replay, both human and bot slots inject those recorded commands through
 the normal authoritative input path. Bot generation stays off. A bot marker may
