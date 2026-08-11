@@ -802,7 +802,16 @@ struct TransientTracerStore {
         ) {
           continue;
         }
-        if (followMuzzle[index]) {
+        // Only the short muzzle-flash cues stay attached to the live weapon.
+        // Fired tracer endpoints are captured when the shot is accepted.
+        if (
+          followMuzzle[index] &&
+          (
+            tracer.style == TracerStyle::MachineGunMuzzleFlash ||
+            tracer.style == TracerStyle::RevolverMuzzleFlash ||
+            tracer.style == TracerStyle::RocketLauncherMuzzleFlash
+          )
+        ) {
           const Vec3 oldStart = tracer.start;
           const Vec3 oldDelta = tracer.end - oldStart;
           const std::size_t playerIndex = followPlayerIndex[index];
@@ -992,7 +1001,7 @@ void spawnMachineGunTracer(
     tracerColor(Weapon::MachineGun, fire.visualSeed),
     fire.visualSeed,
     TracerStyle::MachineGun,
-  }, true, Weapon::MachineGun, fire.visualSeed, playerIndex);
+  }, false, Weapon::MachineGun, fire.visualSeed, playerIndex);
   // The flash shares the tracer's deduplicated fire event and muzzle-follow
   // metadata, so it cannot repeat when the same snapshot is rendered twice.
   store.add({
@@ -1030,7 +1039,6 @@ void spawnShotgunTracers(
   const Arena& arena,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle,
   std::uint8_t playerIndex
 ) {
   const Vec3 forward = normalize(fire.end - fire.start);
@@ -1078,7 +1086,7 @@ void spawnShotgunTracers(
       tracerColor(Weapon::Shotgun, fire.visualSeed + visualIndex),
       fire.visualSeed + visualIndex,
       TracerStyle::Shotgun,
-    }, followLocalMuzzle, Weapon::Shotgun, fire.visualSeed, playerIndex);
+    }, false, Weapon::Shotgun, fire.visualSeed, playerIndex);
   }
 }
 
@@ -1372,7 +1380,6 @@ void consumeTracerWeaponFires(
         arena,
         visualFire,
         visualStart,
-        localEvent,
         eventPlayer
       );
       const bool spawnedSurfaceImpact = spawnWorldSurfaceImpact(
@@ -10207,28 +10214,9 @@ int GameApp::run() const {
           lingeringRailBeam.fire.weapon == Weapon::Railgun &&
           now < lingeringRailBeam.expiresAt
         ) {
-          // The cue follows the rendered socket and uses the server trace's
-          // direction and length. It never affects hits, damage, or state.
-          const Vec3 liveStart = playerIndex == renderLocalPlayerIndex
-            ? (
-              currentRenderSettings.showOwnWeapons
-                ? firstPersonSniperRifleMuzzlePosition(
-                    renderPlayer,
-                    currentRenderSettings
-                  )
-                : hiddenWeaponVisualOrigin(renderPlayer)
-            )
-            : (
-              playerIndex < renderRemotePlayers.size() &&
-                renderRemotePlayers[playerIndex].visible
-                ? remoteSniperRifleMuzzlePosition(
-                    renderRemotePlayers[playerIndex],
-                    currentRenderSettings
-                  )
-                : lingeringRailBeam.sourceFire.start
-            );
-          lingeringRailBeam.fire.start = liveStart;
-          currentFire.start = liveStart;
+          // The fire start was captured from the rendered muzzle when this
+          // event began. Keep it fixed while only the fade and smoke shape
+          // continue to animate.
           const float ageSeconds = std::chrono::duration<float>(
             now - lingeringRailBeam.startedAt
           ).count();
@@ -10281,19 +10269,6 @@ int GameApp::run() const {
         );
         currentRenderSettings.revolverCylinderRotationRadians =
           (completedSteps + smoothIndexT) * (kTwoPi / 6.0F);
-        const float ageSeconds = std::chrono::duration<float>(
-          now - lingeringRailBeam.startedAt
-        ).count();
-        if (revolverTracerPresentation(ageSeconds).followMuzzle) {
-          const Vec3 followedStart = currentRenderSettings.showOwnWeapons
-            ? firstPersonRevolverMuzzlePosition(
-                renderPlayer,
-                currentRenderSettings
-              )
-            : hiddenWeaponVisualOrigin(renderPlayer);
-          lingeringRailBeam.fire.start = followedStart;
-          currentFire.start = followedStart;
-        }
       }
     }
     const bool sniperAdsRequested =

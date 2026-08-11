@@ -6472,29 +6472,9 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     if (fire.weapon == Weapon::Railgun || fire.weapon == Weapon::Revolver) {
-      const bool localHitscanFire =
-        fireIndex == static_cast<std::size_t>(settings.localPlayerIndex) &&
-        settings.showOwnWeapons;
-      const Vec3 visualStart = localHitscanFire
-        ? fire.weapon == Weapon::Railgun
-          ? [&]() {
-              PlayerState viewModelPlayer = player;
-              viewModelPlayer.position.z += cameraVerticalOffset;
-              viewModelPlayer.position += cameraMotion;
-              return sniperRifleMuzzlePositionForViewModelPlayer(
-                viewModelPlayer,
-                settings
-              );
-            }()
-          : firstPersonRevolverMuzzlePosition(player, settings) +
-              Vec3{0.0F, 0.0F, cameraVerticalOffset}
-        : fireIndex < remotePlayers.size() && remotePlayers[fireIndex].visible
-          ? remoteHitscanMuzzlePosition(
-              remotePlayers[fireIndex],
-              fire.weapon,
-              settings
-            )
-          : fire.start;
+      // GameApp captures the rendered muzzle in fire.start when the event
+      // begins. Keep the fired line in world space as the player moves.
+      const Vec3 visualStart = fire.start;
       if (fire.weapon == Weapon::Revolver) {
         const float alpha = fireIndex < settings.revolverTracerAlpha.size()
           ? std::clamp(settings.revolverTracerAlpha[fireIndex], 0.0F, 1.0F)

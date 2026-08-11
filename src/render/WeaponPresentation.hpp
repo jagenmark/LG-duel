@@ -288,11 +288,9 @@ struct PlasmaGunFiringResponseState {
 };
 
 inline constexpr float kRevolverTracerLifetimeSeconds = 0.11F;
-inline constexpr float kRevolverTracerMuzzleFollowSeconds = 0.055F;
 
 struct RevolverTracerPresentation {
   float alpha = 0.0F;
-  bool followMuzzle = false;
   bool active = false;
 };
 
@@ -307,14 +305,12 @@ struct RevolverTracerPresentation {
   );
   return {
     std::pow(1.0F - progress, 1.35F),
-    age <= kRevolverTracerMuzzleFollowSeconds,
     age < kRevolverTracerLifetimeSeconds,
   };
 }
 
-// This is presentation-only. The authoritative Railgun trace remains the
-// fire event's start/end pair; the client shows only a compact trace at the
-// live weapon socket.
+// This is presentation-only. The fired Railgun trace keeps the event's
+// world-space start/end pair while the client shows only a compact trace.
 inline constexpr float kSniperSmokeTracerLifetimeSeconds = 0.085F;
 inline constexpr float kSniperSmokeTracerMaximumLength = 2.40F;
 
