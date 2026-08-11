@@ -145,7 +145,7 @@ constexpr std::uint32_t kMaxProjectilePresentationTicks = 7500U;
     case BotCommandType::Dodge:
       return value == 0 || value == 1;
     case BotCommandType::Weapon:
-      return value >= 0 &&
+      return value >= -1 &&
         value <= static_cast<std::int32_t>(kLastWeapon);
   }
   return false;

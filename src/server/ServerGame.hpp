@@ -5,6 +5,7 @@
 #include "replay/ReplayRecorder.hpp"
 #include "replay/ReplayRollingBuffer.hpp"
 #include "scenario/ScenarioState.hpp"
+#include "server/BotAi.hpp"
 #include "sim/Arena.hpp"
 #include "sim/BalanceConfig.hpp"
 #include "sim/Combat.hpp"
@@ -24,6 +25,25 @@ struct BotRosterChange {
   bool ok = false;
   std::size_t changed = 0;
   std::string message;
+};
+
+// Server-local soak evidence. These counters never enter ServerSnapshot or
+// the network protocol; tests use direct state transitions rather than debug
+// text sampling.
+struct BotRuntimeStats {
+  std::array<std::uint32_t, kDuelPlayerCount> acquisitions = {};
+  std::array<std::uint32_t, kDuelPlayerCount> losses = {};
+  std::array<std::uint32_t, kDuelPlayerCount> attackCommandTicks = {};
+  // Count only fires that cleared the normal selected-weapon, pullout,
+  // cooldown, ammo, and edge checks. This is not a requested input count.
+  std::array<std::uint32_t, kDuelPlayerCount> acceptedWeaponFires = {};
+  // Damage events record the legal canonical attacker-to-target application,
+  // including delayed projectile damage. They never enter a snapshot.
+  std::array<std::array<std::uint32_t, kDuelPlayerCount>, kDuelPlayerCount>
+    acceptedDamageEvents = {};
+  std::array<std::uint32_t, kDuelPlayerCount> navigationCommandTicks = {};
+  std::array<std::uint32_t, kDuelPlayerCount> movementIntentTicks = {};
+  std::array<std::uint32_t, kDuelPlayerCount> recoveryEvents = {};
 };
 
 class ServerGame {
@@ -75,6 +95,7 @@ public:
   );
   void setBotAttackMode(BotAttackMode mode);
   void setBotWeapon(Weapon weapon);
+  void setBotWeaponAuto();
   [[nodiscard]] BotRosterChange addBots(std::optional<std::size_t> count = std::nullopt);
   [[nodiscard]] BotRosterChange kickAllBots();
   [[nodiscard]] BotRosterChange kickBotAtPlayerIndex(std::size_t playerIndex);
@@ -86,6 +107,14 @@ public:
   [[nodiscard]] int botDodgeMaxIntervalMs() const;
   [[nodiscard]] BotAttackMode botAttackMode() const;
   [[nodiscard]] Weapon botWeapon() const;
+  [[nodiscard]] bool botWeaponAuto() const;
+  [[nodiscard]] std::uint64_t botCommandIngressCount(std::size_t playerIndex) const;
+  [[nodiscard]] std::uint64_t botDeterminismHash() const;
+  // Server-local counter for tests. It never enters snapshots or bot input.
+  [[nodiscard]] std::uint32_t botNavigationBuildCount() const;
+  [[nodiscard]] std::uint64_t botHiddenAttackInvariantCount() const;
+  [[nodiscard]] const BotRuntimeStats& botRuntimeStats() const;
+  [[nodiscard]] std::string botDebugString(std::size_t playerIndex) const;
   [[nodiscard]] bool isBotSlot(std::size_t playerIndex) const;
   [[nodiscard]] bool isHumanPlayer(std::size_t playerIndex) const;
   [[nodiscard]] bool isOccupiedSlot(std::size_t playerIndex) const;
@@ -150,17 +179,6 @@ private:
     bool initialized = false;
   };
 
-  struct BotCombatState {
-    float reactionSecondsRemaining = 0.0F;
-    std::size_t targetPlayerIndex = kDuelPlayerCount;
-    float desiredYawRadians = 0.0F;
-    float desiredPitchRadians = 0.0F;
-    float aimErrorYawRadians = 0.0F;
-    float aimErrorPitchRadians = 0.0F;
-    float nextAimErrorRefreshSeconds = 0.0F;
-    bool initialized = false;
-  };
-
   struct RecentProjectileRemoval {
     ProjectileUpdate update = {};
     std::uint32_t serverTick = 0;
@@ -169,6 +187,14 @@ private:
   };
 
   void receiveCommands();
+  void ingestGameplayCommand(
+    std::size_t playerIndex,
+    UserCommand command,
+    std::uint32_t viewedServerTick,
+    bool receivedFromNetwork,
+    bool generatedByBot
+  );
+  void applyAttackEdges();
   void setArena(const Arena& arena, MapDescriptor descriptor);
   void resetPlayerInputState(std::size_t playerIndex);
   void respawnPlayer(std::size_t playerIndex);
@@ -240,6 +266,11 @@ private:
   void rememberTransientCombatEvents();
   void updateParticipatingPlayers();
   void updateBotCommands(float fixedDt);
+  [[nodiscard]] BotSenseFrame buildBotSenseFrame(
+    std::size_t playerIndex,
+    float fixedDt
+  ) const;
+  void rebuildBotNavigation();
   [[nodiscard]] replay::ReplayTickInput captureResolvedReplayInput() const;
   [[nodiscard]] replay::ReplayMetadata replayMetadata() const;
   [[nodiscard]] std::uint64_t replayGameplayConfigHash() const;
@@ -378,9 +409,22 @@ private:
   int botDodgeMaxIntervalMs_ = 750;
   std::array<int, kDuelPlayerCount> botDodgeDirections_ = {};
   std::array<float, kDuelPlayerCount> botDodgeSwitchSeconds_ = {};
-  BotAttackMode botAttackMode_ = BotAttackMode::Off;
+  BotAttackMode botAttackMode_ = BotAttackMode::Medium;
   Weapon botWeapon_ = Weapon::MachineGun;
-  std::array<BotCombatState, kDuelPlayerCount> botCombatStates_ = {};
+  bool botWeaponAuto_ = true;
+  BotNavigationMap botNavigation_ = {};
+  std::uint32_t botNavigationBuildCount_ = 0;
+  // These retain only already-filtered frames. They keep expensive LOS/FOV
+  // work below the 125 Hz motor rate and never expose raw server state to AI.
+  std::array<BotSenseFrame, kDuelPlayerCount> botSenseFrames_ = {};
+  std::array<bool, kDuelPlayerCount> botSenseFrameValid_ = {};
+  std::array<BotBrain, kDuelPlayerCount> botBrains_ = {};
+  std::array<BotMotor, kDuelPlayerCount> botMotors_ = {};
+  std::array<std::uint64_t, kDuelPlayerCount> botCommandIngressCounts_ = {};
+  std::uint64_t botHiddenAttackInvariantCount_ = 0;
+  BotRuntimeStats botRuntimeStats_ = {};
+  std::array<bool, kDuelPlayerCount> botTargetObserved_ = {};
+  std::array<bool, kDuelPlayerCount> botRecovering_ = {};
   std::uint32_t botRandomState_ = 0xB07D0D6EU;
   std::deque<HistoryFrame> history_ = {};
   MatchRules matchRules_ = {};
