@@ -1823,16 +1823,30 @@ struct DuelistPoseRequests {
   float animationTimeSeconds,
   const PlayerPresentationFrame* presentation
 ) {
+  const bool workerModel = &model == &workerPlayerModel();
   if (presentation == nullptr || presentation->poseLayerCount == 0U) {
-    return duelistPoseRequests(
+    DuelistPoseRequests poseRequests = duelistPoseRequests(
       player,
       leanEnabled,
       leanScale,
       animationTimeSeconds
     );
+    if (workerModel) {
+      for (std::size_t index = 0; index < poseRequests.count; ++index) {
+        SkinnedModelPoseRequest& request = poseRequests.values[index];
+        if (request.mask != SkinnedModelPoseMask::UpperBody) {
+          continue;
+        }
+        if (request.animationName == "LEAN_LEFT") {
+          request.animationName = "STRAFE_LEFT";
+        } else if (request.animationName == "LEAN_RIGHT") {
+          request.animationName = "STRAFE_RIGHT";
+        }
+      }
+    }
+    return poseRequests;
   }
 
-  const bool workerModel = &model == &workerPlayerModel();
   DuelistPoseRequests poseRequests;
   for (std::size_t index = 0; index < presentation->poseLayerCount; ++index) {
     const PlayerPoseLayer& layer = presentation->poseLayers[index];
@@ -1849,9 +1863,25 @@ struct DuelistPoseRequests {
     if (workerModel && clip == "IDLE") {
       clip = "Idle_Gun_TwoHanded";
     }
+    float time = layer.timeSeconds;
+    if (workerModel && layer.mask == PlayerPoseLayerMask::UpperBody) {
+      // Worker has no separate LEAN clips. Its authored strafe clips provide
+      // the directional upper-body pose when the leg layer remains RUN.
+      if (clip == "LEAN_LEFT") {
+        clip = "STRAFE_LEFT";
+      } else if (clip == "LEAN_RIGHT") {
+        clip = "STRAFE_RIGHT";
+      }
+    } else if (
+      workerModel &&
+      layer.mask == PlayerPoseLayerMask::FullBody &&
+      (clip == "STRAFE_LEFT" || clip == "STRAFE_RIGHT")
+    ) {
+      clip = "RUN";
+    }
     poseRequests.push({
       clip,
-      layer.timeSeconds,
+      time,
       weight,
       layer.mask == PlayerPoseLayerMask::UpperBody
         ? SkinnedModelPoseMask::UpperBody

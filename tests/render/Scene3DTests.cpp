@@ -2483,27 +2483,47 @@ int main() {
   }
 
   opponent.velocity = lg::yawRight(opponent.viewYawRadians) * 8.0F;
+  lg::RemotePlayerView workerRunRemote;
+  workerRunRemote.player = opponent;
+  workerRunRemote.selectedWeapon = lg::Weapon::LightningGun;
+  workerRunRemote.visible = true;
+  workerRunRemote.presentation.poseLayers[0] = {
+    "RUN", 0.25F, 1.0F, lg::PlayerPoseLayerMask::FullBody,
+  };
+  workerRunRemote.presentation.poseLayerCount = 1U;
+  workerRunRemote.hasPresentation = true;
+  lg::RemotePlayerView workerLeanRemote = workerRunRemote;
+  workerLeanRemote.presentation.poseLayers[0] = {
+    "STRAFE_LEFT", 0.25F, 1.0F, lg::PlayerPoseLayerMask::FullBody,
+  };
+  workerLeanRemote.presentation.poseLayers[1] = {
+    "LEAN_LEFT", 0.25F, 1.0F, lg::PlayerPoseLayerMask::UpperBody,
+  };
+  workerLeanRemote.presentation.poseLayerCount = 2U;
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> workerRunRemotes = {};
+  workerRunRemotes[0] = workerRunRemote;
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> workerLeanRemotes = {};
+  workerLeanRemotes[0] = workerLeanRemote;
   lg::RenderSettings leanSettings = settings;
   leanSettings.enemyLeanScale = 3.0F;
-  const lg::Scene3D leanScene = lg::buildPerspectiveScene(
+  leanSettings.enemyLeanEnabled = false;
+  const lg::Scene3D leanDisabledScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
     player,
-    opponent,
-    inactiveBeam,
+    workerRunRemotes,
     inactiveBeam,
     weaponFires,
     rocketExplosions,
     rockets,
     leanSettings
   );
-  leanSettings.enemyLeanEnabled = false;
-  const lg::Scene3D leanDisabledScene = lg::buildPerspectiveScene(
+  leanSettings.enemyLeanEnabled = true;
+  const lg::Scene3D leanScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
     player,
-    opponent,
-    inactiveBeam,
+    workerLeanRemotes,
     inactiveBeam,
     weaponFires,
     rocketExplosions,
@@ -2515,11 +2535,26 @@ int main() {
       leanDisabledScene.gltfPlayerModelInstances.size() == 1U,
     "disabled enemy lean should keep the camera upright and avoid velocity roll"
   );
+  constexpr std::array<std::size_t, 8> workerLegJoints = {{
+    65U, 66U, 67U, 68U, 69U, 70U, 71U, 72U,
+  }};
+  constexpr std::array<std::size_t, 14> workerUpperBodyJoints = {{
+    3U, 4U, 5U, 6U, 7U, 8U, 9U, 10U, 11U, 12U, 37U, 38U, 39U, 40U,
+  }};
   failures += expect(
     leanScene.gltfPlayerModelInstances.size() == 1U &&
       leanScene.gltfBonePalette.size() == leanDisabledScene.gltfBonePalette.size() &&
-      maxPaletteDelta(leanScene.gltfBonePalette, leanDisabledScene.gltfBonePalette) <= 0.0001F,
-    "Worker should keep its authored body pose when no legacy Duelist lean clip is selected"
+      maxPaletteDeltaAtIndices(
+        leanScene.gltfBonePalette,
+        leanDisabledScene.gltfBonePalette,
+        workerLegJoints
+      ) <= 0.0001F &&
+      maxPaletteDeltaAtIndices(
+        leanScene.gltfBonePalette,
+        leanDisabledScene.gltfBonePalette,
+        workerUpperBodyJoints
+      ) > 0.001F,
+    "Worker horizontal movement should keep RUN legs while leaning above the waist"
   );
   opponent.velocity = {};
 
@@ -2590,7 +2625,7 @@ int main() {
       strafeRunSettings
     );
     constexpr std::array<std::size_t, 6> legJoints = {{
-      14U, 15U, 16U, 17U, 18U, 19U,
+      65U, 66U, 67U, 69U, 70U, 71U,
     }};
     const float fullStrafeLegDelta = maxPaletteDeltaAtIndices(
       strafeRunStartScene.gltfBonePalette,
