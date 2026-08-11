@@ -394,6 +394,7 @@ namespace {
   }
   std::cout << "nav " << (failures == 0 ? "PASS: " : "FAIL: ") << mapPath.string()
     << " nodes=" << map.nodeCount << " links=" << map.linkCount
+    << " components=" << map.weakComponentCount
     << " anchors=" << map.requiredAnchorCount
     << " missing_anchors=" << map.missingRequiredAnchorCount
     << " local_links=" << map.localLinkCount

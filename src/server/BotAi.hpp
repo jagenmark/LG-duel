@@ -295,6 +295,7 @@ struct BotNavigationMap {
   std::array<Vec3, 32> healthTouchVolumeFirstFreeCenter = {};
   std::array<BotNavRequiredAnchor, kMaxNodes> requiredAnchors = {};
   std::size_t semanticAnchorCount = 0;
+  std::size_t weakComponentCount = 0;
   std::array<BotNavAnchorReach, kMaxNodes> anchorReach = {};
   std::size_t jumpPadRouteCount = 0;
   std::size_t teleportRouteCount = 0;

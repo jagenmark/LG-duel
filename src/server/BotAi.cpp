@@ -1886,6 +1886,7 @@ BotNavigationMap buildBotNavigationMap(
     }
     ++weakComponentCount;
   }
+  map.weakComponentCount = weakComponentCount;
   for (std::size_t anchor = 0; anchor < semanticAnchorCount; ++anchor) {
     const std::size_t node = semanticAnchorNodes[anchor];
     BotNavAnchorReach& diagnostic = map.anchorReach[anchor];
