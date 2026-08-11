@@ -601,6 +601,30 @@ struct WeaponPresentationFrame {
   );
 }
 
+[[nodiscard]] Vec3 freezeGunMuzzleSource(
+  Vec3 fallback,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  std::size_t playerIndex,
+  const RenderSettings& settings
+) {
+  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    return settings.showOwnWeapons
+      ? firstPersonFreezeGunMuzzlePosition(localPlayer, settings)
+      : hiddenWeaponVisualOrigin(localPlayer);
+  }
+  return remoteWeaponPresentationPoint(
+    fallback,
+    remotePlayers,
+    playerIndex,
+    Weapon::FreezeGun,
+    settings,
+    1.0F,
+    0.0F,
+    0.105F
+  );
+}
+
 [[nodiscard]] Vec3 rocketLauncherMuzzleSource(
   const WeaponFireResult& fire,
   const PlayerState& localPlayer,
@@ -922,7 +946,8 @@ struct LocalTracerAimHistory {
 [[nodiscard]] float localTracerVisualRange(const WeaponFireResult& fire) {
   const float fireDistance = length(fire.end - fire.start);
   if (std::isfinite(fireDistance) && fireDistance > 0.001F) {
-    return fireDistance;
+    // Server cameraForward endpoints can rebuild a fraction short after client normalization.
+    return fireDistance + 0.001F;
   }
   return fire.weapon == Weapon::Shotgun ? 18.0F : 100.0F;
 }
@@ -1057,6 +1082,85 @@ void spawnShotgunTracers(
   }
 }
 
+[[nodiscard]] bool spawnWorldSurfaceImpact(
+  CombatEffects& combatEffects,
+  const Arena& arena,
+  const WeaponFireResult& fire,
+  SurfaceImpactWeapon weapon,
+  std::span<const ImpactSurfaceMaterial> impactSurfaceMaterials,
+  const CombatEffectsTuning& effectsTuning
+) {
+  if (effectsTuning.quality <= 0) {
+    return false;
+  }
+  const Vec3 direction = normalize(fire.end - fire.start);
+  if (length(direction) <= 0.0001F) {
+    return false;
+  }
+  const WorldTrace trace = traceWorld(
+    arena,
+    fire.start,
+    direction,
+    localTracerVisualRange(fire)
+  );
+  if (!trace.hit || fire.hit) {
+    return false;
+  }
+  combatEffects.spawnSurfaceImpact(
+    {
+      trace.end,
+      trace.normal,
+      direction,
+      impactSurfaceCategory(trace, impactSurfaceMaterials),
+      weapon,
+      fire.visualSeed,
+    },
+    effectsTuning
+  );
+  return true;
+}
+
+[[nodiscard]] bool spawnFreezeGunPulse(
+  CombatEffects& combatEffects,
+  const Arena& arena,
+  const LightningGunResult& beam,
+  Vec3 muzzlePosition,
+  std::uint8_t ownerIndex,
+  std::uint32_t visualSeed,
+  std::span<const ImpactSurfaceMaterial> impactSurfaceMaterials,
+  const CombatEffectsTuning& effectsTuning
+) {
+  if (effectsTuning.quality <= 0) {
+    return false;
+  }
+  const Vec3 direction = normalize(beam.end - beam.start);
+  if (length(direction) <= 0.0001F) {
+    return false;
+  }
+  const float range = length(beam.end - beam.start);
+  const WorldTrace impactTrace = traceWorld(
+    arena,
+    beam.start,
+    direction,
+    std::isfinite(range) && range > 0.001F ? range : 18.0F
+  );
+  combatEffects.spawnFreezeGunPulse(
+    {
+      muzzlePosition,
+      direction,
+      impactTrace.end,
+      impactTrace.normal,
+      direction,
+      impactSurfaceCategory(impactTrace, impactSurfaceMaterials),
+      visualSeed,
+      ownerIndex,
+      impactTrace.hit && !beam.hit,
+    },
+    effectsTuning
+  );
+  return impactTrace.hit && !beam.hit;
+}
+
 void spawnRocketLauncherMuzzleFlash(
   TransientTracerStore& store,
   const WeaponFireResult& fire,
@@ -1128,6 +1232,22 @@ void spawnRevolverMuzzleFlash(
   }, followLocalMuzzle, Weapon::Revolver, fire.visualSeed, playerIndex);
 }
 
+struct LocalSurfaceImpactFrame {
+  bool active = false;
+  Weapon weapon = Weapon::MachineGun;
+};
+
+[[nodiscard]] std::string_view surfaceImpactCaptureWeaponName(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::MachineGun: return "machine_gun";
+  case Weapon::Shotgun: return "shotgun";
+  case Weapon::Railgun: return "railgun";
+  case Weapon::Revolver: return "revolver";
+  case Weapon::FreezeGun: return "freeze_gun";
+  default: return "unknown";
+  }
+}
+
 void consumeTracerWeaponFires(
   TransientTracerStore& store,
   CombatEffects& combatEffects,
@@ -1139,7 +1259,8 @@ void consumeTracerWeaponFires(
   const RenderSettings& settings,
   const CombatEffectsTuning& effectsTuning,
   std::span<const ImpactSurfaceMaterial> impactSurfaceMaterials,
-  bool ownsPresentedSubject
+  bool ownsPresentedSubject,
+  LocalSurfaceImpactFrame& localSurfaceImpact
 ) {
   for (std::size_t playerIndex = 0; playerIndex < weaponFires.size(); ++playerIndex) {
     const WeaponFireResult& fire = weaponFires[playerIndex];
@@ -1148,6 +1269,7 @@ void consumeTracerWeaponFires(
       (
         fire.weapon != Weapon::MachineGun &&
         fire.weapon != Weapon::Shotgun &&
+        fire.weapon != Weapon::Railgun &&
         fire.weapon != Weapon::Revolver &&
         fire.weapon != Weapon::RocketLauncher
       )
@@ -1224,6 +1346,9 @@ void consumeTracerWeaponFires(
           },
           effectsTuning
         );
+        if (localEvent && impactTrace.hit && !fire.hit) {
+          localSurfaceImpact = {true, Weapon::MachineGun};
+        }
       }
     } else if (fire.weapon == Weapon::Shotgun) {
       const Vec3 visualStart = shotgunTracerSource(
@@ -1250,6 +1375,17 @@ void consumeTracerWeaponFires(
         localEvent,
         eventPlayer
       );
+      const bool spawnedSurfaceImpact = spawnWorldSurfaceImpact(
+        combatEffects,
+        arena,
+        fire,
+        SurfaceImpactWeapon::Shotgun,
+        impactSurfaceMaterials,
+        effectsTuning
+      );
+      if (localEvent && spawnedSurfaceImpact) {
+        localSurfaceImpact = {true, Weapon::Shotgun};
+      }
     } else if (fire.weapon == Weapon::RocketLauncher) {
       const Vec3 visualStart = rocketLauncherMuzzleSource(
         fire,
@@ -1282,7 +1418,7 @@ void consumeTracerWeaponFires(
         },
         effectsTuning
       );
-    } else {
+    } else if (fire.weapon == Weapon::Revolver) {
       const Vec3 visualStart = revolverMuzzleSource(
         fire,
         localPlayer,
@@ -1297,6 +1433,29 @@ void consumeTracerWeaponFires(
         localEvent,
         eventPlayer
       );
+      const bool spawnedSurfaceImpact = spawnWorldSurfaceImpact(
+        combatEffects,
+        arena,
+        fire,
+        SurfaceImpactWeapon::Revolver,
+        impactSurfaceMaterials,
+        effectsTuning
+      );
+      if (localEvent && spawnedSurfaceImpact) {
+        localSurfaceImpact = {true, Weapon::Revolver};
+      }
+    } else {
+      const bool spawnedSurfaceImpact = spawnWorldSurfaceImpact(
+        combatEffects,
+        arena,
+        fire,
+        SurfaceImpactWeapon::Precision,
+        impactSurfaceMaterials,
+        effectsTuning
+      );
+      if (localEvent && spawnedSurfaceImpact) {
+        localSurfaceImpact = {true, Weapon::Railgun};
+      }
     }
   }
 }
@@ -2227,10 +2386,10 @@ struct ResolutionOption {
   int height = 0;
 };
 
-constexpr int kSettingsResetRow = 31;
-constexpr int kSettingsApplyRow = 32;
-constexpr int kSettingsCloseRow = 33;
-constexpr int kSettingsRowCount = 34;
+constexpr int kSettingsResetRow = 32;
+constexpr int kSettingsApplyRow = 33;
+constexpr int kSettingsCloseRow = 34;
+constexpr int kSettingsRowCount = 35;
 
 struct SettingsMenuState {
   bool open = false;
@@ -2255,6 +2414,7 @@ struct SettingsMenuState {
   bool pendingShowConsoleCat = true;
   int pendingCombatEffects = 2;
   float pendingToneMapExposure = 1.0F;
+  float pendingDisplayGamma = 1.0F;
   int pendingAtmosphereGrade = 2;
   bool pendingBloom = true;
   float pendingBloomIntensity = 0.18F;
@@ -2282,6 +2442,7 @@ struct SettingsMenuState {
   bool originalShowConsoleCat = true;
   int originalCombatEffects = 2;
   float originalToneMapExposure = 1.0F;
+  float originalDisplayGamma = 1.0F;
   int originalAtmosphereGrade = 2;
   bool originalBloom = true;
   float originalBloomIntensity = 0.18F;
@@ -2969,6 +3130,7 @@ bool applyVideoSettings(
     menu.pendingShowConsoleCat != menu.originalShowConsoleCat ||
     menu.pendingCombatEffects != menu.originalCombatEffects ||
     menu.pendingToneMapExposure != menu.originalToneMapExposure ||
+    menu.pendingDisplayGamma != menu.originalDisplayGamma ||
     menu.pendingAtmosphereGrade != menu.originalAtmosphereGrade ||
     menu.pendingBloom != menu.originalBloom ||
     menu.pendingBloomIntensity != menu.originalBloomIntensity ||
@@ -3052,6 +3214,7 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
   menu.pendingCombatEffects = std::stoi(std::string(value("r_combat_effects")));
   menu.pendingToneMapExposure =
     std::stof(std::string(value("r_tonemap_exposure")));
+  // Display gamma belongs to the player, not a graphics quality profile.
   menu.pendingAtmosphereGrade =
     std::stoi(std::string(value("r_atmosphere_grade")));
   menu.pendingBloom = value("r_bloom") == "1";
@@ -3091,6 +3254,7 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingShowConsoleCat = console.getBool("cl_show_console_cat");
   menu.pendingCombatEffects = console.getInt("r_combat_effects");
   menu.pendingToneMapExposure = console.getFloat("r_tonemap_exposure");
+  menu.pendingDisplayGamma = console.getFloat("r_display_gamma");
   menu.pendingAtmosphereGrade = console.getInt("r_atmosphere_grade");
   menu.pendingBloom = console.getBool("r_bloom");
   menu.pendingBloomIntensity = console.getFloat("r_bloom_intensity");
@@ -3115,6 +3279,7 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
   menu.originalCombatEffects = menu.pendingCombatEffects;
   menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalDisplayGamma = menu.pendingDisplayGamma;
   menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
   menu.originalBloom = menu.pendingBloom;
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
@@ -3282,6 +3447,13 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
     menu.pendingDecalBudget = wrappedOption(values, index + direction);
     return;
   }
+  case 31:
+    menu.pendingDisplayGamma = std::clamp(
+      menu.pendingDisplayGamma + 0.05F * static_cast<float>(direction),
+      0.50F,
+      1.50F
+    );
+    return;
   default:
     return;
   }
@@ -3316,6 +3488,9 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   );
   (void)console.execute(
     "set r_tonemap_exposure " + std::to_string(menu.pendingToneMapExposure)
+  );
+  (void)console.execute(
+    "set r_display_gamma " + std::to_string(menu.pendingDisplayGamma)
   );
   (void)console.execute(
     "set r_atmosphere_grade " + std::to_string(menu.pendingAtmosphereGrade)
@@ -3358,6 +3533,7 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
   menu.originalCombatEffects = menu.pendingCombatEffects;
   menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalDisplayGamma = menu.pendingDisplayGamma;
   menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
   menu.originalBloom = menu.pendingBloom;
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
@@ -3586,6 +3762,15 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
+      31,
+      "Brightness / gamma",
+      std::to_string(
+        static_cast<int>(std::lround(menu.pendingDisplayGamma * 100.0F))
+      ) + "%",
+      menu.pendingDisplayGamma != menu.originalDisplayGamma
+    ),
+    settingsMenuItem(
+      menu,
       kSettingsResetRow,
       "Reset graphics draft",
       "Default profile",
@@ -3634,12 +3819,15 @@ void populateSettingsMenuRenderState(
           "Sets how strong the bright-effect glow appears.",
           "Smooths edges: Off, 2x MSAA, or 4x MSAA.",
           "Sets the quality of shadows cast by the sun.",
+          "Sets the budget for live map point lights.",
+          "Sets the quality of cached shadows from live map lights.",
           "Adds short grounding shadows to players and props.",
           "Sets world surface detail: Basic, Enhanced, or High.",
           "Sets the edge light used to make players stand out.",
           "Shows or hides spent weapon casings.",
           "Sets the amount of impact sparks and debris.",
           "Sets the maximum number of bullet marks kept in the world.",
+          "Adjusts final display gamma after tone mapping and grade; 100% is neutral.",
           "Resets this draft to the default graphics profile.",
           "Applies every changed setting in this graphics draft.",
           "Closes the menu and restores the last applied settings.",
@@ -3881,6 +4069,7 @@ RenderSettings renderSettings(
   settings.muzzleLightDurationSeconds =
     console.getFloat("r_muzzle_light_duration");
   settings.toneMapExposure = console.getFloat("r_tonemap_exposure");
+  settings.displayGamma = console.getFloat("r_display_gamma");
   settings.atmosphereGradeQuality = console.getInt("r_atmosphere_grade");
   settings.bloomEnabled = console.getBool("r_bloom");
   settings.bloomIntensity = console.getFloat("r_bloom_intensity");
@@ -4589,6 +4778,11 @@ HudRenderState buildHud(
   }
   hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
   if (snapshot.gameMode == GameMode::McGuffin) {
+    hud.mcguffinNavigation = selectMcGuffinNavigationTarget(
+      snapshot,
+      client.arena(),
+      localPlayerIndex
+    );
     const char* state = "AT CENTER";
     if (snapshot.mcguffin.state == McGuffinState::Carried) state = "CARRIED";
     else if (snapshot.mcguffin.state == McGuffinState::Dropped) state = "DROPPED";
@@ -4641,20 +4835,9 @@ HudRenderState buildHud(
       break;
     }
   }
-  if (snapshot.matchRules.timeLimitMinutes > 0 &&
-      snapshot.gameMode != GameMode::McGuffin) {
-    const std::uint32_t limitTicks =
-      static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) * 60U * 125U;
-    const std::uint32_t remainingTicks =
-      snapshot.liveTicksElapsed < limitTicks
-      ? limitTicks - snapshot.liveTicksElapsed
-      : 0U;
-    const std::uint32_t remainingSeconds = remainingTicks / 125U;
-    hud.topRightLines.push_back(
-      "TIME " + std::to_string(remainingSeconds / 60U) + ':' +
-      (remainingSeconds % 60U < 10U ? "0" : "") +
-      std::to_string(remainingSeconds % 60U)
-    );
+  const std::string timeLine = matchTimeLine(snapshot);
+  if (!timeLine.empty()) {
+    hud.topRightLines.push_back(timeLine);
   }
   if (snapshot.matchRules.showOpponentHealth && remotePlayerIndex != localPlayerIndex) {
     hud.showOpponentHealthBar = true;
@@ -6173,6 +6356,8 @@ int GameApp::run() const {
     rocketLauncherFiringResponse = {};
   std::array<FreezeGunFiringResponseState, kDuelPlayerCount>
     freezeGunFiringResponse = {};
+  std::array<float, kDuelPlayerCount> freezeGunPulseSeconds = {};
+  std::array<std::uint32_t, kDuelPlayerCount> freezeGunPulseSerials = {};
   std::array<WeaponFireResult, kDuelPlayerCount> lastRocketLauncherResponseFire = {};
   std::array<bool, kDuelPlayerCount> hasLastRocketLauncherResponseFire = {};
   std::array<PlasmaGunFiringResponseState, kDuelPlayerCount>
@@ -8935,6 +9120,8 @@ int GameApp::run() const {
       hasLastMachineGunResponseFire = false;
       rocketLauncherFiringResponse = {};
       freezeGunFiringResponse = {};
+      freezeGunPulseSeconds = {};
+      freezeGunPulseSerials = {};
       lastRocketLauncherResponseFire = {};
       hasLastRocketLauncherResponseFire = {};
       plasmaGunFiringResponse = {};
@@ -9554,6 +9741,7 @@ int GameApp::run() const {
     std::array<RocketExplosionResult, kDuelPlayerCount> renderRocketExplosions = {};
     std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> renderRockets = {};
     IcePoolArray renderIcePools = {};
+    std::array<bool, kDuelPlayerCount> freezeGunPulseDue = {};
     std::size_t renderLocalPlayerIndex = 0;
     if (const ClientGame* renderClient = session.game();
         renderClient != nullptr && renderClient->hasSnapshot()) {
@@ -9815,6 +10003,18 @@ int GameApp::run() const {
             renderRemotePlayers[playerIndex].selectedWeapon == Weapon::FreezeGun &&
             renderRemotePlayers[playerIndex].lightningGun.active
           );
+      if (freezeDriven) {
+        const CombatEffectPulseTimerAdvance advance =
+          advanceCombatEffectPulseTimer(
+            freezeGunPulseSeconds[playerIndex],
+            elapsed.count(),
+            0.10F
+          );
+        freezeGunPulseDue[playerIndex] = advance.pulseDue;
+        freezeGunPulseSeconds[playerIndex] = advance.remainingSeconds;
+      } else {
+        freezeGunPulseSeconds[playerIndex] = 0.0F;
+      }
       freezeGunFiringResponse[playerIndex].update(freezeDriven, elapsed.count());
       if (!localPlayer) {
         renderRemotePlayers[playerIndex].freezeGunFiringAmount =
@@ -10805,9 +11005,57 @@ int GameApp::run() const {
           currentRenderSettings
         )
       );
+      combatEffects.setMuzzleAttachment(
+        static_cast<std::uint8_t>(playerIndex),
+        MuzzleAttachment::FreezeGun,
+        freezeGunMuzzleSource(
+          attachmentFire.start,
+          renderPlayer,
+          renderRemotePlayers,
+          playerIndex,
+          currentRenderSettings
+        )
+      );
     }
     transientTracerStore.update(outerFrameElapsed.count());
     combatEffects.update(outerFrameElapsed.count(), frameEffectsTuning);
+    LocalSurfaceImpactFrame localSurfaceImpact = {};
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      if (!freezeGunPulseDue[playerIndex]) {
+        continue;
+      }
+      std::uint32_t& pulseSerial = freezeGunPulseSerials[playerIndex];
+      ++pulseSerial;
+      if (pulseSerial == 0U) {
+        ++pulseSerial;
+      }
+      const bool localPlayer = playerIndex == renderLocalPlayerIndex;
+      const LightningGunResult& beam = localPlayer
+        ? renderLocalLightningGun
+        : renderRemotePlayers[playerIndex].lightningGun;
+      const std::uint32_t visualSeed =
+        0xb5297a4dU * static_cast<std::uint32_t>(playerIndex + 1U) +
+        pulseSerial * 0x68e31da4U;
+      const bool spawnedWorldImpact = spawnFreezeGunPulse(
+        combatEffects,
+        renderArena,
+        beam,
+        freezeGunMuzzleSource(
+          beam.start,
+          renderPlayer,
+          renderRemotePlayers,
+          playerIndex,
+          currentRenderSettings
+        ),
+        static_cast<std::uint8_t>(playerIndex),
+        visualSeed,
+        impactSurfaceMaterials,
+        frameEffectsTuning
+      );
+      if (localPlayer && spawnedWorldImpact) {
+        localSurfaceImpact = {true, Weapon::FreezeGun};
+      }
+    }
     consumeTracerWeaponFires(
       transientTracerStore,
       combatEffects,
@@ -10819,7 +11067,8 @@ int GameApp::run() const {
       currentRenderSettings,
       frameEffectsTuning,
       impactSurfaceMaterials,
-      ownsPresentedSubject
+      ownsPresentedSubject,
+      localSurfaceImpact
     );
     consumeExplosionEvents(
       transientTracerStore,
@@ -10917,6 +11166,10 @@ int GameApp::run() const {
           renderRocketExplosions[renderLocalPlayerIndex].active &&
           renderRocketExplosions[renderLocalPlayerIndex].weapon ==
             Weapon::RocketLauncher
+        ) ||
+        (
+          armedPhaseCapture->phase == "local_surface_impact" &&
+          localSurfaceImpact.active
         )
       ) {
         captureHideHud = armedPhaseCapture->hideHud;
@@ -10994,6 +11247,27 @@ int GameApp::run() const {
             captureGame->interpolationDiagnostics().presentationTick
           )
         : dev::JsonValue{};
+      captureFrameState.object["local_surface_impact_active"] =
+        dev::JsonValue::booleanValue(localSurfaceImpact.active);
+      captureFrameState.object["local_surface_impact_weapon"] =
+        localSurfaceImpact.active
+        ? dev::JsonValue::stringValue(
+            std::string(surfaceImpactCaptureWeaponName(localSurfaceImpact.weapon))
+          )
+        : dev::JsonValue{};
+      const std::uint32_t localSurfaceContactEffectCount =
+        static_cast<std::uint32_t>(std::count_if(
+          activeTransientEffects.begin(),
+          activeTransientEffects.end(),
+          [](const TransientEffect& effect) {
+            return effect.type == TransientEffectType::BulletImpactFlash ||
+              effect.type == TransientEffectType::BulletImpactSpark ||
+              effect.type == TransientEffectType::BulletImpactDust ||
+              effect.type == TransientEffectType::BulletDecal;
+          }
+      ));
+      captureFrameState.object["local_surface_contact_effect_count"] =
+        dev::JsonValue::numberValue(localSurfaceContactEffectCount);
 
       const WeaponFireResult& localFire =
         renderWeaponFires[renderLocalPlayerIndex];

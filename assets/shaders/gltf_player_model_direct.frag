@@ -15,6 +15,7 @@ layout(set = 3, binding = 0, std140) uniform DirectLightData {
 } directLights;
 
 #include "includes/direct_display.glsl"
+#include "includes/live_fill.glsl"
 #include "includes/team_tint.glsl"
 
 void main() {
@@ -36,7 +37,7 @@ void main() {
     max(directLights.fillColorIntensity.w, 0.0);
   float skyFill = n.z * 0.5 + 0.5;
   vec3 color = albedo * ambientData.x * (
-    vec3(0.18) + fillRadiance * (0.35 + 0.65 * skyFill)
+    correctedLiveFill(fillRadiance)
   );
   color += albedo * sunRadiance * sunNDotL;
   float rim = pow(1.0 - max(dot(n, v), 0.0), 3.2);

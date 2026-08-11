@@ -115,7 +115,7 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_viewmodel_inertia_scale` | float | `0.55` | `0..2` | None | Archive | Scale for lateral movement inertia and acceleration/braking response. `0` disables only inertia. |
 | `cl_viewmodel_landing_scale` | float | `0.65` | `0..2` | None | Archive | Scale for airborne float and landing compression. `0` disables only jump/landing response. |
 | `cl_camera_position_response` | float | `0` | `0..0.15` | None | Archive | Optional extremely subtle translation-only camera response derived from presentation motion. Default `0` is exactly neutral; no camera rotation is ever added. |
-| `r_player_model` | int | `1` | `0..2` | None | Archive | Remote player body renderer. `0` uses legacy boxes, `1` uses the Duelist GLB default, and `2` uses the Quaternius Worker GLB. |
+| `r_player_model` | int | `1` | `0..1` | None | Archive | Remote player body renderer. `0` uses legacy boxes and `1` uses the Quaternius Worker GLB default. The Duelist asset stays archived and is not a runtime option. |
 | `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
 | `cl_health_style` | int | `0` | `0..2` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra med dynamisk färg, `2` crosshair-nära HP vänster och ammo höger. |
 | `cl_speed_size` | float | `1.5` | `0.5..6` | Ingen | Arkiv | Textskala för speed-indikatorn under crosshair. |
@@ -312,6 +312,7 @@ the Revolver.
 | `r_muzzle_light_radius` | float | `3.2` | `0..16` world units | None | Radius of each short machine-gun muzzle light. |
 | `r_muzzle_light_duration` | float | `0.13` | `0..0.25` seconds | None | Lifetime of each muzzle light. Its shaped tail bridges close machine-gun shots while the fixed pool prevents sustained-fire growth. |
 | `r_tonemap_exposure` | float | `1` | `0.25..4` | None | Fixed exposure used by the filmic world and weapon tone map. There is no automatic exposure. |
+| `r_display_gamma` | float | `1` | `0.5..1.5` | None | Archived final display gamma. It runs after tone mapping and grading, so `1` is neutral and white highlights stay white. |
 | `r_atmosphere_grade` | int | `2` | `0..3` | None | Linked static-world grade and haze quality. `0`: off, `1`: low, `2`: default, `3`: high. F10 exposes these four values without exposing the raw grade or haze constants. |
 | `r_bloom` | bool | `1` | bool | None | Enables the compact bloom response on bright effect sprites. It does not process HUD pixels. |
 | `r_bloom_intensity` | float | `0.18` | `0..1` | None | Strength of the compact bright-effect bloom response. |

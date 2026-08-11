@@ -56,6 +56,19 @@ const lg::TransientEffect* findEffect(
   return found == effects.end() ? nullptr : &*found;
 }
 
+std::size_t countEffects(
+  const std::vector<lg::TransientEffect>& effects,
+  lg::TransientEffectType type
+) {
+  return static_cast<std::size_t>(std::count_if(
+    effects.begin(),
+    effects.end(),
+    [type](const lg::TransientEffect& effect) {
+      return effect.type == type;
+    }
+  ));
+}
+
 bool sameEffect(
   const lg::TransientEffect& lhs,
   const lg::TransientEffect& rhs
@@ -84,6 +97,34 @@ int main() {
   tuning.maximumDecals = 4;
   tuning.casingLifetimeSeconds = 0.2F;
   tuning.decalLifetimeSeconds = 0.3F;
+
+  const lg::CombatEffectPulseTimerAdvance firstFreezePulse =
+    lg::advanceCombatEffectPulseTimer(0.0F, 0.03F, 0.10F);
+  const lg::CombatEffectPulseTimerAdvance slowFreezePulse =
+    lg::advanceCombatEffectPulseTimer(0.02F, 0.25F, 0.10F);
+  const lg::CombatEffectPulseTimerAdvance heldFreezePulse =
+    lg::advanceCombatEffectPulseTimer(
+      slowFreezePulse.remainingSeconds,
+      0.06F,
+      0.10F
+    );
+  const lg::CombatEffectPulseTimerAdvance nextFreezePulse =
+    lg::advanceCombatEffectPulseTimer(
+      heldFreezePulse.remainingSeconds,
+      0.02F,
+      0.10F
+    );
+  failures += expect(
+    firstFreezePulse.pulseDue &&
+      std::fabs(firstFreezePulse.remainingSeconds - 0.10F) < 0.0001F &&
+      slowFreezePulse.pulseDue &&
+      std::fabs(slowFreezePulse.remainingSeconds - 0.07F) < 0.0001F &&
+      !heldFreezePulse.pulseDue &&
+      std::fabs(heldFreezePulse.remainingSeconds - 0.01F) < 0.0001F &&
+      nextFreezePulse.pulseDue &&
+      std::fabs(nextFreezePulse.remainingSeconds - 0.09F) < 0.0001F,
+    "freeze pulse cadence should preserve slow-frame elapsed time with one pulse per frame"
+  );
 
   for (std::uint32_t seed = 1; seed <= 64; ++seed) {
     effects.spawnMachineGunShot(shot(seed), tuning);
@@ -130,6 +171,7 @@ int main() {
   for (lg::ImpactSurfaceCategory category : {
     lg::ImpactSurfaceCategory::Metal,
     lg::ImpactSurfaceCategory::Stone,
+    lg::ImpactSurfaceCategory::WoodSoft,
     lg::ImpactSurfaceCategory::Energy,
     lg::ImpactSurfaceCategory::GenericHard,
   }) {
@@ -144,6 +186,231 @@ int main() {
     stats.activeParticles <= tuning.maximumParticles &&
       stats.activeDecals <= tuning.maximumDecals,
     "all impact surface variants should honor the shared pool caps"
+  );
+
+  lg::SurfaceImpactEffectsRequest shotgunImpact;
+  shotgunImpact.position = {8.0F, 2.0F, 3.0F};
+  shotgunImpact.normal = {-1.0F, 0.0F, 0.0F};
+  shotgunImpact.incomingDirection = {1.0F, 0.0F, 0.0F};
+  shotgunImpact.surface = lg::ImpactSurfaceCategory::WoodSoft;
+  shotgunImpact.weapon = lg::SurfaceImpactWeapon::Shotgun;
+  shotgunImpact.visualSeed = 301U;
+  lg::CombatEffects shotgunImpactEffects;
+  shotgunImpactEffects.spawnSurfaceImpact(shotgunImpact, tuning);
+  std::vector<lg::TransientEffect> shotgunImpactActive;
+  shotgunImpactEffects.appendActive(shotgunImpactActive);
+  failures += expect(
+    shotgunImpactEffects.stats().surfaceImpactsSpawned == 1U &&
+      shotgunImpactEffects.stats().activeParticles <= tuning.maximumParticles &&
+      shotgunImpactEffects.stats().activeDecals == 1U,
+    "one shotgun request should create one bounded shared surface response"
+  );
+
+  lg::SurfaceImpactEffectsRequest tierImpact = shotgunImpact;
+  tierImpact.weapon = lg::SurfaceImpactWeapon::MachineGun;
+  tierImpact.surface = lg::ImpactSurfaceCategory::Stone;
+  lg::CombatEffectsTuning impactQualityZero = tuning;
+  impactQualityZero.quality = 0;
+  lg::CombatEffects qualityZeroEffects;
+  qualityZeroEffects.spawnSurfaceImpact(tierImpact, impactQualityZero);
+  lg::CombatEffectsTuning impactQualityOne = tuning;
+  impactQualityOne.quality = 1;
+  lg::CombatEffects qualityOneEffects;
+  qualityOneEffects.spawnSurfaceImpact(tierImpact, impactQualityOne);
+  std::vector<lg::TransientEffect> qualityOneActive;
+  qualityOneEffects.appendActive(qualityOneActive);
+  lg::CombatEffects qualityTwoEffects;
+  qualityTwoEffects.spawnSurfaceImpact(tierImpact, tuning);
+  std::vector<lg::TransientEffect> qualityTwoActive;
+  qualityTwoEffects.appendActive(qualityTwoActive);
+  failures += expect(
+    qualityZeroEffects.stats().surfaceImpactsSpawned == 0U &&
+      qualityZeroEffects.stats().activeParticles == 0U &&
+      qualityZeroEffects.stats().activeDecals == 0U &&
+      countEffects(
+        qualityOneActive,
+        lg::TransientEffectType::BulletImpactFlash
+      ) == 1U &&
+      countEffects(
+        qualityOneActive,
+        lg::TransientEffectType::BulletImpactSpark
+      ) == 0U &&
+      countEffects(
+        qualityOneActive,
+        lg::TransientEffectType::BulletImpactDust
+      ) == 0U &&
+      qualityOneEffects.stats().activeDecals == 1U &&
+      countEffects(
+        qualityTwoActive,
+        lg::TransientEffectType::BulletImpactSpark
+      ) > 0U &&
+      countEffects(
+        qualityTwoActive,
+        lg::TransientEffectType::BulletImpactDust
+      ) == 1U,
+    "surface tiers should progress from no work to core and decal to particles"
+  );
+
+  lg::CombatEffects energyImpactEffects;
+  tierImpact.surface = lg::ImpactSurfaceCategory::Energy;
+  energyImpactEffects.spawnSurfaceImpact(tierImpact, tuning);
+  std::vector<lg::TransientEffect> energyImpactActive;
+  energyImpactEffects.appendActive(energyImpactActive);
+  failures += expect(
+    countEffects(
+      energyImpactActive,
+      lg::TransientEffectType::BulletImpactDust
+    ) == 0U,
+    "energy surfaces should not create opaque impact dust"
+  );
+
+  lg::CombatEffects machineGunContactEffects;
+  lg::CombatEffects revolverContactEffects;
+  tierImpact.surface = lg::ImpactSurfaceCategory::GenericHard;
+  tierImpact.weapon = lg::SurfaceImpactWeapon::MachineGun;
+  machineGunContactEffects.spawnSurfaceImpact(tierImpact, impactQualityOne);
+  tierImpact.weapon = lg::SurfaceImpactWeapon::Revolver;
+  revolverContactEffects.spawnSurfaceImpact(tierImpact, impactQualityOne);
+  std::vector<lg::TransientEffect> machineGunContactActive;
+  std::vector<lg::TransientEffect> revolverContactActive;
+  machineGunContactEffects.appendActive(machineGunContactActive);
+  revolverContactEffects.appendActive(revolverContactActive);
+  const lg::TransientEffect* machineGunFlash = findEffect(
+    machineGunContactActive,
+    lg::TransientEffectType::BulletImpactFlash
+  );
+  const lg::TransientEffect* revolverFlash = findEffect(
+    revolverContactActive,
+    lg::TransientEffectType::BulletImpactFlash
+  );
+  const lg::TransientEffect* machineGunDecal = findEffect(
+    machineGunContactActive,
+    lg::TransientEffectType::BulletDecal
+  );
+  const lg::TransientEffect* revolverDecal = findEffect(
+    revolverContactActive,
+    lg::TransientEffectType::BulletDecal
+  );
+  failures += expect(
+    machineGunFlash != nullptr &&
+      revolverFlash != nullptr &&
+      machineGunDecal != nullptr &&
+      revolverDecal != nullptr &&
+      revolverFlash->initialScale > machineGunFlash->initialScale &&
+      revolverFlash->lifetimeSeconds > machineGunFlash->lifetimeSeconds &&
+      revolverDecal->initialScale > machineGunDecal->initialScale,
+    "revolver contacts should read heavier than machine-gun contacts"
+  );
+
+  lg::CombatEffects precisionFirstEffects;
+  lg::CombatEffects precisionRepeatEffects;
+  shotgunImpact.weapon = lg::SurfaceImpactWeapon::Precision;
+  shotgunImpact.visualSeed = 302U;
+  precisionFirstEffects.spawnSurfaceImpact(shotgunImpact, tuning);
+  precisionRepeatEffects.spawnSurfaceImpact(shotgunImpact, tuning);
+  std::vector<lg::TransientEffect> precisionFirst;
+  std::vector<lg::TransientEffect> precisionRepeat;
+  precisionFirstEffects.appendActive(precisionFirst);
+  precisionRepeatEffects.appendActive(precisionRepeat);
+  failures += expect(
+    precisionFirst.size() == precisionRepeat.size() &&
+      std::equal(
+        precisionFirst.begin(),
+        precisionFirst.end(),
+        precisionRepeat.begin(),
+        [](const lg::TransientEffect& lhs, const lg::TransientEffect& rhs) {
+          return sameEffect(lhs, rhs);
+        }
+      ),
+    "precision impacts should remain exact for the same world hit and seed"
+  );
+
+  lg::CombatEffects freezeEffects;
+  lg::FreezeGunPulseEffectsRequest freezePulse;
+  freezePulse.muzzlePosition = {1.0F, 2.0F, 3.0F};
+  freezePulse.muzzleForward = {1.0F, 0.0F, 0.0F};
+  freezePulse.impactPosition = {8.0F, 2.0F, 3.0F};
+  freezePulse.impactNormal = {-1.0F, 0.0F, 0.0F};
+  freezePulse.incomingDirection = {1.0F, 0.0F, 0.0F};
+  freezePulse.surface = lg::ImpactSurfaceCategory::Stone;
+  freezePulse.visualSeed = 303U;
+  freezePulse.ownerIndex = 0;
+  freezePulse.hitWorld = true;
+  lg::CombatEffects freezeQualityOneEffects;
+  freezeQualityOneEffects.spawnFreezeGunPulse(
+    freezePulse,
+    impactQualityOne
+  );
+  std::vector<lg::TransientEffect> freezeQualityOneActive;
+  freezeQualityOneEffects.appendActive(freezeQualityOneActive);
+  freezeEffects.spawnFreezeGunPulse(freezePulse, tuning);
+  std::vector<lg::TransientEffect> freezeActive;
+  freezeEffects.appendActive(freezeActive);
+  const lg::TransientEffect* freezeLight = findEffect(
+    freezeActive,
+    lg::TransientEffectType::MachineGunMuzzleLight
+  );
+  const bool freezeHasSmoke = std::any_of(
+    freezeActive.begin(),
+    freezeActive.end(),
+    [](const lg::TransientEffect& effect) {
+      return effect.type == lg::TransientEffectType::MachineGunMuzzleSmoke ||
+        effect.type == lg::TransientEffectType::BulletImpactDust;
+    }
+  );
+  failures += expect(
+    freezeQualityOneEffects.stats().activeLights == 0U &&
+      countEffects(
+        freezeQualityOneActive,
+        lg::TransientEffectType::BulletImpactFlash
+      ) == 2U &&
+      countEffects(
+        freezeQualityOneActive,
+        lg::TransientEffectType::BulletImpactSpark
+      ) == 0U &&
+      freezeQualityOneEffects.stats().activeDecals == 1U &&
+    freezeEffects.stats().freezePulsesSpawned == 1U &&
+      freezeEffects.stats().surfaceImpactsSpawned == 1U &&
+      freezeLight != nullptr &&
+      freezeLight->color.blue > freezeLight->color.red &&
+      countEffects(
+        freezeActive,
+        lg::TransientEffectType::BulletImpactSpark
+      ) > 0U &&
+      !freezeHasSmoke,
+    "freeze uses cyan core and frost mark at medium quality, then adds light and particles"
+  );
+
+  lg::CombatEffectsTuning cappedFreeze = tuning;
+  cappedFreeze.maximumParticles = 2;
+  cappedFreeze.maximumDecals = 1;
+  lg::CombatEffects cappedFreezeEffects;
+  for (std::uint32_t seed = 0; seed < 12U; ++seed) {
+    freezePulse.visualSeed = seed;
+    cappedFreezeEffects.spawnFreezeGunPulse(freezePulse, cappedFreeze);
+  }
+  failures += expect(
+    cappedFreezeEffects.stats().activeLights <= lg::CombatEffects::kLightCapacity &&
+      cappedFreezeEffects.stats().activeParticles <= cappedFreeze.maximumParticles &&
+      cappedFreezeEffects.stats().activeDecals <= cappedFreeze.maximumDecals,
+    "repeated freeze pulses should stay inside the shared fixed-pool limits"
+  );
+
+  lg::CombatEffects disabledSurfaceEffects;
+  lg::CombatEffectsTuning disabledSurfaceTuning = tuning;
+  disabledSurfaceTuning.quality = 0;
+  disabledSurfaceEffects.spawnSurfaceImpact(shotgunImpact, disabledSurfaceTuning);
+  disabledSurfaceEffects.spawnFreezeGunPulse(
+    freezePulse,
+    disabledSurfaceTuning
+  );
+  failures += expect(
+    disabledSurfaceEffects.stats().surfaceImpactsSpawned == 0U &&
+      disabledSurfaceEffects.stats().freezePulsesSpawned == 0U &&
+      disabledSurfaceEffects.stats().activeLights == 0U &&
+      disabledSurfaceEffects.stats().activeParticles == 0U &&
+      disabledSurfaceEffects.stats().activeDecals == 0U,
+    "disabled combat effects should skip surface and freeze pool work"
   );
 
   std::vector<lg::TransientEffect> first;

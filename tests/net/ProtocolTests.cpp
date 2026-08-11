@@ -910,6 +910,7 @@ int main() {
     source.weaponSwitchingMode = lg::WeaponSwitchingMode::Ql;
     source.phaseTicksRemaining = 321;
     source.liveTicksElapsed = 900;
+    source.overtime = true;
     source.roundWinner = 0;
     source.matchWinner = 255;
     source.playersColliding = true;
@@ -1110,7 +1111,8 @@ int main() {
       decoded.matchPhase == lg::MatchPhase::Countdown &&
         decoded.matchRules.showOpponentHealth &&
         decoded.matchRules.deathRespawnTicks == 250 &&
-        decoded.phaseTicksRemaining == 321,
+        decoded.phaseTicksRemaining == 321 &&
+        decoded.overtime,
       "match rules and phase should round trip"
     );
     failures += expect(

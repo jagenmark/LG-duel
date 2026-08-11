@@ -200,6 +200,7 @@ void hashScenarioState(StableHash& hash, const ScenarioState& state) {
   const ScenarioMatchState& match = state.match;
   hash.scalar(match.gameMode); hash.scalar(match.phase);
   hash.scalar(match.phaseTicksRemaining); hash.scalar(match.liveTicksElapsed);
+  hash.scalar(match.overtime);
   for (const auto score : match.scores) hash.scalar(score);
   for (const auto score : match.teamScores) hash.scalar(score);
   for (const auto score : match.mcguffinScores) hash.scalar(score);
@@ -291,6 +292,7 @@ dev::JsonValue matchJson(const ScenarioMatchState& match) {
     dev::JsonValue::numberValue(match.phaseTicksRemaining);
   value.object["live_ticks_elapsed"] =
     dev::JsonValue::numberValue(match.liveTicksElapsed);
+  value.object["overtime"] = dev::JsonValue::booleanValue(match.overtime);
   dev::JsonValue scores = dev::JsonValue::arrayValue();
   for (const auto score : match.scores)
     scores.array.push_back(dev::JsonValue::numberValue(score));

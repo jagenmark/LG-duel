@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
+import math
+import random
 import re
 import socket
 import subprocess
@@ -13,8 +16,23 @@ from pathlib import Path
 from unittest import mock
 
 import import_q3_map
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 import lg_control
 import lg_mcp_server
+
+
+def write_test_screenshot(path: Path) -> Image.Image:
+    random_bytes = random.Random(7).randbytes(480 * 270 * 3)
+    image = Image.frombytes("RGB", (480, 270), random_bytes)
+    image = image.resize((1920, 1080), Image.Resampling.BICUBIC)
+    image = image.filter(ImageFilter.GaussianBlur(1.2))
+    draw = ImageDraw.Draw(image)
+    for x in range(0, image.width, 80):
+        draw.line((x, 0, x, image.height), fill=(235, 180, 70), width=2)
+    for y in range(0, image.height, 80):
+        draw.line((0, y, image.width, y), fill=(60, 180, 240), width=2)
+    image.save(path, format="PNG", optimize=True)
+    return image
 
 
 class LgToolTests(unittest.TestCase):
@@ -148,13 +166,11 @@ class LgToolTests(unittest.TestCase):
         self.assertEqual(connection.recv_calls, 1)
         self.assertAlmostEqual(connection.timeouts[-1], 0.1)
 
-    def test_large_mcp_image_is_omitted_before_read_and_next_call_works(self) -> None:
+    def test_default_mcp_image_is_compact_clear_and_next_call_works(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "large.png"
-            image_size = 9_217_968
-            path.write_bytes(
-                b"\x89PNG\r\n\x1a\n" + b"x" * (image_size - 8)
-            )
+            source = write_test_screenshot(path)
+            source_size = path.stat().st_size
             capture = {"path": str(path), "map": "eyetoeye"}
             status = {"connected": True}
             with mock.patch.object(
@@ -174,13 +190,42 @@ class LgToolTests(unittest.TestCase):
                 })
         first_result = first["result"]
         self.assertFalse(first_result["isError"])
-        self.assertEqual(len(first_result["content"]), 1)
+        self.assertEqual(len(first_result["content"]), 2)
         structured = first_result["structuredContent"]
         self.assertEqual(structured["path"], str(path))
-        self.assertEqual(structured["inline_image_omitted"], "size_limit")
+        self.assertEqual(structured["inline_image_mode"], "compact")
+        self.assertEqual(structured["inline_image_format"], "webp")
+        self.assertEqual(structured["inline_image_quality"], 92)
         self.assertEqual(
-            structured["inline_image_size_bytes"], image_size
+            (
+                structured["inline_image_width"],
+                structured["inline_image_height"],
+            ),
+            (1600, 900),
         )
+        self.assertLessEqual(
+            structured["inline_image_pixels"],
+            lg_mcp_server.DEFAULT_INLINE_IMAGE_MAX_PIXELS,
+        )
+        self.assertLess(
+            structured["inline_image_size_bytes"], source_size * 0.25
+        )
+        self.assertEqual(
+            structured["inline_image_source_size_bytes"], source_size
+        )
+        image_content = first_result["content"][1]
+        self.assertEqual(image_content["mimeType"], "image/webp")
+        compact = Image.open(io.BytesIO(base64.b64decode(
+            image_content["data"]
+        ))).convert("RGB")
+        reference = source.resize(compact.size, Image.Resampling.LANCZOS)
+        difference = ImageStat.Stat(ImageChops.difference(
+            reference, compact
+        ))
+        combined_rms = math.sqrt(sum(
+            channel * channel for channel in difference.rms
+        ) / len(difference.rms))
+        self.assertLess(combined_rms, 20)
         self.assertTrue(second["result"]["structuredContent"]["connected"])
 
     def test_mcp_image_budget_is_shared_across_all_views(self) -> None:
@@ -193,7 +238,7 @@ class LgToolTests(unittest.TestCase):
                 path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 600_000)
             payload = lg_mcp_server.tool_result({
                 "views": [{"path": str(path)} for path in paths],
-            })
+            }, image_arguments={"inline_image_mode": "full"})
         images = [
             item for item in payload["content"] if item["type"] == "image"
         ]
@@ -202,6 +247,49 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("inline_image_omitted", views[0])
         self.assertEqual(views[1]["inline_image_omitted"], "size_limit")
         self.assertLessEqual(len(images[0]["data"]), 1024 * 1024)
+
+    def test_multiple_compact_images_share_the_reply_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = [
+                Path(temporary) / "first.png",
+                Path(temporary) / "second.png",
+            ]
+            for index, path in enumerate(paths):
+                image = Image.new("RGB", (1280, 720), (20, 30, 45))
+                draw = ImageDraw.Draw(image)
+                for offset in range(0, 1280, 32):
+                    draw.line(
+                        (offset, 0, 1279 - offset, 719),
+                        fill=(80 + index * 40, 170, 230), width=2,
+                    )
+                image.save(path)
+            payload = lg_mcp_server.tool_result({
+                "views": [{"path": str(path)} for path in paths],
+            })
+        images = [
+            item for item in payload["content"] if item["type"] == "image"
+        ]
+        self.assertEqual(len(images), 2)
+        self.assertLessEqual(
+            sum(len(item["data"]) for item in images),
+            lg_mcp_server.INLINE_IMAGE_BUDGET,
+        )
+
+    def test_full_mcp_image_mode_returns_the_saved_png_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "full.png"
+            Image.new("RGB", (64, 32), (20, 80, 160)).save(path)
+            saved = path.read_bytes()
+            payload = lg_mcp_server.tool_result(
+                {"path": str(path)},
+                image_arguments={"inline_image_mode": "full"},
+            )
+        delivered = payload["content"][1]
+        self.assertEqual(delivered["mimeType"], "image/png")
+        self.assertEqual(base64.b64decode(delivered["data"]), saved)
+        self.assertEqual(
+            payload["structuredContent"]["inline_image_mode"], "full"
+        )
 
     def test_oversized_structured_output_keeps_summary_and_paths(self) -> None:
         result = {
@@ -670,7 +758,8 @@ class LgToolTests(unittest.TestCase):
         self.assertEqual(by_id[22]["result"], {})
 
     def test_mcp_tools_have_closed_typed_schemas(self) -> None:
-        names = {tool["name"] for tool in lg_mcp_server.TOOLS}
+        tools = {tool["name"]: tool for tool in lg_mcp_server.TOOLS}
+        names = set(tools)
         self.assertEqual(
             names,
             {
@@ -694,6 +783,21 @@ class LgToolTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(tool["inputSchema"].get("additionalProperties") is False for tool in lg_mcp_server.TOOLS))
+        for name in {"lg_capture_screenshot", "lg_capture_map_views"}:
+            properties = tools[name]["inputSchema"]["properties"]
+            self.assertEqual(
+                properties["inline_image_mode"]["default"], "compact"
+            )
+            self.assertEqual(
+                properties["inline_image_format"]["default"], "webp"
+            )
+            self.assertEqual(
+                properties["inline_image_max_pixels"]["default"],
+                1600 * 900,
+            )
+            self.assertEqual(
+                properties["inline_image_quality"]["default"], 92
+            )
 
     def test_mcp_initialize_and_list(self) -> None:
         initialized = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
@@ -1029,6 +1133,91 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("max(vertexColor.rgb, vec3(0.00169355))", shader)
         self.assertIn('"world_surface.frag.spv",\n    3', renderer)
 
+    def test_dynamic_live_fill_uses_one_scene_relative_correction(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        shared = (shader_dir / "includes" / "live_fill.glsl").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("kSceneFillEncoding = vec3(0.30, 0.36, 0.46)", shared)
+        self.assertIn("kLiveFillBaselineScale = 0.90", shared)
+        self.assertIn("mapAmbientRadiance", shared)
+        self.assertIn("fillColor = {", (root / "src" / "render" / "Scene3D.cpp").read_text(
+            encoding="utf-8"
+        ))
+        for shader_name in (
+            "material_weapon.frag",
+            "material_weapon_direct.frag",
+            "gltf_player_model.frag",
+            "gltf_player_model_flat.frag",
+            "gltf_player_model_direct.frag",
+            "instanced_color.frag",
+            "instanced_color_direct.frag",
+        ):
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertIn('#include "includes/live_fill.glsl"', shader)
+            self.assertIn("correctedLiveFill(fillRadiance)", shader)
+            self.assertNotIn("vec3(0.16) + fillRadiance", shader)
+            self.assertNotIn("vec3(0.18) + fillRadiance", shader)
+
+        instanced_direct = (shader_dir / "instanced_color_direct.frag").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("uniform DirectLightData", instanced_direct)
+        self.assertIn("directLights.fillColorIntensity", instanced_direct)
+
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        direct_pipeline_start = renderer.index(
+            "GpuDirectPresentPipelines createGpuDirectPresentPipelines"
+        )
+        direct_pipeline_end = renderer.index("return pipelines;", direct_pipeline_start)
+        direct_pipelines = renderer[direct_pipeline_start:direct_pipeline_end]
+        instanced_pipeline_end = direct_pipelines.index("pipelines.staticMesh")
+        instanced_pipeline = direct_pipelines[:instanced_pipeline_end]
+        static_pipeline_end = direct_pipelines.index("pipelines.materialMesh")
+        static_pipeline = direct_pipelines[instanced_pipeline_end:static_pipeline_end]
+        self.assertIn("{0U, 1U}", instanced_pipeline)
+        self.assertIn("{0U, 1U}", static_pipeline)
+
+    def test_display_gamma_is_final_and_disables_direct_present_when_changed(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        cvars = (root / "src" / "app" / "ClientCvars.cpp").read_text(
+            encoding="utf-8"
+        )
+        config = (root / "config" / "default_client.cfg").read_text(
+            encoding="utf-8"
+        )
+        app = (root / "src" / "app" / "GameApp.cpp").read_text(
+            encoding="utf-8"
+        )
+        renderer_hpp = (root / "src" / "render" / "Renderer.hpp").read_text(
+            encoding="utf-8"
+        )
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"r_display_gamma"', cvars)
+        self.assertIn("1.0F, archivedClient, 0.50F, 1.50F", cvars)
+        self.assertIn("set r_display_gamma 1", config)
+        self.assertIn('"Brightness / gamma"', app)
+        self.assertIn("settings.displayGamma = console.getFloat(\"r_display_gamma\")", app)
+        self.assertIn("DisplayGamma", renderer_hpp)
+        self.assertIn("neutralDisplayGamma", renderer_hpp)
+        self.assertIn("displayGammaIsNeutral(settings.displayGamma)", renderer)
+        self.assertIn('return "display-gamma"', renderer)
+        for shader_name in ("scene_composite.frag", "scene_composite_no_bloom.frag"):
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertIn('#include "includes/display_gamma.glsl"', shader)
+            self.assertIn("displayEncode(displayColor, composite.parameters.w)", shader)
+            main_source = shader[shader.index("void main() {") :]
+            self.assertLess(
+                main_source.index("displayColor = gradeColor("),
+                main_source.index("outColor = vec4(displayEncode("),
+            )
+
     def test_worker_flat_shaders_share_luminance_team_tint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader_dir = root / "assets" / "shaders"
@@ -1343,7 +1532,8 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("layout(set = 3", dynamic_world)
 
         instanced = shaders["instanced_color_direct.frag"]
-        self.assertNotIn("uniform", instanced)
+        self.assertIn("uniform DirectLightData", instanced)
+        self.assertIn("correctedLiveFill(fillRadiance)", instanced)
         self.assertNotIn("sampler", instanced)
 
         for name in (

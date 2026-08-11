@@ -23,6 +23,10 @@
 - Shared helpers: `simulateMovement`, `resolvePlayerCollision`, `resolvePlayerArenaCollision`, `traceWorld`, `tracePlayerCylinder`
 - Rules helpers: `DuelRules.*`, `ClanArenaRules.*`
 
+Timed Duel and Clan Arena matches end at the limit when one side leads. A tie
+sets the authoritative `overtime` snapshot flag instead. The next round score
+breaks the tie and ends the match. McGuffin keeps its objective-owned timing.
+
 ## Ordering Requirements
 
 - Commands must be received before match state, bot commands, movement, and combat so authoritative state reflects the latest accepted input.

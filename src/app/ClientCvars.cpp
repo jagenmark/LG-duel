@@ -129,6 +129,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_muzzle_light_radius", "Muzzle light radius in world units.", 3.2F, archivedClient, 0.0F, 16.0F});
   console.registerCvar({"r_muzzle_light_duration", "Muzzle light lifetime in seconds.", 0.13F, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"r_tonemap_exposure", "Fixed filmic tone-map exposure.", 1.0F, archivedClient, 0.25F, 4.0F});
+  console.registerCvar({"r_display_gamma", "Final display gamma after tone mapping and grade; 1 is neutral.", 1.0F, archivedClient, 0.50F, 1.50F});
   console.registerCvar({"r_atmosphere_grade", "Linked static-world grade and haze quality: 0 off, 1 low, 2 default, 3 high.", 2, archivedClient, 0.0F, 3.0F});
   console.registerCvar({"r_bloom", "Enable compact bloom on bright effect sprites.", true, archivedClient, {}, {}});
   console.registerCvar({"r_bloom_intensity", "Compact bright-effect bloom intensity.", 0.18F, archivedClient, 0.0F, 1.0F});
@@ -193,7 +194,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 Duelist GLB, 2 Worker GLB.", 1, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 Quaternius Worker GLB (default).", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_enemy_outline", "Draw enemy screen-space outline.", true, archivedClient, {}, {}});
   console.registerCvar({"r_player_outline_mode", "Player outlines: 0 off, 1 compatibility style, 2 native-resolution screen-space (default).", 2, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_player_outline_style", "Compatibility outline style: 0 legacy geometry fallback, 1 half-resolution screen-space mask.", 0, archivedClient, 0.0F, 1.0F});

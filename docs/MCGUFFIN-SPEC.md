@@ -81,10 +81,10 @@ existing match flow safely resets to warmup.
 
 The comeback armor mentioned in later Diabotical versions is not implemented.
 Deliberate objective throwing is an LG Duel extension with authoritative
-physics and replicated tuning. Carry credit is replicated and
-banked, but there is currently no explicit throw input. Base direction arrows
-are represented by HUD state text and colored world markers rather than a
-screen-edge navigation widget.
+physics and replicated tuning. Carry credit is replicated and banked, and the
+client sends the carried-objective throw edge on `G`. Base direction guidance
+uses HUD state text, colored world markers, and a low-noise screen-edge
+navigation widget when the current target is off-screen.
 
 ## Map entities
 
@@ -133,9 +133,10 @@ map content hash and is not repeated in snapshots.
 
 ## Networking and presentation
 
-Protocol version 48 replicates the explicit objective state, carrier, dynamic
+Protocol version 58 replicates the explicit objective state, carrier, dynamic
 position, score credit, interaction/final-hold timers, event sequence, team
 scores, round wins, and dynamic base ownership. Snapshot state is sufficient
 to join an active match or recover after packet loss. The client renders simple
-colored placeholder markers for both bases and the objective and shows score,
-round score, carrier, control state, and spawn timing in the HUD.
+colored placeholder markers for both bases and the objective, plus a screen-edge
+card and direction cue for the current objective or base when it is off-screen.
+The HUD also shows score, round score, carrier, control state, and spawn timing.

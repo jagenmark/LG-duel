@@ -5,8 +5,11 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 2, binding = 0) uniform sampler2D sceneColorTexture;
 layout(set = 3, binding = 0, std140) uniform CompositeData {
+  // Exposure, grade quality, unused, display gamma.
   vec4 parameters;
 } composite;
+
+#include "includes/display_gamma.glsl"
 
 vec3 acesToneMap(vec3 color) {
   return clamp(
@@ -47,8 +50,5 @@ void main() {
     displayColor,
     clamp(int(composite.parameters.y + 0.5), 0, 3)
   );
-  outColor = vec4(
-    pow(clamp(displayColor, 0.0, 1.0), vec3(1.0 / 2.2)),
-    1.0
-  );
+  outColor = vec4(displayEncode(displayColor, composite.parameters.w), 1.0);
 }

@@ -38,7 +38,6 @@ constexpr float kQuarterTurnRadians = 1.57079632679F;
 constexpr float kDuelistMaleHeight = 1.67400002F;
 constexpr float kDuelistMaleHalfWidth = 0.42503331F;
 constexpr float kDuelistMaleDepthCenter = 0.07100000F;
-constexpr float kStaticLightMax = 2.0F;
 constexpr std::size_t kMaxRocketProjectileLights = 4U;
 constexpr Vec3 kRocketProjectileLightColor = {1.0F, 0.48F, 0.20F};
 constexpr float kRocketProjectileLightIntensity = 1.15F;
@@ -1123,7 +1122,7 @@ void addSphereApprox(
   RenderColor base,
   std::uint8_t ambientVisibility
 ) {
-  const float ambientScale = encodedAmbientVisibilityScale(ambientVisibility);
+  const float ambientScale = static_cast<float>(ambientVisibility) / 255.0F;
   Vec3 lightColor = {
     static_cast<float>(base.red) *
       arena.ambientLight.color.x * arena.ambientLight.intensity * ambientScale,
@@ -1150,11 +1149,16 @@ void addSphereApprox(
     lightColor.y += static_cast<float>(base.green) * light.color.y * contribution;
     lightColor.z += static_cast<float>(base.blue) * light.color.z * contribution;
   }
-  const float maxChannel = 255.0F * kStaticLightMax;
+  const auto encodedLightChannel = [](float value) {
+    const float linearLight = std::clamp(value / 255.0F, 0.0F, 1.0F);
+    return static_cast<std::uint8_t>(std::lround(
+      std::pow(linearLight, 1.0F / 2.2F) * 255.0F
+    ));
+  };
   return {
-    static_cast<std::uint8_t>(std::min(std::clamp(lightColor.x, 0.0F, maxChannel), 255.0F)),
-    static_cast<std::uint8_t>(std::min(std::clamp(lightColor.y, 0.0F, maxChannel), 255.0F)),
-    static_cast<std::uint8_t>(std::min(std::clamp(lightColor.z, 0.0F, maxChannel), 255.0F)),
+    encodedLightChannel(lightColor.x),
+    encodedLightChannel(lightColor.y),
+    encodedLightChannel(lightColor.z),
     base.alpha,
   };
 }
@@ -2051,7 +2055,7 @@ void addGltfPlayerModelInstance(
   const WeaponModelFrame genericFrame =
     weaponModelFrame(remote.player, leanEnabled, leanScale);
   if (
-    settings.playerModel != 2 ||
+    settings.playerModel <= 0 ||
     !settings.drawRemotePlayers
   ) {
     return genericFrame;
@@ -3423,8 +3427,8 @@ void addLayeredFreezeBeam(
   const float active = std::clamp(firingAmount, 0.0F, 1.0F);
 
   // The exact authoritative trace is always the brightest, straightest layer.
-  addSegment(scene, start, end, 0.020F, {238, 253, 255, 245});
-  addSegment(scene, start, end, 0.075F, {92, 211, 255, 46});
+  addSegment(scene, start, end, 0.028F, {238, 253, 255, 255});
+  addSegment(scene, start, end, 0.100F, {92, 211, 255, 72});
 
   constexpr int kSegments = 14;
   for (int strand = 0; strand < 2; ++strand) {
@@ -3439,7 +3443,7 @@ void addLayeredFreezeBeam(
         side * (std::sin(phase) * 0.035F * envelope) +
         up * (std::cos(phase * 0.73F) * 0.024F * envelope);
       const Vec3 current = start + beam * t + displacement;
-      addSegment(scene, previous, current, 0.012F, {132, 229, 255, 82});
+      addSegment(scene, previous, current, 0.016F, {132, 229, 255, 118});
       previous = current;
     }
   }
@@ -4263,8 +4267,10 @@ Vec3 firstPersonMachineGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
+    viewModelPlayer,
     settings.weaponPosition,
     settings.viewModelPresentation
   );
@@ -4297,8 +4303,10 @@ Vec3 firstPersonRevolverMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
+    viewModelPlayer,
     settings.weaponPosition,
     settings.viewModelPresentation
   );
@@ -4890,7 +4898,7 @@ void addTransientTracerInstances(
     ) {
       const float styleScale = tracer.style == TracerStyle::RocketLauncherMuzzleFlash
         ? 2.45F
-        : (tracer.style == TracerStyle::RevolverMuzzleFlash ? 3.4F : 2.8F);
+        : (tracer.style == TracerStyle::RevolverMuzzleFlash ? 2.7F : 2.8F);
       const float flashScale = std::max(0.002F, tracer.width) * styleScale *
         (machineGunMuzzleFlash ? machineGunEnvelope.coreScale : 1.0F);
       RenderColor coreColor = rocketLauncherMuzzleFlash
@@ -4933,9 +4941,9 @@ void addTransientTracerInstances(
           ? RenderColor{255, 128, 42, color.alpha}
           : RenderColor{255, 118, 62, color.alpha};
         haloColor.alpha = static_cast<std::uint8_t>(
-          static_cast<float>(haloColor.alpha) * (revolver ? 0.55F : 0.24F)
+          static_cast<float>(haloColor.alpha) * (revolver ? 0.24F : 0.24F)
         );
-        const float haloScale = flashScale * (revolver ? 1.55F : 1.62F);
+        const float haloScale = flashScale * (revolver ? 1.25F : 1.62F);
         appendSimpleInstance(
           scene,
           {
@@ -6076,11 +6084,9 @@ Scene3D buildPerspectiveScene(
   scene.gltfBonePalette.reserve(kDuelPlayerCount * 64U);
   appendCollisionDebugGeometry(scene, arena, settings.showCollision);
   GltfSkinnedModel::PoseScratch gltfPoseScratch;
-  const GltfSkinnedModel* gltfPlayerModel = settings.playerModel == 1
-    ? &duelistMaleModel()
-    : settings.playerModel == 2
-      ? &workerPlayerModel()
-      : nullptr;
+  const GltfSkinnedModel* gltfPlayerModel = settings.playerModel > 0
+    ? &workerPlayerModel()
+    : nullptr;
   if (gltfPlayerModel != nullptr && gltfPlayerModel->loaded()) {
     scene.gltfBonePalette.reserve(
       kDuelPlayerCount *
@@ -6436,20 +6442,22 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     if (fire.weapon == Weapon::Railgun || fire.weapon == Weapon::Revolver) {
-      const bool localRailFire =
-        fire.weapon == Weapon::Railgun &&
+      const bool localHitscanFire =
         fireIndex == static_cast<std::size_t>(settings.localPlayerIndex) &&
         settings.showOwnWeapons;
-      const Vec3 visualStart = localRailFire
-        ? [&]() {
-            PlayerState viewModelPlayer = player;
-            viewModelPlayer.position.z += cameraVerticalOffset;
-            viewModelPlayer.position += cameraMotion;
-            return sniperRifleMuzzlePositionForViewModelPlayer(
-              viewModelPlayer,
-              settings
-            );
-          }()
+      const Vec3 visualStart = localHitscanFire
+        ? fire.weapon == Weapon::Railgun
+          ? [&]() {
+              PlayerState viewModelPlayer = player;
+              viewModelPlayer.position.z += cameraVerticalOffset;
+              viewModelPlayer.position += cameraMotion;
+              return sniperRifleMuzzlePositionForViewModelPlayer(
+                viewModelPlayer,
+                settings
+              );
+            }()
+          : firstPersonRevolverMuzzlePosition(player, settings) +
+              Vec3{0.0F, 0.0F, cameraVerticalOffset}
         : fireIndex < remotePlayers.size() && remotePlayers[fireIndex].visible
           ? remoteHitscanMuzzlePosition(
               remotePlayers[fireIndex],
@@ -6486,6 +6494,21 @@ Scene3D buildPerspectiveScene(
       }
     }
   }
+  if (
+    localLightningGun.active &&
+    settings.showOwnWeapons &&
+    settings.localSelectedWeapon == Weapon::FreezeGun &&
+    settings.freezeGunFiringAmount > 0.001F
+  ) {
+    addLayeredFreezeBeam(
+      scene,
+      firstPersonFreezeGunMuzzlePosition(player, settings),
+      localLightningGun.end,
+      settings.beamPhaseRadians,
+      settings.freezeGunFiringAmount,
+      settings.freezeGunActivationFlashAmount
+    );
+  }
   addTransientTracerInstances(scene, transientTracers, settings);
   addTransientEffectInstances(scene, transientEffects, settings);
   appendAuthoredLightSourceGlows(scene, arena);
@@ -6511,7 +6534,6 @@ Scene3D buildPerspectiveScene(
   scene.transientVfxStats.transparentEffectsSubmitted +=
     scene.projectileStats.projectileGlowInstances;
   (void)rocketExplosions;
-  (void)localLightningGun;
   finalizeStaticMeshBatches(scene);
   finalizeGltfPlayerModelBatches(scene, gltfPlayerModel);
   finalizeProjectileInstanceStats(scene);

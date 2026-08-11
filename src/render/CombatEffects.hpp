@@ -13,12 +13,25 @@ enum class ImpactSurfaceCategory : std::uint8_t {
   GenericHard = 0,
   Metal,
   Stone,
+  WoodSoft,
   Energy,
+};
+
+// This stays deliberately small. Weapon code sends a weapon intent and a
+// preclassified broad surface, while this fixed-pool system owns the compact
+// response. It never reads texture names or changes combat data.
+enum class SurfaceImpactWeapon : std::uint8_t {
+  MachineGun = 0,
+  Shotgun,
+  Precision,
+  Revolver,
+  FreezeGun,
 };
 
 enum class MuzzleAttachment : std::uint8_t {
   MachineGun = 0,
   RocketLauncher,
+  FreezeGun,
   Count,
 };
 
@@ -37,6 +50,19 @@ struct CombatEffectsTuning {
   float decalLifetimeSeconds = 24.0F;
 };
 
+struct CombatEffectPulseTimerAdvance {
+  bool pulseDue = false;
+  float remainingSeconds = 0.0F;
+};
+
+// Advances a short presentation cadence without losing elapsed time. One call
+// yields at most one pulse, even when a slow frame crosses several intervals.
+[[nodiscard]] CombatEffectPulseTimerAdvance advanceCombatEffectPulseTimer(
+  float remainingSeconds,
+  float deltaSeconds,
+  float intervalSeconds
+);
+
 struct MachineGunShotEffectsRequest {
   Vec3 muzzlePosition = {};
   Vec3 muzzleForward = {1.0F, 0.0F, 0.0F};
@@ -44,6 +70,27 @@ struct MachineGunShotEffectsRequest {
   Vec3 muzzleUp = {0.0F, 0.0F, 1.0F};
   Vec3 casingEjectPosition = {};
   Vec3 inheritedVelocity = {};
+  Vec3 impactPosition = {};
+  Vec3 impactNormal = {};
+  Vec3 incomingDirection = {1.0F, 0.0F, 0.0F};
+  ImpactSurfaceCategory surface = ImpactSurfaceCategory::GenericHard;
+  std::uint32_t visualSeed = 0;
+  std::uint8_t ownerIndex = 0;
+  bool hitWorld = false;
+};
+
+struct SurfaceImpactEffectsRequest {
+  Vec3 position = {};
+  Vec3 normal = {};
+  Vec3 incomingDirection = {1.0F, 0.0F, 0.0F};
+  ImpactSurfaceCategory surface = ImpactSurfaceCategory::GenericHard;
+  SurfaceImpactWeapon weapon = SurfaceImpactWeapon::MachineGun;
+  std::uint32_t visualSeed = 0;
+};
+
+struct FreezeGunPulseEffectsRequest {
+  Vec3 muzzlePosition = {};
+  Vec3 muzzleForward = {1.0F, 0.0F, 0.0F};
   Vec3 impactPosition = {};
   Vec3 impactNormal = {};
   Vec3 incomingDirection = {1.0F, 0.0F, 0.0F};
@@ -77,6 +124,8 @@ struct CombatEffectsStats {
   std::uint32_t peakParticles = 0;
   std::uint32_t peakDecals = 0;
   std::uint64_t shotsSpawned = 0;
+  std::uint64_t surfaceImpactsSpawned = 0;
+  std::uint64_t freezePulsesSpawned = 0;
   std::uint64_t rocketShotsSpawned = 0;
   std::uint64_t rocketExplosionsSpawned = 0;
   std::uint64_t effectsDropped = 0;
@@ -137,6 +186,14 @@ public:
     const MachineGunShotEffectsRequest& request,
     const CombatEffectsTuning& tuning
   );
+  void spawnSurfaceImpact(
+    const SurfaceImpactEffectsRequest& request,
+    const CombatEffectsTuning& tuning
+  );
+  void spawnFreezeGunPulse(
+    const FreezeGunPulseEffectsRequest& request,
+    const CombatEffectsTuning& tuning
+  );
   void spawnRocketLauncherShot(
     const RocketLauncherShotEffectsRequest& request,
     const CombatEffectsTuning& tuning
@@ -183,6 +240,8 @@ private:
   > hasMuzzleAttachment_ = {};
   std::uint64_t nextSerial_ = 1;
   std::uint64_t shotsSpawned_ = 0;
+  std::uint64_t surfaceImpactsSpawned_ = 0;
+  std::uint64_t freezePulsesSpawned_ = 0;
   std::uint64_t rocketShotsSpawned_ = 0;
   std::uint64_t rocketExplosionsSpawned_ = 0;
   std::uint64_t effectsDropped_ = 0;

@@ -3237,7 +3237,7 @@ void destroyGpuDirectPresentPipelines(
     swapchainFormat,
     true,
     false,
-    {0U, 0U}
+    {0U, 1U}
   );
   pipelines.staticMesh = createGpuStaticMeshPipeline3D(
     device,
@@ -3247,7 +3247,7 @@ void destroyGpuDirectPresentPipelines(
     swapchainFormat,
     false,
     "instanced_color_direct.frag.spv",
-    {0U, 0U}
+    {0U, 1U}
   );
   pipelines.materialMesh = createGpuMaterialMeshPipeline3D(
     device,
@@ -5971,6 +5971,8 @@ void initializeGltfMaterialTextures(
     return "color-grade";
   case DirectPresentFallbackReason::Exposure:
     return "exposure";
+  case DirectPresentFallbackReason::DisplayGamma:
+    return "display-gamma";
   case DirectPresentFallbackReason::AntiAliasing:
     return "anti-aliasing";
   case DirectPresentFallbackReason::Bloom:
@@ -8364,6 +8366,7 @@ void appendCommandBatches(
     const DirectPresentInputs directInputs = {
       perspectiveScene.lights.gradeQuality == 0,
       std::abs(perspectiveScene.lights.exposure - 1.0F) <= 0.000001F,
+      displayGammaIsNeutral(settings.displayGamma),
       sampleCount == SDL_GPU_SAMPLECOUNT_1,
       !bloomEffective,
       perspectiveScene.lights.shadow.mapSize == 0U,
@@ -9808,7 +9811,7 @@ void appendCommandBatches(
       postPlan.bloomEnabled
         ? std::clamp(settings.bloomIntensity, 0.0F, 1.0F)
         : 0.0F,
-      0.0F,
+      clampedDisplayGamma(settings.displayGamma),
     }};
     SDL_PushGPUFragmentUniformData(
       commandBuffer,
@@ -11681,7 +11684,7 @@ bool Renderer::initialize(void* window) {
         }
         GpuSimpleResources* simpleResources = createGpuSimpleResources(device);
         GpuGltfPlayerResources* gltfPlayerResources =
-          createGpuGltfPlayerResources(device, duelistMaleModel());
+          createGpuGltfPlayerResources(device, workerPlayerModel());
         const SDL_GPUBufferCreateInfo vertexBufferInfo = {
           SDL_GPU_BUFFERUSAGE_VERTEX,
           static_cast<Uint32>(kMaxGpuVertices * sizeof(GpuVertex)),
@@ -12463,9 +12466,7 @@ void Renderer::render(
     auto* pointShadowTexture =
       static_cast<SDL_GPUTexture*>(gpuPointShadowTexture_);
     auto* staticWorld = static_cast<StaticWorldMesh*>(gpuStaticWorld_);
-    const GltfSkinnedModel* requestedPlayerModel = settings.playerModel == 2
-      ? &workerPlayerModel()
-      : &duelistMaleModel();
+    const GltfSkinnedModel* requestedPlayerModel = &workerPlayerModel();
     auto* gltfPlayerResources =
       static_cast<GpuGltfPlayerResources*>(gpuGltfPlayerResources_);
     if (
@@ -13162,7 +13163,8 @@ void Renderer::render(
         player,
         settings,
         hud,
-        console
+        console,
+        &camera
       )
     );
   }

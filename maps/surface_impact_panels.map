@@ -1,0 +1,48 @@
+// Four fixed material panels for local world-contact capture scenarios.
+{
+"classname" "worldspawn"
+"lg_bounds_min" "-1600 -1600 0"
+"lg_bounds_max" "1600 1600 960"
+{
+( 0 -360 0 ) ( 0 -352 0 ) ( 0 -360 80 ) Base/Metal/Mat_Metal_Gray_01-128x128 0 0 0 1 1
+( 0 -360 0 ) ( 0 -360 80 ) ( 32 -360 0 ) Base/Metal/Mat_Metal_Gray_01-128x128 0 0 0 1 1
+( 0 -360 0 ) ( 32 -360 0 ) ( 0 -352 0 ) Base/Metal/Mat_Metal_Gray_01-128x128 0 0 0 1 1
+( 32 -200 320 ) ( 32 -200 400 ) ( 32 -120 320 ) Base/Metal/Mat_Metal_Gray_01-128x128 0 0 0 1 1
+( 32 -200 320 ) ( 112 -200 320 ) ( 32 -200 400 ) Base/Metal/Mat_Metal_Gray_01-128x128 0 0 0 1 1
+( 32 -200 320 ) ( 32 -120 320 ) ( 112 -200 320 ) Base/Metal/Mat_Metal_Gray_01-128x128 0 0 0 1 1
+}
+{
+( 0 -120 0 ) ( 0 -112 0 ) ( 0 -120 80 ) Base/Stone/Mat_Stone_Gray_01-128x128 0 0 0 1 1
+( 0 -120 0 ) ( 0 -120 80 ) ( 32 -120 0 ) Base/Stone/Mat_Stone_Gray_01-128x128 0 0 0 1 1
+( 0 -120 0 ) ( 32 -120 0 ) ( 0 -112 0 ) Base/Stone/Mat_Stone_Gray_01-128x128 0 0 0 1 1
+( 32 40 320 ) ( 32 40 400 ) ( 32 120 320 ) Base/Stone/Mat_Stone_Gray_01-128x128 0 0 0 1 1
+( 32 40 320 ) ( 112 40 320 ) ( 32 40 400 ) Base/Stone/Mat_Stone_Gray_01-128x128 0 0 0 1 1
+( 32 40 320 ) ( 32 120 320 ) ( 112 40 320 ) Base/Stone/Mat_Stone_Gray_01-128x128 0 0 0 1 1
+}
+{
+( 0 120 0 ) ( 0 128 0 ) ( 0 120 80 ) Base/Wood/Mat_Wood_Brown_01-128x128 0 0 0 1 1
+( 0 120 0 ) ( 0 120 80 ) ( 32 120 0 ) Base/Wood/Mat_Wood_Brown_01-128x128 0 0 0 1 1
+( 0 120 0 ) ( 32 120 0 ) ( 0 128 0 ) Base/Wood/Mat_Wood_Brown_01-128x128 0 0 0 1 1
+( 32 280 320 ) ( 32 280 400 ) ( 32 360 320 ) Base/Wood/Mat_Wood_Brown_01-128x128 0 0 0 1 1
+( 32 280 320 ) ( 112 280 320 ) ( 32 280 400 ) Base/Wood/Mat_Wood_Brown_01-128x128 0 0 0 1 1
+( 32 280 320 ) ( 32 360 320 ) ( 112 280 320 ) Base/Wood/Mat_Wood_Brown_01-128x128 0 0 0 1 1
+}
+{
+( 0 360 0 ) ( 0 368 0 ) ( 0 360 80 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 0 360 0 ) ( 0 360 80 ) ( 32 360 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 0 360 0 ) ( 32 360 0 ) ( 0 368 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 32 520 320 ) ( 32 520 400 ) ( 32 600 320 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 32 520 320 ) ( 112 520 320 ) ( 32 520 400 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 32 520 320 ) ( 32 600 320 ) ( 112 520 320 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "lg_spawn"
+"origin" "-320 0 72"
+"angle" "0"
+}
+{
+"classname" "lg_spawn"
+"origin" "-640 960 72"
+"angle" "180"
+}

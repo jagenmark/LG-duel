@@ -17,6 +17,7 @@ type Capture = {
   size_bytes: number;
   preview_url: string;
   full_size_url: string;
+  original_url?: string | null;
 };
 
 function formatDate(value: string) {
@@ -34,11 +35,13 @@ function formatBytes(value: number) {
 export function Gallery() {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const approvedCaptures = captures.filter((capture) => capture.review_status === "pass");
+  const visibleCaptures = captures.filter((capture) => (
+    capture.review_status === "pass" || capture.review_status === "not_reviewed"
+  ));
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/evidence/manifest.json", { signal: controller.signal })
+    fetch("/api/evidence", { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("The gallery could not load.");
         return (await response.json()) as { captures: Capture[] };
@@ -71,36 +74,36 @@ export function Gallery() {
     );
   }
 
-  if (approvedCaptures.length === 0) {
+  if (visibleCaptures.length === 0) {
     return (
       <section className="empty">
-        <p className="eyebrow">No approved captures yet</p>
-        <h2>The first reviewed image will appear here.</h2>
-        <p>Local files stay out of this gallery until review and publication pass.</p>
+        <p className="eyebrow">No visible captures yet</p>
+        <h2>The first uploaded image will appear here.</h2>
+        <p>Passed and not-reviewed uploads appear with their review state.</p>
       </section>
     );
   }
 
   return (
-    <section className="gallery" aria-label="Approved captures">
+    <section className="gallery" aria-label="Published captures">
       <div className="section-heading">
         <div>
           <p className="eyebrow">Published evidence</p>
           <h2>
-            {approvedCaptures.length} approved {approvedCaptures.length === 1 ? "capture" : "captures"}
+            {visibleCaptures.length} published {visibleCaptures.length === 1 ? "capture" : "captures"}
           </h2>
         </div>
         <p>Newest first</p>
       </div>
       <div className="capture-grid">
-        {approvedCaptures.map((capture) => (
+        {visibleCaptures.map((capture) => (
           <article className="capture-card" key={capture.capture_id}>
             <a
               className="preview-link"
               href={capture.full_size_url}
               aria-label={`Open full-size image: ${capture.title}`}
             >
-              {/* The stored original is also the preview; CSS caps its shown size. */}
+              {/* Review links always use the compact derivative. */}
               <img src={capture.preview_url} alt={capture.description} loading="lazy" />
               <span className="open-label">Open full size</span>
             </a>
@@ -131,7 +134,8 @@ export function Gallery() {
                 <p className="review-note">“{capture.review_notes}”</p>
               ) : null}
               <div className="capture-actions">
-                <a href={capture.full_size_url}>Full-size original</a>
+                <a href={capture.full_size_url}>Compact review image</a>
+                {capture.original_url ? <a href={capture.original_url}>Original</a> : null}
                 <span title={capture.sha256}>SHA-256 {capture.sha256.slice(0, 10)}…</span>
               </div>
             </div>

@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260809T024552Z-graphics-pass-5-default-railgun-stone-02",
+  "captured_at": "2026-08-09T02:45:52Z",
+  "captured_by": "vfx-runtime",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Original GPU capture at the exact active local Railgun contact on the Stone panel.",
+  "image": "20260809T024552Z-graphics-pass-5-default-railgun-stone-02.png",
+  "review": {
+    "notes": "The exact Default frame shows a narrow Railgun precision trace and compact Stone contact with clean placement and no bloom washout or artifact.",
+    "reviewed_at": "2026-08-09T03:02:16Z",
+    "reviewer": "pass5_reviewer",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "2710276f201a00580fb5d8fe5e7893e8175483dc640b13ab1317b53732f8f078",
+  "size_bytes": 3687468,
+  "task_id": "graphics-pass-5-runtime",
+  "title": "Default Railgun Stone contact"
+}

@@ -1,5 +1,6 @@
 {
   "gallery_origin": "https://lg-duel-visual-evidence.goseen123.chatgpt.site",
+  "upload_path": "/api/evidence",
   "max_bytes": 15728640,
   "sites_project_id": "appgprj_6a6606ef046081918286244d63c1bc07"
 }

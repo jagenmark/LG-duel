@@ -94,6 +94,35 @@ int main() {
       ) != initialArchivedConfig.end(),
     "late mouse sampling should default on and persist in client config"
   );
+  failures += expect(
+    console.getFloat("r_display_gamma") == 1.0F &&
+      std::find(
+        initialArchivedConfig.begin(),
+        initialArchivedConfig.end(),
+        "set r_display_gamma 1"
+      ) != initialArchivedConfig.end() &&
+      console.execute("r_display_gamma 0.5") ==
+        "r_display_gamma = 0.5" &&
+      console.execute("r_display_gamma 1.5") ==
+        "r_display_gamma = 1.5" &&
+      console.execute("r_display_gamma 0.49") ==
+        "value out of range for r_display_gamma" &&
+      console.execute("r_display_gamma 1.51") ==
+        "value out of range for r_display_gamma" &&
+      console.execute("r_display_gamma 1.25") ==
+        "r_display_gamma = 1.25",
+    "display gamma should default neutral and enforce its endpoints"
+  );
+  const std::vector<std::string> displayGammaArchivedConfig =
+    console.archivedConfigLines();
+  failures += expect(
+    std::find(
+      displayGammaArchivedConfig.begin(),
+      displayGammaArchivedConfig.end(),
+      "set r_display_gamma 1.25"
+    ) != displayGammaArchivedConfig.end(),
+    "display gamma should persist through archived client config"
+  );
 
   for (const lg::GraphicsProfileDefinition& profile : lg::kGraphicsProfiles) {
     const auto hasValue = [&](std::string_view cvar) {
@@ -635,9 +664,9 @@ int main() {
     console.execute("r_player_model") ==
       "r_player_model = 1 (default 1)" &&
       console.execute("r_player_model 0") == "r_player_model = 0" &&
-      console.execute("r_player_model 2") == "r_player_model = 2" &&
-      console.execute("r_player_model 3") == "value out of range for r_player_model",
-    "remote player model cvar should select legacy, Duelist, or Worker bodies"
+      console.execute("r_player_model 1") == "r_player_model = 1" &&
+      console.execute("r_player_model 2") == "value out of range for r_player_model",
+    "remote player model cvar should select legacy boxes or the Worker default"
   );
   failures += expect(
     console.execute("r_damage_numbers_window") ==

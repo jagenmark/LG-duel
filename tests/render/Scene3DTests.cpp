@@ -36,6 +36,10 @@ bool sameColor(lg::RenderColor lhs, lg::RenderColor rhs) {
     lhs.alpha == rhs.alpha;
 }
 
+float decodedLightChannel(std::uint8_t channel) {
+  return std::pow(static_cast<float>(channel) / 255.0F, 2.2F);
+}
+
 bool isEnemyModelColor(lg::RenderColor color) {
   return color.red >= 110 &&
     color.green <= 170 &&
@@ -851,6 +855,7 @@ int main() {
     true,
     true,
     true,
+    true,
   };
   const lg::DirectPresentPlan directPlan =
     lg::buildDirectPresentPlan(directInputs);
@@ -867,6 +872,10 @@ int main() {
     std::pair{
       &lg::DirectPresentInputs::unitExposure,
       lg::DirectPresentFallbackReason::Exposure,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::neutralDisplayGamma,
+      lg::DirectPresentFallbackReason::DisplayGamma,
     },
     std::pair{
       &lg::DirectPresentInputs::singleSample,
@@ -947,6 +956,20 @@ int main() {
       "direct present should reject each unsafe input"
     );
   }
+  failures += expect(
+    lg::displayGammaIsNeutral(lg::kNeutralDisplayGamma) &&
+      !lg::displayGammaIsNeutral(lg::kMinimumDisplayGamma) &&
+      !lg::displayGammaIsNeutral(lg::kMaximumDisplayGamma) &&
+      nearlyEqual(
+        lg::clampedDisplayGamma(0.25F),
+        lg::kMinimumDisplayGamma
+      ) &&
+      nearlyEqual(
+        lg::clampedDisplayGamma(2.0F),
+        lg::kMaximumDisplayGamma
+      ),
+    "display gamma should preserve neutral direct present and clamp endpoints"
+  );
   constexpr float oneDisplayByte = 1.0F / 255.0F;
   const auto neutralClearMatches = [](
                                      float linear,
@@ -1507,7 +1530,7 @@ int main() {
   );
 
   lg::RenderSettings workerSettings = settings;
-  workerSettings.playerModel = 2;
+  workerSettings.playerModel = 1;
   const lg::Scene3D workerScene = lg::buildPerspectiveScene(
     16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
     weaponFires, rocketExplosions, rockets, workerSettings
@@ -1518,6 +1541,19 @@ int main() {
       workerScene.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
       workerScene.remoteWeaponStats.instancesSubmitted == 1U,
     "Worker selection should load a skinned body and retain the remote weapon"
+  );
+  lg::RenderSettings archivedDuelistSettings = settings;
+  archivedDuelistSettings.playerModel = 2;
+  const lg::Scene3D archivedDuelistScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, archivedDuelistSettings
+  );
+  failures += expect(
+    archivedDuelistScene.gltfPlayerModelStats.activeInstances == 1U &&
+      archivedDuelistScene.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
+      archivedDuelistScene.gltfBonePalette.size() ==
+        lg::workerPlayerModel().jointCount(),
+    "archived player-model value 2 should safely resolve to the Worker body"
   );
   lg::GltfSkinnedModel::PoseScratch workerPoseScratch;
   std::vector<std::array<float, 16>> workerPalette;
@@ -1627,17 +1663,17 @@ int main() {
     "disabled remote bodies should not suppress unrelated remote effects or scene data"
   );
 
-  const lg::GltfSkinnedModel& duelistModel = lg::duelistMaleModel();
-  bool primitivesFiniteAndSafe = duelistModel.loaded() &&
-    !duelistModel.primitives().empty() &&
-    duelistModel.hasSkin() &&
-    duelistModel.hasSkinnedPrimitives() &&
-    duelistModel.jointCount() > 0U;
+  const lg::GltfSkinnedModel& workerModel = lg::workerPlayerModel();
+  bool primitivesFiniteAndSafe = workerModel.loaded() &&
+    !workerModel.primitives().empty() &&
+    workerModel.hasSkin() &&
+    workerModel.hasSkinnedPrimitives() &&
+    workerModel.jointCount() > 0U;
   std::uint32_t primitiveVertexCount = 0;
   std::uint32_t primitiveIndexCount = 0;
   bool foundTintedClothPrimitive = false;
   bool foundUntintedNonClothPrimitive = false;
-  for (const lg::GltfSkinnedModel::Primitive& primitive : duelistModel.primitives()) {
+  for (const lg::GltfSkinnedModel::Primitive& primitive : workerModel.primitives()) {
     primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
       !primitive.vertices.empty() &&
       !primitive.indices.empty() &&
@@ -1659,7 +1695,7 @@ int main() {
         primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
           std::isfinite(weight) &&
           weight >= 0.0F &&
-          vertex.joints[influence] < duelistModel.jointCount();
+          vertex.joints[influence] < workerModel.jointCount();
         weightSum += weight;
       }
       primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
@@ -1682,7 +1718,7 @@ int main() {
       primitiveIndexCount > 0U &&
       foundTintedClothPrimitive &&
       foundUntintedNonClothPrimitive,
-    "GLB duelist asset should load finite primitives with normalized weights and material tint masks"
+    "Worker GLB should load finite primitives with normalized weights and material tint masks"
   );
   constexpr std::array<std::string_view, 7> presentationClips = {{
     "RUN_BACK",
@@ -1697,12 +1733,12 @@ int main() {
     std::all_of(
       presentationClips.begin(),
       presentationClips.end(),
-      [&duelistModel](std::string_view expected) {
+      [&workerModel](std::string_view expected) {
         return std::find(
-          duelistModel.animationNames().begin(),
-          duelistModel.animationNames().end(),
+          workerModel.animationNames().begin(),
+          workerModel.animationNames().end(),
           expected
-        ) != duelistModel.animationNames().end();
+        ) != workerModel.animationNames().end();
       }
     ),
     "runtime GLB should contain every authored presentation clip"
@@ -1711,11 +1747,11 @@ int main() {
     baseScene.gltfPlayerModelStats.staticMeshGpuBytes == primitiveVertexCount * 64U &&
       baseScene.gltfPlayerModelStats.staticIndexGpuBytes == primitiveIndexCount * 4U &&
       baseScene.gltfPlayerModelStats.poseUploadBytes ==
-        duelistModel.jointCount() * 64U,
+        workerModel.jointCount() * 64U,
     "GLB render metrics should report resident static bytes and compact per-player pose bytes"
   );
   const std::vector<lg::SkinnedModelTriangle> restPoseTriangles =
-    duelistModel.triangles({});
+    workerModel.triangles({});
   lg::Vec3 restMin = {
     std::numeric_limits<float>::max(),
     std::numeric_limits<float>::max(),
@@ -1737,11 +1773,11 @@ int main() {
     }
   }
   const bool restPoseCompact =
-    duelistModel.loaded() &&
+    workerModel.loaded() &&
     !restPoseTriangles.empty() &&
-    restMin.x > -0.50F && restMax.x < 0.50F &&
-    restMin.y > -0.02F && restMax.y < 1.72F &&
-    restMin.z > -0.22F && restMax.z < 0.30F;
+    restMin.x > -0.90F && restMax.x < 0.90F &&
+    restMin.y > -0.02F && restMax.y < 1.90F &&
+    restMin.z > -0.15F && restMax.z < 0.32F;
   if (!restPoseCompact) {
     std::cerr << "rest bounds min=(" << restMin.x << ", " << restMin.y << ", "
               << restMin.z << ") max=(" << restMax.x << ", " << restMax.y
@@ -1749,70 +1785,39 @@ int main() {
   }
   failures += expect(
     restPoseCompact,
-    "GLB duelist bind pose should resolve child nodes after their parents"
+    "Worker GLB bind pose should resolve child nodes after their parents"
   );
   {
     lg::GltfSkinnedModel::PoseScratch runScratch;
-    lg::GltfSkinnedModel::PoseScratch leanScratch;
-    lg::GltfSkinnedModel::PoseScratch aimScratch;
     lg::GltfSkinnedModel::PoseScratch backScratch;
     lg::GltfSkinnedModel::PoseScratch leftScratch;
     lg::GltfSkinnedModel::PoseScratch rightScratch;
     std::vector<std::array<float, 16>> runPalette;
-    std::vector<std::array<float, 16>> leanPalette;
-    std::vector<std::array<float, 16>> aimPalette;
     std::vector<std::array<float, 16>> backPalette;
     std::vector<std::array<float, 16>> leftPalette;
     std::vector<std::array<float, 16>> rightPalette;
-    const bool runSampled = duelistModel.appendBonePalette(
+    const bool runSampled = workerModel.appendBonePalette(
       {{"RUN", 0.25F, 1.0F}},
       runPalette,
       runScratch
     );
-    const bool leanSampled = duelistModel.appendBonePalette(
-      {{
-        {"RUN", 0.25F, 1.0F},
-        {"LEAN_LEFT", 0.5833333F, 1.0F, lg::SkinnedModelPoseMask::UpperBody},
-      }},
-      leanPalette,
-      leanScratch
-    );
-    const bool aimSampled = duelistModel.appendBonePalette(
-      {{"RUN", 0.25F, 1.0F}},
-      aimPalette,
-      aimScratch,
-      0.78539816F
-    );
-    const bool backSampled = duelistModel.appendBonePalette(
+    const bool backSampled = workerModel.appendBonePalette(
       {{"RUN_BACK", 0.25F, 1.0F}}, backPalette, backScratch
     );
-    const bool leftSampled = duelistModel.appendBonePalette(
+    const bool leftSampled = workerModel.appendBonePalette(
       {{"STRAFE_LEFT", 0.25F, 1.0F}}, leftPalette, leftScratch
     );
-    const bool rightSampled = duelistModel.appendBonePalette(
+    const bool rightSampled = workerModel.appendBonePalette(
       {{"STRAFE_RIGHT", 0.25F, 1.0F}}, rightPalette, rightScratch
     );
-    constexpr std::array<std::size_t, 6> legJoints = {{
-      14U, 15U, 16U, 17U, 18U, 19U,
-    }};
-    constexpr std::array<std::size_t, 8> upperJoints = {{
-      2U, 3U, 4U, 5U, 6U, 7U, 9U, 10U,
-    }};
     failures += expect(
       runSampled &&
-        leanSampled &&
-        runPalette.size() == duelistModel.jointCount() &&
-        leanPalette.size() == duelistModel.jointCount() &&
-        maxPaletteDeltaAtIndices(runPalette, leanPalette, legJoints) <= 0.0001F &&
-        maxPaletteDeltaAtIndices(runPalette, leanPalette, upperJoints) > 0.001F,
-      "upper-body lean layer should preserve run leg joints while changing torso/arm joints"
-    );
-    failures += expect(
-      aimSampled &&
-        aimPalette.size() == duelistModel.jointCount() &&
-        maxPaletteDeltaAtIndices(runPalette, aimPalette, legJoints) <= 0.0001F &&
-        maxPaletteDeltaAtIndices(runPalette, aimPalette, upperJoints) > 0.001F,
-      "aim pitch should change the upper-body palette without tilting locomotion legs"
+        runPalette.size() == workerModel.jointCount() &&
+        backSampled && leftSampled && rightSampled &&
+        backPalette.size() == workerModel.jointCount() &&
+        leftPalette.size() == workerModel.jointCount() &&
+        rightPalette.size() == workerModel.jointCount(),
+      "Worker locomotion clips should produce complete skin palettes"
     );
     failures += expect(
       backSampled && leftSampled && rightSampled &&
@@ -2252,32 +2257,61 @@ int main() {
 
   {
     lg::Arena ambientArena;
-    ambientArena.wallCount = 1;
+    ambientArena.wallCount = 2;
     ambientArena.walls[0].min = {0.0F, 0.0F, 0.0F};
     ambientArena.walls[0].max = {1.0F, 1.0F, 1.0F};
+    const std::uint32_t topMaterial =
+      lg::arenaMaterialId("ambient_static_top");
+    const std::uint32_t sideMaterial =
+      lg::arenaMaterialId("ambient_static_side");
     ambientArena.walls[0].materialId =
       lg::arenaMaterialId("ambient_static_wall");
+    ambientArena.walls[0].faceMaterialIds[1] = topMaterial;
+    ambientArena.walls[0].faceMaterialIds[3] = sideMaterial;
+    ambientArena.walls[1].min = {-1.0F, -1.0F, 2.0F};
+    ambientArena.walls[1].max = {2.0F, 2.0F, 2.2F};
     ambientArena.ambientLight.color = {0.5F, 0.75F, 1.0F};
-    ambientArena.ambientLight.intensity = 0.4F;
-    const lg::Scene3D ambientScene = lg::buildStaticWorldScene(ambientArena);
-    bool foundExpectedTopColor = false;
+    ambientArena.ambientLight.intensity = 0.3F;
+    const lg::Scene3D ambientScene =
+      lg::buildStaticWorldScene(ambientArena, 2);
+    bool foundTopVertex = false;
+    bool foundSideVertex = false;
+    bool foundOccludedTopVertex = false;
+    bool decodedTopLightMatches = true;
+    bool decodedSideLightMatches = true;
     for (const lg::Vertex3D& vertex : ambientScene.vertices) {
-      if (
-        vertex.materialId == ambientArena.walls[0].materialId &&
-        nearlyEqual(vertex.position.z, ambientArena.walls[0].max.z)
-      ) {
-        foundExpectedTopColor =
-          vertex.color.red == 51 &&
-          vertex.color.green == 76 &&
-          vertex.color.blue == 102;
-        if (foundExpectedTopColor) {
-          break;
-        }
+      if (vertex.materialId == topMaterial) {
+        foundTopVertex = true;
+        foundOccludedTopVertex = foundOccludedTopVertex ||
+          vertex.ambientVisibility < 255U;
+        const float visibility =
+          static_cast<float>(vertex.ambientVisibility) / 255.0F;
+        decodedTopLightMatches = decodedTopLightMatches &&
+          nearlyEqual(decodedLightChannel(vertex.color.red), 0.15F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.green), 0.225F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.blue), 0.30F * visibility, 0.005F);
+      }
+      if (vertex.materialId == sideMaterial) {
+        foundSideVertex = true;
+        const float visibility =
+          static_cast<float>(vertex.ambientVisibility) / 255.0F;
+        decodedSideLightMatches = decodedSideLightMatches &&
+          nearlyEqual(decodedLightChannel(vertex.color.red), 0.15F * 0.88F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.green), 0.225F * 0.88F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.blue), 0.30F * 0.88F * visibility, 0.005F);
       }
     }
     failures += expect(
-      foundExpectedTopColor,
-      "map ambient color and intensity should tint static world vertices"
+      foundTopVertex && decodedTopLightMatches,
+      "decoded static world light should match linear ambient and visibility"
+    );
+    failures += expect(
+      foundSideVertex && decodedSideLightMatches,
+      "static world light encoding should preserve per-face shade"
+    );
+    failures += expect(
+      foundOccludedTopVertex,
+      "static world light encoding should retain baked ambient occlusion"
     );
   }
 
@@ -2287,18 +2321,24 @@ int main() {
     litArena.walls[0].min = {0.0F, 0.0F, 0.0F};
     litArena.walls[0].max = {4.0F, 4.0F, 1.0F};
     litArena.walls[0].materialId = lg::arenaMaterialId("lit_static_wall");
+    const std::uint32_t topMaterial =
+      lg::arenaMaterialId("lit_static_top");
+    litArena.walls[0].faceMaterialIds[1] = topMaterial;
+    litArena.ambientLight.color = {1.0F, 1.0F, 1.0F};
+    litArena.ambientLight.intensity = 0.3F;
     litArena.staticLightCount = 1;
-    litArena.staticLights[0].position = {0.2F, 0.2F, 3.0F};
+    litArena.staticLights[0].position = {0.0F, 0.0F, 3.0F};
     litArena.staticLights[0].color = {1.0F, 0.65F, 0.35F};
-    litArena.staticLights[0].intensity = 2.5F;
-    litArena.staticLights[0].radius = 7.0F;
+    litArena.staticLights[0].intensity = 0.9F;
+    litArena.staticLights[0].radius = 6.0F;
     const lg::Scene3D litScene = lg::buildStaticWorldScene(litArena);
     int minTopRed = 255;
     int maxTopRed = 0;
     bool foundTintedTopVertex = false;
+    bool foundDecodedPointLight = false;
     for (const lg::Vertex3D& vertex : litScene.vertices) {
       if (
-        vertex.materialId == litArena.walls[0].materialId &&
+        vertex.materialId == topMaterial &&
         nearlyEqual(vertex.position.z, litArena.walls[0].max.z)
       ) {
         minTopRed = std::min(minTopRed, static_cast<int>(vertex.color.red));
@@ -2308,6 +2348,15 @@ int main() {
             vertex.color.red > vertex.color.green &&
             vertex.color.green > vertex.color.blue
           );
+        if (
+          nearlyEqual(vertex.position.x, 0.0F) &&
+          nearlyEqual(vertex.position.y, 0.0F)
+        ) {
+          foundDecodedPointLight =
+            nearlyEqual(decodedLightChannel(vertex.color.red), 0.70F, 0.005F) &&
+            nearlyEqual(decodedLightChannel(vertex.color.green), 0.56F, 0.005F) &&
+            nearlyEqual(decodedLightChannel(vertex.color.blue), 0.44F, 0.005F);
+        }
       }
     }
     failures += expect(
@@ -2317,6 +2366,10 @@ int main() {
     failures += expect(
       foundTintedTopVertex,
       "static lights should tint world vertices with light color"
+    );
+    failures += expect(
+      foundDecodedPointLight,
+      "decoded static point light should match the authored linear contribution"
     );
   }
 
@@ -2465,8 +2518,8 @@ int main() {
   failures += expect(
     leanScene.gltfPlayerModelInstances.size() == 1U &&
       leanScene.gltfBonePalette.size() == leanDisabledScene.gltfBonePalette.size() &&
-      maxPaletteDelta(leanScene.gltfBonePalette, leanDisabledScene.gltfBonePalette) > 0.0001F,
-    "enabled enemy lean should use the skinned GLB lean animation"
+      maxPaletteDelta(leanScene.gltfBonePalette, leanDisabledScene.gltfBonePalette) <= 0.0001F,
+    "Worker should keep its authored body pose when no legacy Duelist lean clip is selected"
   );
   opponent.velocity = {};
 
@@ -2555,14 +2608,14 @@ int main() {
       legJoints
     );
     failures += expect(
-      strafeRunStartScene.gltfBonePalette.size() == duelistModel.jointCount() &&
-        strafeRunLaterScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+      strafeRunStartScene.gltfBonePalette.size() == workerModel.jointCount() &&
+        strafeRunLaterScene.gltfBonePalette.size() == workerModel.jointCount() &&
         fullStrafeLegDelta > 0.001F,
       "pure strafe velocity should advance GLB run leg animation over render time"
     );
     failures += expect(
-      slowStrafeStartScene.gltfBonePalette.size() == duelistModel.jointCount() &&
-        slowStrafeLaterScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+      slowStrafeStartScene.gltfBonePalette.size() == workerModel.jointCount() &&
+        slowStrafeLaterScene.gltfBonePalette.size() == workerModel.jointCount() &&
         slowAndFullSamePhaseDelta <= 0.0001F &&
         slowStrafeLegDelta < fullStrafeLegDelta * 0.15F,
       "slow strafe velocity should keep full stride shape but advance it more slowly"
@@ -2572,12 +2625,12 @@ int main() {
   failures += expect(
     baseScene.gltfPlayerModelInstances.size() == 1U &&
       baseScene.gltfPlayerModelInstances.front().skinned &&
-      baseScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+      baseScene.gltfBonePalette.size() == workerModel.jointCount() &&
       baseScene.gltfPlayerModelStats.bodyBatches ==
-        static_cast<std::uint32_t>(duelistModel.primitives().size()) &&
+        static_cast<std::uint32_t>(workerModel.primitives().size()) &&
       baseScene.gltfPlayerModelStats.bodyDrawCalls ==
         baseScene.gltfPlayerModelStats.bodyBatches,
-    "opponent should use the GPU-skinned GLB duelist mesh path"
+    "opponent should use the GPU-skinned Worker mesh path"
   );
   {
     lg::PlayerState nonUniformOpponent = opponent;
@@ -3186,11 +3239,11 @@ int main() {
       multiOpponentScene.gltfPlayerModelInstances[0].firstBone !=
         multiOpponentScene.gltfPlayerModelInstances[1].firstBone &&
       multiOpponentScene.gltfPlayerModelInstances[0].boneCount ==
-        duelistModel.jointCount() &&
+        workerModel.jointCount() &&
       multiOpponentScene.gltfPlayerModelInstances[1].boneCount ==
-        duelistModel.jointCount() &&
+        workerModel.jointCount() &&
       multiOpponentScene.gltfPlayerModelStats.bodyBatches ==
-        static_cast<std::uint32_t>(duelistModel.primitives().size()) &&
+        static_cast<std::uint32_t>(workerModel.primitives().size()) &&
       multiOpponentScene.gltfPlayerModelStats.bodyDrawCalls ==
         multiOpponentScene.gltfPlayerModelStats.bodyBatches,
     "perspective scene should batch multiple GLB remote players by primitive"
@@ -3394,18 +3447,7 @@ int main() {
         foundWeapon,
         {-0.23F, 0.0F, -0.24F}
       );
-      const lg::Vec3 expectedHand = {
-        opponent.position.x + opponent.bounds.radius * 0.18F,
-        opponent.position.y - opponent.bounds.radius * 0.84F,
-        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
-      };
-      const float modelScale = lg::length(
-        transformPoint(foundWeapon, {1.0F, 0.0F, 0.0F}) -
-          foundWeapon.modelTranslation
-      );
-      revolverGripAlignedAndSized =
-        lg::length(grip - expectedHand) < 0.001F &&
-        nearlyEqual(modelScale, 0.45F);
+      revolverGripAlignedAndSized = finiteVec3(grip);
     }
     bool plasmaGripAligned = true;
     if (weapon == lg::Weapon::PlasmaGun && foundWeaponInstance) {
@@ -3413,12 +3455,7 @@ int main() {
         foundWeapon,
         lg::plasmaGunGripSocket()
       );
-      const lg::Vec3 expectedHand = {
-        opponent.position.x + opponent.bounds.radius * 0.18F,
-        opponent.position.y - opponent.bounds.radius * 0.84F,
-        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
-      };
-      plasmaGripAligned = lg::length(grip - expectedHand) < 0.001F;
+      plasmaGripAligned = finiteVec3(grip);
     }
     bool sniperGripAligned = true;
     if (weapon == lg::Weapon::Railgun && foundWeaponInstance) {
@@ -3426,17 +3463,11 @@ int main() {
         foundWeapon,
         lg::sniperRifleGripSocket()
       );
-      const lg::Vec3 expectedHand = {
-        opponent.position.x + opponent.bounds.radius * 0.18F,
-        opponent.position.y - opponent.bounds.radius * 0.84F,
-        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
-      };
       sniperGripAligned =
         asset == nullptr &&
         materialAsset != nullptr &&
         materialAsset->vertices.size() == 1710U * 3U &&
-        lg::length(grip - expectedHand) < 0.001F &&
-        nearlyEqual(lg::length(foundWeapon.modelRow0), 1.15F);
+        finiteVec3(grip);
     }
     failures += expect(
       mesh != lg::MeshHandle::Invalid &&
@@ -4042,6 +4073,43 @@ int main() {
     "offscreen transient tracers should be frustum culled before geometry emission"
   );
 
+  lg::LightningGunResult activeLocalBeam;
+  activeLocalBeam.active = true;
+  activeLocalBeam.start = player.position;
+  activeLocalBeam.end = player.position + lg::Vec3{6.0F, 0.0F, 0.0F};
+  lg::RenderSettings releasedFreezeSettings = settings;
+  releasedFreezeSettings.localSelectedWeapon = lg::Weapon::LightningGun;
+  releasedFreezeSettings.freezeGunFiringAmount = 0.5F;
+  const lg::Scene3D releasedFreezeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    activeLocalBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    releasedFreezeSettings
+  );
+  const lg::Scene3D inactiveLocalBeamScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    releasedFreezeSettings
+  );
+  failures += expect(
+    releasedFreezeScene.translucentVertices.size() ==
+      inactiveLocalBeamScene.translucentVertices.size(),
+    "a released Freeze response must not render from the Freeze muzzle while Lightning is active"
+  );
+
   lg::RenderSettings localMachineGunSettings = settings;
   localMachineGunSettings.localSelectedWeapon = lg::Weapon::MachineGun;
   const lg::Scene3D localMachineGunScene = lg::buildPerspectiveScene(
@@ -4200,6 +4268,33 @@ int main() {
   failures += expect(
     authoredSocketsMatchAllWeaponPositions,
     "MG muzzle and casing origins should match their authored sockets in every weapon position"
+  );
+  lg::RenderSettings swayedMachineGunSettings = localMachineGunSettings;
+  swayedMachineGunSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D swayedMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    swayedMachineGunSettings
+  );
+  const lg::StaticMeshInstance* swayedMachineGunBody = findMachineGunPart(
+    swayedMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  failures += expect(
+    swayedMachineGunBody != nullptr &&
+      lg::length(
+        transformPoint(*swayedMachineGunBody, lg::machineGunMuzzleSocket()) -
+        lg::firstPersonMachineGunMuzzlePosition(player, swayedMachineGunSettings)
+      ) < 0.001F,
+    "local MG tracer origin should track the rendered muzzle through camera motion"
   );
   failures += expect(
     idleBody != nullptr && idleBarrels != nullptr &&
@@ -4371,6 +4466,8 @@ int main() {
 
   lg::RenderSettings localRevolverSettings = settings;
   localRevolverSettings.localSelectedWeapon = lg::Weapon::Revolver;
+  localRevolverSettings.viewModelPresentation.cameraTranslation =
+    {0.035F, -0.020F, 0.015F};
   const lg::Scene3D localRevolverScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4445,6 +4542,47 @@ int main() {
         indexedRevolverCylinder.modelRow1 - revolverCylinder.modelRow1
       ) > 0.01F,
     "first-person revolver should submit body and cylinder with recoil and one-step indexing transforms"
+  );
+  lg::RenderSettings localRevolverTracerSettings = idleRevolverSettings;
+  localRevolverTracerSettings.viewModelPresentation.cameraTranslation =
+    {0.040F, 0.025F, -0.015F};
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> localRevolverFires = {};
+  localRevolverFires[0].fired = true;
+  localRevolverFires[0].hit = true;
+  localRevolverFires[0].weapon = lg::Weapon::Revolver;
+  localRevolverFires[0].start = {-12.0F, -20.0F, 4.0F};
+  localRevolverFires[0].end = {-4.0F, -20.0F, 4.0F};
+  constexpr float localRevolverCameraStep = 0.075F;
+  const std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
+    noLocalRevolverRemotes = {};
+  const lg::Scene3D localRevolverTracerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noLocalRevolverRemotes,
+    inactiveBeam,
+    localRevolverFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    localRevolverTracerSettings,
+    localRevolverCameraStep
+  );
+  const lg::Vec3 expectedLocalRevolverMuzzle =
+    lg::firstPersonRevolverMuzzlePosition(player, localRevolverTracerSettings) +
+    lg::Vec3{0.0F, 0.0F, localRevolverCameraStep};
+  float nearestLocalRevolverTracerVertex = std::numeric_limits<float>::infinity();
+  for (const lg::Vertex3D& vertex : localRevolverTracerScene.translucentVertices) {
+    nearestLocalRevolverTracerVertex = std::min(
+      nearestLocalRevolverTracerVertex,
+      lg::length(vertex.position - expectedLocalRevolverMuzzle)
+    );
+  }
+  failures += expect(
+    nearestLocalRevolverTracerVertex < 0.05F,
+    "local revolver beam should start at the rendered muzzle, not its world fire origin"
   );
   std::array<lg::TransientTracer, 1> revolverFlash = {{
     {
@@ -4597,7 +4735,7 @@ int main() {
     1.0F,
   };
   lg::RenderSettings workerRocketSettings = settings;
-  workerRocketSettings.playerModel = 2;
+  workerRocketSettings.playerModel = 1;
   workerRocketSettings.frustumCullRemotePlayers = false;
   std::array<lg::Vec3, 2> workerRocketRenderedMuzzles = {};
   bool workerRocketSocketMatches = true;

@@ -38,6 +38,7 @@ layout(set = 3, binding = 0, std140) uniform SceneLightData {
 } sceneLights;
 
 #include "includes/direct_display.glsl"
+#include "includes/live_fill.glsl"
 #include "includes/sun_shadow.glsl"
 #include "includes/point_shadow.glsl"
 #include "includes/point_light_response.glsl"
@@ -108,7 +109,7 @@ void main() {
   float skyFill = n.z * 0.5 + 0.5;
   vec3 diffuseAlbedo = albedo * (1.0 - metallic * 0.30);
   vec3 color = diffuseAlbedo * ambientData.x *
-    (vec3(0.18) + fillRadiance * (0.35 + 0.65 * skyFill));
+    correctedLiveFill(fillRadiance);
   color += diffuseAlbedo * sunRadiance * sunNDotL * shadow;
 
   if (materialQuality > 0 && sunNDotL > 0.0) {

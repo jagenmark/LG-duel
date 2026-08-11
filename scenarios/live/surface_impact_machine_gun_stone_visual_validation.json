@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "surface_impact_machine_gun_stone_visual_validation",
+  "description": "Exact local Machine Gun world-contact capture on the Stone panel.",
+  "execution": {"mode": "client_server", "max_ticks": 80, "repeat": 1},
+  "world": {"map": "surface_impact_panels", "game_mode": "duel", "seed": 5105},
+  "players": [
+    {"index": 0, "connected": true, "bot": false, "team": "none", "position": [-4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": -14.0362435, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"},
+    {"index": 1, "connected": true, "bot": true, "team": "none", "position": [-8, 12, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 180, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"}
+  ],
+  "timeline": [
+    {"at_tick": 0, "player": 0, "duration_ticks": 1, "one_tick_edges": ["attack"], "input": {"forward": 0, "right": 0, "attack": true, "weapon": "machine_gun", "yaw": -14.0362435, "pitch": 0}}
+  ],
+  "captures": [
+    {"name": "sivv-machine-gun-stone-contact", "surface_impact_weapon": "machine_gun", "wait_rendered_frames": 0, "render_phase": "surface_impact"}
+  ],
+  "assertions": [
+    {"type": "event", "classification": "AUTHORITATIVE_DETERMINISTIC", "at_completion": true, "event": {"type": "weapon_fired", "actor": 0, "weapon": "machine_gun", "count": 1}},
+    {"type": "renderer_backend", "classification": "RENDERER_ATTESTED", "at_completion": true, "backend": "SDL_GPU/vulkan"},
+    {"type": "screenshot_checkpoint", "classification": "VISUAL_REVIEW", "at_completion": true, "capture": "sivv-machine-gun-stone-contact", "width": 1280, "height": 720}
+  ]
+}
