@@ -30,6 +30,7 @@
 #include "render/OptionMenuLayout.hpp"
 #include "render/Renderer.hpp"
 #include "render/Scene3D.hpp"
+#include "render/WeaponPresentationLifecycle.hpp"
 #include "render/WeaponPresentation.hpp"
 #include "shared/Constants.hpp"
 #include "shared/FixedTick.hpp"
@@ -6238,10 +6239,10 @@ int GameApp::run() const {
   WeaponSwitchPresentationController localWeaponSwitchPresentation;
   std::array<WeaponSwitchPresentationController, kDuelPlayerCount>
     remoteWeaponSwitchPresentations = {};
-  std::optional<std::size_t> weaponPresentationSubject;
-  DeathCameraMode previousWeaponPresentationDeathMode = DeathCameraMode::Alive;
-  std::array<std::string, kDuelPlayerCount> remoteWeaponPresentationBodies = {};
-  std::array<bool, kDuelPlayerCount> remoteWeaponPresentationWasAlive = {};
+  WeaponPresentationLifecycle weaponPresentationLifecycle;
+  std::optional<std::uint32_t> weaponPresentationMapRevision;
+  std::array<RemoteWeaponPresentationLifecycle, kDuelPlayerCount>
+    remoteWeaponPresentationLifecycles = {};
   ClientGame* presentationViewGame = nullptr;
   bool previousFrameUsedPresentationView = false;
   float localDeathElapsedSeconds = 0.0F;
@@ -8406,9 +8407,9 @@ int GameApp::run() const {
       viewModelPresentation.reset();
       localWeaponSwitchPresentation.reset();
       remoteWeaponSwitchPresentations = {};
-      weaponPresentationSubject.reset();
-      remoteWeaponPresentationBodies = {};
-      remoteWeaponPresentationWasAlive = {};
+      weaponPresentationLifecycle.reset();
+      weaponPresentationMapRevision.reset();
+      remoteWeaponPresentationLifecycles = {};
       pendingLateViewModelMouseDeltaX = 0.0F;
       pendingLateViewModelMouseDeltaY = 0.0F;
       presentationViewGame = currentPresentationGame;
@@ -9037,8 +9038,27 @@ int GameApp::run() const {
       }
     }
 
+    const std::optional<std::size_t> currentWeaponPresentationSubject =
+      presentationSubjectIndex(
+        deathCamera,
+        session.playerIndex(),
+        session.spectator()
+      );
     if (const ClientGame* weaponGame = session.game();
         weaponGame != nullptr && weaponGame->hasSnapshot()) {
+      const std::uint32_t currentRevision = weaponGame->snapshot().mapRevision;
+      if (
+        !weaponPresentationMapRevision.has_value() ||
+        *weaponPresentationMapRevision != currentRevision
+      ) {
+        // Map revision is the hard presentation timeline key. This also covers
+        // same-name reloads and clears retained fire-event keys.
+        localWeaponSwitchPresentation.reset();
+        remoteWeaponSwitchPresentations = {};
+        weaponPresentationLifecycle.reset();
+        remoteWeaponPresentationLifecycles = {};
+        weaponPresentationMapRevision = currentRevision;
+      }
       displayedSelectedWeapon = presentationSubjectWeapon(
         weaponGame->snapshot(),
         deathCamera,
@@ -9046,22 +9066,15 @@ int GameApp::run() const {
         session.spectator(),
         selectedWeapon
       );
-    }
-    const std::optional<std::size_t> currentWeaponPresentationSubject =
-      deathCamera.mode == DeathCameraMode::Teammate
-        ? deathCamera.teammateIndex
-        : (!session.spectator()
-          ? std::optional<std::size_t>(session.playerIndex())
-          : std::nullopt);
-    if (
-      currentWeaponPresentationSubject != weaponPresentationSubject ||
-      deathCamera.mode != previousWeaponPresentationDeathMode
-    ) {
-      // A new body, death mode, or spectator target starts a new observed
-      // timeline; stale outgoing weapon state must never cross that boundary.
-      localWeaponSwitchPresentation.reset();
-      weaponPresentationSubject = currentWeaponPresentationSubject;
-      previousWeaponPresentationDeathMode = deathCamera.mode;
+      if (weaponPresentationLifecycle.observe(
+            currentRevision,
+            currentWeaponPresentationSubject,
+            static_cast<std::uint8_t>(deathCamera.mode)
+          )) {
+        // A map, body, death mode, respawn, or spectator target change starts
+        // a new observed timeline. It must initialize straight from authority.
+        localWeaponSwitchPresentation.reset();
+      }
     }
     (void)localWeaponSwitchPresentation.update(
       displayedSelectedWeapon,
@@ -9732,15 +9745,32 @@ int GameApp::run() const {
     IcePoolArray renderIcePools = {};
     std::array<bool, kDuelPlayerCount> freezeGunPulseDue = {};
     std::size_t renderLocalPlayerIndex = 0;
+    PresentationViewOwnership renderViewOwnership;
     if (const ClientGame* renderClient = session.game();
         renderClient != nullptr && renderClient->hasSnapshot()) {
       const std::size_t localPlayerIndex = session.playerIndex();
+      renderViewOwnership = presentationViewOwnership(
+        deathCamera,
+        localPlayerIndex,
+        session.spectator(),
+        console.getBool("r_show_weapons")
+      );
+      if (
+        developmentCameraEnabled &&
+        console.getBool("r_dev_camera_draw_connected_body")
+      ) {
+        // The development camera is outside the body, so it can show the
+        // connected player through the same remote Worker path. Normal first
+        // person still hides only the body that owns the camera.
+        renderViewOwnership.hiddenWorldBody.reset();
+      }
       if (localPlayerIndex < kDuelPlayerCount) {
         renderLocalPlayerIndex = localPlayerIndex;
       }
       renderPlayer = renderClient->predictedPlayer();
       const ServerSnapshot& renderSnapshot = renderClient->snapshot();
-      std::size_t cameraPlayerIndex = localPlayerIndex;
+      std::size_t cameraPlayerIndex =
+        renderViewOwnership.cameraSubject.value_or(0U);
       if (session.spectator() && deathCamera.mode != DeathCameraMode::Teammate) {
         // A dedicated observer has no predicted body or corpse to borrow when
         // no living spectate target exists.
@@ -9806,37 +9836,32 @@ int GameApp::run() const {
         renderPlayer = visualPlayer;
       }
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
-        if (playerIndex == cameraPlayerIndex ||
-            (!session.spectator() && playerIndex == localPlayerIndex)) {
+        if (suppressRemoteBodyForPresentation(renderViewOwnership, playerIndex)) {
           playerPresentationStates[playerIndex] = {};
           remoteWeaponSwitchPresentations[playerIndex].reset();
-          remoteWeaponPresentationBodies[playerIndex].clear();
-          remoteWeaponPresentationWasAlive[playerIndex] = false;
+          remoteWeaponPresentationLifecycles[playerIndex].reset();
           continue;
         }
         if (!renderSnapshot.participatingPlayers[playerIndex]) {
           playerPresentationStates[playerIndex] = {};
+          (void)remoteWeaponPresentationLifecycles[playerIndex].observe(
+            false,
+            {},
+            false
+          );
           remoteWeaponSwitchPresentations[playerIndex].reset();
-          remoteWeaponPresentationBodies[playerIndex].clear();
-          remoteWeaponPresentationWasAlive[playerIndex] = false;
           continue;
-        }
-        if (remoteWeaponPresentationBodies[playerIndex] !=
-            renderSnapshot.playerNames[playerIndex]) {
-          remoteWeaponSwitchPresentations[playerIndex].reset();
-          remoteWeaponPresentationBodies[playerIndex] =
-            renderSnapshot.playerNames[playerIndex];
-          remoteWeaponPresentationWasAlive[playerIndex] = false;
         }
         const bool remoteWeaponPresentationAlive =
           renderSnapshot.players[playerIndex].health > 0;
-        if (remoteWeaponPresentationWasAlive[playerIndex] !=
-            remoteWeaponPresentationAlive) {
-          // A death and the first authoritative live frame begin separate
-          // presentation timelines; no outgoing weapon may cross either edge.
+        if (remoteWeaponPresentationLifecycles[playerIndex].observe(
+              true,
+              renderSnapshot.playerNames[playerIndex],
+              remoteWeaponPresentationAlive
+            )) {
+          // A new body, death, or first authoritative live frame starts a new
+          // timeline; no old weapon or hand pose may cross that edge.
           remoteWeaponSwitchPresentations[playerIndex].reset();
-          remoteWeaponPresentationWasAlive[playerIndex] =
-            remoteWeaponPresentationAlive;
         }
         const bool teammate = !session.spectator() && playerPresentedAsTeammate(
           renderSnapshot, localPlayerIndex, playerIndex
@@ -9897,8 +9922,20 @@ int GameApp::run() const {
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
         if (!renderRemotePlayers[playerIndex].visible) continue;
         if (renderWeaponFires[playerIndex].fired) {
-          remoteWeaponSwitchPresentations[playerIndex].observeAuthoritativeFire(
-            renderWeaponFires[playerIndex].weapon
+          (void)remoteWeaponSwitchPresentations[playerIndex].observeAuthoritativeFire(
+            renderWeaponFires[playerIndex].weapon,
+            renderWeaponFires[playerIndex].visualSeed
+          );
+        }
+        const Weapon observedRemoteWeapon =
+          renderSnapshot.selectedWeapons[playerIndex];
+        if (
+          renderSnapshot.lightningGuns[playerIndex].active &&
+          (observedRemoteWeapon == Weapon::LightningGun ||
+           observedRemoteWeapon == Weapon::FreezeGun)
+        ) {
+          remoteWeaponSwitchPresentations[playerIndex].observeContinuousUse(
+            observedRemoteWeapon
           );
         }
         renderRemotePlayers[playerIndex].weaponSwitchPresentation =
@@ -10115,13 +10152,22 @@ int GameApp::run() const {
     weaponAnimationTiming.reset();
     if (deathCamera.mode != DeathCameraMode::Alive) {
       currentRenderSettings.crosshairEnabled = false;
-      // A death or spectator discontinuity has no owned first-person arms.
-      currentRenderSettings.showOwnWeapons = false;
     }
+    currentRenderSettings.showOwnWeapons =
+      renderViewOwnership.showViewModel &&
+      !developmentCameraEnabled;
     if (renderWeaponFires[renderLocalPlayerIndex].fired) {
-      localWeaponSwitchPresentation.observeAuthoritativeFire(
-        renderWeaponFires[renderLocalPlayerIndex].weapon
+      (void)localWeaponSwitchPresentation.observeAuthoritativeFire(
+        renderWeaponFires[renderLocalPlayerIndex].weapon,
+        renderWeaponFires[renderLocalPlayerIndex].visualSeed
       );
+    }
+    if (
+      renderLocalLightningGun.active &&
+      (displayedSelectedWeapon == Weapon::LightningGun ||
+       displayedSelectedWeapon == Weapon::FreezeGun)
+    ) {
+      localWeaponSwitchPresentation.observeContinuousUse(displayedSelectedWeapon);
     }
     const WeaponSwitchPresentationOutput renderedWeaponSwitch =
       localWeaponSwitchPresentation.update(
@@ -10132,8 +10178,11 @@ int GameApp::run() const {
     currentRenderSettings.weaponSwitchPresentation = renderedWeaponSwitch;
     // All first-person socket helpers take this same viewmodel presentation
     // frame, so visual muzzles, casings, beams and hands move together.
-    currentRenderSettings.viewModelPresentation.translation.z +=
-      renderedWeaponSwitch.lift * 0.72F;
+    // First person drops the old weapon and hands below the frame, swaps while
+    // hidden, then raises the new set. Third person maps the same phase amount
+    // to its inverse: arms and the weapon_socket lift toward the head.
+    currentRenderSettings.viewModelPresentation.translation.z -=
+      renderedWeaponSwitch.lift * 0.55F;
     currentRenderSettings.viewModelPresentation.rotationRadians.x +=
       renderedWeaponSwitch.pitchRadians;
     currentRenderSettings.localSelectedWeapon = renderedWeaponSwitch.displayedWeapon;
@@ -11200,7 +11249,53 @@ int GameApp::run() const {
             rocket.owner == renderLocalPlayerIndex;
         }
       );
+      std::optional<float> requestedSwitchTime;
+      bool localSwitchCapture = false;
+      if (armedPhaseCapture->phase == "local_weapon_switch_outgoing") {
+        requestedSwitchTime = 0.25F;
+        localSwitchCapture = true;
+      } else if (armedPhaseCapture->phase == "local_weapon_switch_apex") {
+        requestedSwitchTime = 0.50F;
+        localSwitchCapture = true;
+      } else if (armedPhaseCapture->phase == "local_weapon_switch_incoming") {
+        requestedSwitchTime = 0.75F;
+        localSwitchCapture = true;
+      } else if (armedPhaseCapture->phase == "remote_weapon_switch_outgoing") {
+        requestedSwitchTime = 0.25F;
+      } else if (armedPhaseCapture->phase == "remote_weapon_switch_apex") {
+        requestedSwitchTime = 0.50F;
+      } else if (armedPhaseCapture->phase == "remote_weapon_switch_incoming") {
+        requestedSwitchTime = 0.75F;
+      }
+      const WeaponSwitchPresentationOutput* capturedSwitch = nullptr;
+      std::optional<std::size_t> capturedSwitchActor;
+      if (requestedSwitchTime.has_value()) {
+        if (localSwitchCapture) {
+          capturedSwitch = &currentRenderSettings.weaponSwitchPresentation;
+          capturedSwitchActor = renderLocalPlayerIndex;
+        } else {
+          for (std::size_t playerIndex = 0;
+               playerIndex < renderRemotePlayers.size();
+               ++playerIndex) {
+            if (
+              renderRemotePlayers[playerIndex].visible &&
+              renderRemotePlayers[playerIndex].weaponSwitchPresentation.active
+            ) {
+              capturedSwitch =
+                &renderRemotePlayers[playerIndex].weaponSwitchPresentation;
+              capturedSwitchActor = playerIndex;
+              break;
+            }
+          }
+        }
+      }
+      bool switchPhaseReady = false;
+      if (capturedSwitch != nullptr && capturedSwitch->active) {
+        switchPhaseReady =
+          capturedSwitch->normalizedTime + 0.0001F >= *requestedSwitchTime;
+      }
       if (
+        switchPhaseReady ||
         (
           armedPhaseCapture->phase == "local_rocket_launcher_muzzle" &&
           localFire.fired &&
@@ -11224,6 +11319,43 @@ int GameApp::run() const {
           localSurfaceImpact.active
         )
       ) {
+        if (switchPhaseReady) {
+          captureFrameState = dev::JsonValue::objectValue();
+          captureFrameState.object["weapon_switch_view"] =
+            dev::JsonValue::stringValue(
+              localSwitchCapture ? "first_person" : "third_person"
+            );
+          captureFrameState.object["weapon_switch_actor"] =
+            dev::JsonValue::numberValue(
+              static_cast<double>(capturedSwitchActor.value_or(0U))
+            );
+          captureFrameState.object["weapon_switch_normalized_time"] =
+            dev::JsonValue::numberValue(capturedSwitch->normalizedTime);
+          captureFrameState.object["weapon_switch_phase_amount"] =
+            dev::JsonValue::numberValue(capturedSwitch->lift);
+          captureFrameState.object["weapon_switch_displayed"] =
+            dev::JsonValue::stringValue(
+              std::string(weaponShortName(capturedSwitch->displayedWeapon))
+            );
+          captureFrameState.object["weapon_switch_outgoing"] =
+            dev::JsonValue::stringValue(
+              std::string(weaponShortName(capturedSwitch->outgoingWeapon))
+            );
+          captureFrameState.object["weapon_switch_incoming"] =
+            dev::JsonValue::stringValue(
+              std::string(weaponShortName(capturedSwitch->incomingWeapon))
+            );
+          captureFrameState.object["viewmodel_hands_enabled"] =
+            dev::JsonValue::booleanValue(
+              console.getBool("r_viewmodel_hands")
+            );
+          captureFrameState.object["first_person_vertical_offset"] =
+            dev::JsonValue::numberValue(-capturedSwitch->lift * 0.55F);
+          captureFrameState.object["third_person_upper_body_pitch"] =
+            dev::JsonValue::numberValue(
+              capturedSwitch->upperBodyPitchRadians
+            );
+        }
         captureHideHud = armedPhaseCapture->hideHud;
         captureHideOverlays = armedPhaseCapture->hideOverlays;
         frameCaptureRequest = FrameCaptureRequest{
@@ -11281,7 +11413,9 @@ int GameApp::run() const {
       // Bind phase evidence to the inputs of this exact render. GPU readback
       // may block long enough for later server snapshots to arrive, so a
       // control query made after capture cannot attest the saved PNG.
-      captureFrameState = dev::JsonValue::objectValue();
+      if (captureFrameState.type != dev::JsonValue::Type::Object) {
+        captureFrameState = dev::JsonValue::objectValue();
+      }
       captureFrameState.object["rendered_frame_serial"] =
         dev::JsonValue::numberValue(
           static_cast<double>(renderedFrameSerial + 1U)

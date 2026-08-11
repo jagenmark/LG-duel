@@ -5186,7 +5186,7 @@ template <typename Vertex>
     billboard.handle = handle;
     resources->projectileBillboards.push_back(billboard);
   }
-  const std::array<MeshHandle, 20> staticMeshHandles = {{
+  const std::array<MeshHandle, 21> staticMeshHandles = {{
     MeshHandle::PlayerBoxCube,
     MeshHandle::RemoteMachineGunBody,
     MeshHandle::RemoteMachineGunBarrels,
@@ -5205,8 +5205,9 @@ template <typename Vertex>
     MeshHandle::RemotePlasmaGunCore,
     MeshHandle::RemoteRevolverBody,
     MeshHandle::RemoteRevolverCylinder,
-    MeshHandle::ViewModelRightHand,
-    MeshHandle::ViewModelLeftHand,
+    MeshHandle::ViewModelRightTriggerGrip,
+    MeshHandle::ViewModelLeftClosedSupport,
+    MeshHandle::ViewModelLeftOpenSupport,
   }};
   resources->staticMeshes.reserve(staticMeshHandles.size());
   for (MeshHandle handle : staticMeshHandles) {

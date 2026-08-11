@@ -235,12 +235,17 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
     if (request.capturePhase != "local_rocket_launcher_muzzle" &&
         request.capturePhase != "local_rocket_launcher_projectile" &&
         request.capturePhase != "local_rocket_launcher_impact" &&
-        request.capturePhase != "local_surface_impact") {
+        request.capturePhase != "local_surface_impact" &&
+        request.capturePhase != "local_weapon_switch_outgoing" &&
+        request.capturePhase != "local_weapon_switch_apex" &&
+        request.capturePhase != "local_weapon_switch_incoming" &&
+        request.capturePhase != "remote_weapon_switch_outgoing" &&
+        request.capturePhase != "remote_weapon_switch_apex" &&
+        request.capturePhase != "remote_weapon_switch_incoming") {
       return {
         {},
         false,
-        "phase must name a local Rocket Launcher muzzle, projectile, "
-        "impact, or surface-impact frame",
+        "phase must name a supported local fire, surface-impact, or local/remote weapon-switch frame",
       };
     }
   }

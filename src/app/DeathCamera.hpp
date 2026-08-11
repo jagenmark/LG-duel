@@ -26,6 +26,17 @@ struct DeathCameraDecision {
   float desaturation = 0.0F;
 };
 
+// These roles differ while following another player. Keeping them explicit
+// prevents connection ownership from hiding the camera subject's viewmodel or
+// drawing that subject's world body inside the camera.
+struct PresentationViewOwnership {
+  std::optional<std::size_t> connectedBody;
+  std::optional<std::size_t> cameraSubject;
+  std::optional<std::size_t> hiddenWorldBody;
+  std::optional<std::size_t> viewModelSubject;
+  bool showViewModel = false;
+};
+
 [[nodiscard]] DeathCameraDecision deathCameraDecision(
   const ServerSnapshot& snapshot,
   std::size_t localPlayerIndex,
@@ -80,6 +91,18 @@ struct DeathCameraDecision {
   std::size_t localPlayerIndex,
   bool dedicatedSpectator,
   Weapon fallback
+);
+
+[[nodiscard]] PresentationViewOwnership presentationViewOwnership(
+  const DeathCameraDecision& decision,
+  std::size_t localPlayerIndex,
+  bool dedicatedSpectator,
+  bool weaponsEnabled
+);
+
+[[nodiscard]] bool suppressRemoteBodyForPresentation(
+  const PresentationViewOwnership& ownership,
+  std::size_t playerIndex
 );
 
 } // namespace lg

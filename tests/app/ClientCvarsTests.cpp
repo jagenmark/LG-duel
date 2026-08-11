@@ -635,8 +635,13 @@ int main() {
       !console.getBool("r_weapon_switch_animation") &&
       console.execute("r_viewmodel_hands") == "r_viewmodel_hands = 1 (default 1)" &&
       console.execute("r_viewmodel_hands 0") == "r_viewmodel_hands = 0" &&
-      !console.getBool("r_viewmodel_hands"),
-    "weapon-switch animation and viewmodel hands should be independently toggleable"
+      !console.getBool("r_viewmodel_hands") &&
+      console.execute("r_dev_camera_draw_connected_body") ==
+        "r_dev_camera_draw_connected_body = 0 (default 0)" &&
+      console.execute("r_dev_camera_draw_connected_body 1") ==
+        "r_dev_camera_draw_connected_body = 1" &&
+      console.getBool("r_dev_camera_draw_connected_body"),
+    "weapon presentation and development-camera proof controls should stay separate"
   );
   failures += expect(
     console.execute("r_weapon_pos") == "r_weapon_pos = 0 (default 0)" &&

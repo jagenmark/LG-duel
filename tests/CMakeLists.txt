@@ -661,6 +661,7 @@ add_executable(lg_duel_scene_3d_tests
   ${PROJECT_SOURCE_DIR}/src/render/Scene3D.cpp
   ${PROJECT_SOURCE_DIR}/src/render/StaticAmbientProbe.cpp
   ${PROJECT_SOURCE_DIR}/src/render/ViewModelHandPoses.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/WeaponSwitchPresentation.cpp
 )
 
 # Scene tests load the same runtime GLB selected by the client, so a focused
@@ -719,6 +720,19 @@ lg_duel_set_warnings(lg_duel_weapon_switch_presentation_tests)
 add_test(
   NAME lg_duel_weapon_switch_presentation_tests
   COMMAND lg_duel_weapon_switch_presentation_tests
+)
+
+add_executable(lg_duel_weapon_presentation_lifecycle_tests
+  render/WeaponPresentationLifecycleTests.cpp
+)
+
+target_link_libraries(lg_duel_weapon_presentation_lifecycle_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_weapon_presentation_lifecycle_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_weapon_presentation_lifecycle_tests)
+
+add_test(
+  NAME lg_duel_weapon_presentation_lifecycle_tests
+  COMMAND lg_duel_weapon_presentation_lifecycle_tests
 )
 
 add_executable(lg_duel_weapon_presentation_tests

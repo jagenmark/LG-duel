@@ -52,12 +52,12 @@ constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 64U;
 constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
 constexpr std::uint32_t kGltfBonePaletteEntryBytes = 64U;
 constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
-constexpr float kRocketLauncherViewModelScale = 0.66F;
+constexpr float kRocketLauncherViewModelScale = 0.58F;
 constexpr float kSniperRifleViewModelScale = 1.45F;
 constexpr float kSniperRifleViewModelWidthScale = 1.30F;
 constexpr float kSniperRifleViewModelHeightScale = 1.15F;
 constexpr float kRocketLauncherViewModelForwardOffset = -0.16F;
-constexpr float kRocketLauncherViewModelUpOffset = -0.15F;
+constexpr float kRocketLauncherViewModelUpOffset = -0.06F;
 constexpr int kPlayerContactShadowSegments = 16;
 constexpr std::size_t kPlayerContactShadowVerticesPerPlayer =
   static_cast<std::size_t>(kPlayerContactShadowSegments) * 3U;
@@ -366,7 +366,8 @@ template <std::size_t Count>
 [[nodiscard]] std::vector<Vertex3D> bakedWeaponVertices(
   const std::array<BakedWeaponModelTriangle, Count>& model,
   float modelScale,
-  float rollRadians = 0.0F
+  float rollRadians = 0.0F,
+  bool includeNormals = false
 ) {
   std::vector<Vertex3D> vertices;
   vertices.reserve(model.size() * 3U);
@@ -395,9 +396,10 @@ template <std::size_t Count>
     );
     RenderColor color = scaleColor(triangle.color, brightness);
     color.alpha = 255;
-    vertices.push_back({first, color, 0.0F, 0.0F, 0U});
-    vertices.push_back({second, color, 0.0F, 0.0F, 0U});
-    vertices.push_back({third, color, 0.0F, 0.0F, 0U});
+    const Vec3 storedNormal = includeNormals ? normal : Vec3{};
+    vertices.push_back({first, color, 0.0F, 0.0F, 0U, storedNormal});
+    vertices.push_back({second, color, 0.0F, 0.0F, 0U, storedNormal});
+    vertices.push_back({third, color, 0.0F, 0.0F, 0U, storedNormal});
   }
   return vertices;
 }
@@ -2228,7 +2230,7 @@ void addBakedWeaponModel(
   frame.hand =
     eyePosition +
     frame.basis.forward * 0.32F -
-    frame.basis.up * 0.38F;
+    frame.basis.up * 0.34F;
   if (weaponPosition == 1) {
     frame.hand += frame.basis.right * 0.30F;
   } else if (weaponPosition == 2) {
@@ -2271,7 +2273,19 @@ void appendViewModelHands(
 ) {
   if (!enabled) return;
   const ViewModelHandPose& pose = viewModelHandPose(weapon);
-  const auto appendHand = [&](MeshHandle mesh, const ViewModelHandTransform& transform) {
+  const auto meshForPose = [](ViewModelHandMeshPose meshPose) {
+    switch (meshPose) {
+    case ViewModelHandMeshPose::RightTriggerGrip:
+      return MeshHandle::ViewModelRightTriggerGrip;
+    case ViewModelHandMeshPose::LeftClosedSupport:
+      return MeshHandle::ViewModelLeftClosedSupport;
+    case ViewModelHandMeshPose::LeftOpenSupport:
+      return MeshHandle::ViewModelLeftOpenSupport;
+    }
+    return MeshHandle::Invalid;
+  };
+  const auto appendHand = [&](const ViewModelHandPlacement& placement) {
+    const ViewModelHandTransform& transform = placement.transform;
     WeaponModelFrame hand = weaponFrame;
     hand.hand = weaponLocalPoint(
       weaponFrame,
@@ -2290,13 +2304,13 @@ void appendViewModelHands(
     rotatePair(hand.basis.forward, hand.basis.up, transform.rotationRadians.x);
     rotatePair(hand.basis.forward, hand.basis.right, transform.rotationRadians.y);
     rotatePair(hand.basis.right, hand.basis.up, transform.rotationRadians.z);
-    // Keep the shared glove compact enough to frame the receiver instead of
-    // filling the near plane at the game's 100-degree default view.
-    hand.scale *= 0.40F;
+    // Hand size is viewmodel-space data. It must not inherit the weapon's
+    // authored visual scale, which ranges from 0.66 for RL to 1.45 for Rail.
+    hand.scale = transform.scale;
     appendStaticMeshInstance(
       scene,
       weaponMeshInstance(
-        mesh,
+        meshForPose(placement.meshPose),
         RenderPass::ViewModel,
         hand,
         1.0F,
@@ -2305,10 +2319,12 @@ void appendViewModelHands(
     );
     ++scene.viewModelStats.drawCalls;
   };
-  if (pose.showRightHand) appendHand(MeshHandle::ViewModelRightHand, pose.right);
-  if (pose.showLeftHand) appendHand(MeshHandle::ViewModelLeftHand, pose.left);
+  if (pose.showRightHand) appendHand(pose.right);
+  if (pose.showLeftHand) appendHand(pose.left);
   scene.viewModelStats.sharedHandVertices = static_cast<std::uint32_t>(
-    (kViewModelRightGloveModel.size() + kViewModelLeftGloveModel.size()) * 3U
+    (kViewModelRightTriggerGrip.size() +
+     kViewModelLeftClosedSupport.size() +
+     kViewModelLeftOpenSupport.size()) * 3U
   );
   // Renderer packs static non-material meshes as a checked 40-byte GpuVertex.
   scene.viewModelStats.sharedHandStaticGpuBytes =
@@ -2710,7 +2726,7 @@ void appendPlasmaGunInstances(
   frame.basis.up = normalize(cross(aimRight, aimForward));
   // The extended emitter should read clearly without reaching farther up the
   // screen than the revolver, which is the longest standard viewmodel.
-  frame.hand -= frame.basis.up * 0.220F;
+  frame.hand -= frame.basis.up * 0.080F;
   return frame;
 }
 
@@ -2850,7 +2866,7 @@ void addFirstPersonWeaponModel(
   }
   case Weapon::FreezeGun: {
     WeaponModelFrame weaponFrame = frame;
-    weaponFrame.scale *= 0.82F;
+    weaponFrame.scale *= 0.74F;
     weaponFrame.hand -= weaponFrame.basis.forward * 0.08F;
     weaponFrame = freezeGunViewModelFrame(
       weaponFrame,
@@ -2870,11 +2886,11 @@ void addFirstPersonWeaponModel(
   }
   case Weapon::PlasmaGun: {
     WeaponModelFrame weaponFrame = frame;
-    weaponFrame.scale *= 0.88F;
+    weaponFrame.scale *= 0.78F;
     weaponFrame.hand -= weaponFrame.basis.forward * 0.06F;
-    // The viewmodel has no rendered hands and uses its own screen-space anchor.
-    // Applying the third-person grip correction here would lift the gun by the
-    // authored grip offset and push it unnecessarily close to the camera.
+    // Plasma uses its own screen-space anchor. Applying the third-person grip
+    // correction here would lift the gun and its attached hands too close to
+    // the camera.
     appendPlasmaGunInstances(
       scene,
       weaponFrame,
@@ -4039,20 +4055,34 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     meshBounds(lightningGunVertices),
     RenderPass::OpaqueWorld,
   };
-  static const std::vector<Vertex3D> rightHandVertices =
-    bakedWeaponVertices(kViewModelRightGloveModel, 1.0F);
-  static const std::vector<Vertex3D> leftHandVertices =
-    bakedWeaponVertices(kViewModelLeftGloveModel, 1.0F);
-  static const StaticMeshAsset rightHandAsset = {
-    MeshHandle::ViewModelRightHand,
-    std::span<const Vertex3D>(rightHandVertices.data(), rightHandVertices.size()),
-    meshBounds(rightHandVertices),
+  static const std::vector<Vertex3D> rightTriggerGripVertices =
+    bakedWeaponVertices(kViewModelRightTriggerGrip, 1.0F, 0.0F, true);
+  static const std::vector<Vertex3D> leftClosedSupportVertices =
+    bakedWeaponVertices(kViewModelLeftClosedSupport, 1.0F, 0.0F, true);
+  static const std::vector<Vertex3D> leftOpenSupportVertices =
+    bakedWeaponVertices(kViewModelLeftOpenSupport, 1.0F, 0.0F, true);
+  static const StaticMeshAsset rightTriggerGripAsset = {
+    MeshHandle::ViewModelRightTriggerGrip,
+    std::span<const Vertex3D>(
+      rightTriggerGripVertices.data(), rightTriggerGripVertices.size()
+    ),
+    meshBounds(rightTriggerGripVertices),
     RenderPass::ViewModel,
   };
-  static const StaticMeshAsset leftHandAsset = {
-    MeshHandle::ViewModelLeftHand,
-    std::span<const Vertex3D>(leftHandVertices.data(), leftHandVertices.size()),
-    meshBounds(leftHandVertices),
+  static const StaticMeshAsset leftClosedSupportAsset = {
+    MeshHandle::ViewModelLeftClosedSupport,
+    std::span<const Vertex3D>(
+      leftClosedSupportVertices.data(), leftClosedSupportVertices.size()
+    ),
+    meshBounds(leftClosedSupportVertices),
+    RenderPass::ViewModel,
+  };
+  static const StaticMeshAsset leftOpenSupportAsset = {
+    MeshHandle::ViewModelLeftOpenSupport,
+    std::span<const Vertex3D>(
+      leftOpenSupportVertices.data(), leftOpenSupportVertices.size()
+    ),
+    meshBounds(leftOpenSupportVertices),
     RenderPass::ViewModel,
   };
   switch (handle) {
@@ -4094,10 +4124,12 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
   case MeshHandle::RemoteRevolverBody:
   case MeshHandle::RemoteRevolverCylinder:
     return nullptr;
-  case MeshHandle::ViewModelRightHand:
-    return &rightHandAsset;
-  case MeshHandle::ViewModelLeftHand:
-    return &leftHandAsset;
+  case MeshHandle::ViewModelRightTriggerGrip:
+    return &rightTriggerGripAsset;
+  case MeshHandle::ViewModelLeftClosedSupport:
+    return &leftClosedSupportAsset;
+  case MeshHandle::ViewModelLeftOpenSupport:
+    return &leftOpenSupportAsset;
   case MeshHandle::Invalid:
     break;
   }
@@ -4364,7 +4396,7 @@ Vec3 firstPersonPlasmaGunMuzzlePosition(
     settings.weaponPosition,
     settings.viewModelPresentation
   );
-  frame.scale *= 0.88F;
+  frame.scale *= 0.78F;
   frame.hand -= frame.basis.forward * 0.06F;
   return weaponLocalPoint(
     frame,
@@ -4488,7 +4520,7 @@ Vec3 firstPersonFreezeGunMuzzlePosition(
     settings.weaponPosition,
     settings.viewModelPresentation
   );
-  frame.scale *= 0.82F;
+  frame.scale *= 0.74F;
   frame.hand -= frame.basis.forward * 0.08F;
   frame = freezeGunViewModelFrame(frame, settings.weaponPosition);
   return weaponLocalPoint(

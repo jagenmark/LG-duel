@@ -70,8 +70,9 @@ enum class MeshHandle : std::uint16_t {
   RemotePlasmaGunCore,
   RemoteRevolverBody,
   RemoteRevolverCylinder,
-  ViewModelRightHand,
-  ViewModelLeftHand,
+  ViewModelRightTriggerGrip,
+  ViewModelLeftClosedSupport,
+  ViewModelLeftOpenSupport,
 };
 
 enum class PlayerBodyPartType : std::uint8_t {

@@ -6,14 +6,10 @@
 namespace lg {
 namespace {
 
-[[nodiscard]] float easeOutCubic(float value) {
-  const float inverse = 1.0F - std::clamp(value, 0.0F, 1.0F);
-  return 1.0F - inverse * inverse * inverse;
-}
-
-[[nodiscard]] float easeInOut(float value) {
-  const float clamped = std::clamp(value, 0.0F, 1.0F);
-  return clamped * clamped * (3.0F - 2.0F * clamped);
+[[nodiscard]] float outgoingTimeForLift(float lift) {
+  // The drop is linear, so its inverse stays exact. Retargeting from this time
+  // keeps the current weapon at the same height without a rest-frame pop.
+  return 0.45F * std::clamp(lift, 0.0F, 1.0F);
 }
 
 } // namespace
@@ -43,15 +39,17 @@ WeaponSwitchPresentationOutput sampleWeaponSwitchPresentation(
   output.incomingHalf = time >= 0.5F;
   output.displayedWeapon = output.incomingHalf ? incomingWeapon : outgoingWeapon;
   if (time < kOutgoingEnd) {
-    output.lift = easeOutCubic(time / kOutgoingEnd);
+    output.lift = time / kOutgoingEnd;
   } else if (time <= kIncomingBegin) {
     output.lift = 1.0F;
   } else {
-    output.lift = 1.0F - easeInOut((time - kIncomingBegin) / (1.0F - kIncomingBegin));
+    output.lift = (1.0F - time) / (1.0F - kIncomingBegin);
   }
-  // This is intentionally restrained: raise/lower remains the readable cue.
-  output.pitchRadians = -0.16F * output.lift;
-  output.upperBodyPitchRadians = -0.68F * output.lift;
+  // This is intentionally restrained: the vertical drop remains the cue.
+  output.pitchRadians = 0.12F * output.lift;
+  // Worker pose space uses positive pitch to raise its forward axis. The
+  // weapon socket is sampled after this layer, so arms and weapon rise as one.
+  output.upperBodyPitchRadians = 0.68F * output.lift;
   return output;
 }
 
@@ -92,11 +90,14 @@ WeaponSwitchPresentationOutput WeaponSwitchPresentationController::update(
   if (observedSelectedWeapon != incomingWeapon_) {
     // Retarget from the only weapon the viewer can currently see. There is no
     // queue and no hidden history, so repeated rapid selections stay bounded.
-    displayedWeapon_ = sample().displayedWeapon;
+    const WeaponSwitchPresentationOutput current = sample();
+    displayedWeapon_ = current.displayedWeapon;
     outgoingWeapon_ = displayedWeapon_;
     incomingWeapon_ = observedSelectedWeapon;
-    elapsedSeconds_ = 0.0F;
     active_ = outgoingWeapon_ != incomingWeapon_;
+    elapsedSeconds_ = active_
+      ? outgoingTimeForLift(current.lift) * kWeaponSwitchPresentationSeconds
+      : kWeaponSwitchPresentationSeconds;
   }
 
   if (active_) {
@@ -112,10 +113,35 @@ WeaponSwitchPresentationOutput WeaponSwitchPresentationController::update(
   return sample();
 }
 
-void WeaponSwitchPresentationController::observeAuthoritativeFire(Weapon firedWeapon) {
-  if (!initialized_ || !active_ || firedWeapon != incomingWeapon_) {
-    return;
+bool WeaponSwitchPresentationController::observeAuthoritativeFire(
+  Weapon firedWeapon,
+  std::uint32_t visualEventKey
+) {
+  for (const FireEventKey& key : fireEventHistory_) {
+    if (
+      key.valid &&
+      key.weapon == firedWeapon &&
+      key.visualEventKey == visualEventKey
+    ) {
+      return false;
+    }
   }
+  fireEventHistory_[nextFireEventHistory_ % fireEventHistory_.size()] = {
+    firedWeapon,
+    visualEventKey,
+    true,
+  };
+  ++nextFireEventHistory_;
+  promoteIncomingWeapon(firedWeapon);
+  return true;
+}
+
+void WeaponSwitchPresentationController::observeContinuousUse(Weapon activeWeapon) {
+  promoteIncomingWeapon(activeWeapon);
+}
+
+void WeaponSwitchPresentationController::promoteIncomingWeapon(Weapon weapon) {
+  if (!initialized_ || !active_ || weapon != incomingWeapon_) return;
   // The incoming half begins after the apex plateau. Keep the visible weapon
   // aligned with the fired weapon without affecting simulation or networking.
   elapsedSeconds_ = std::max(

@@ -3858,9 +3858,15 @@ DrawList2D buildPerspectiveWeaponOverlay(
     // Authored 3D viewmodels render in the perspective pass. Keep weapon
     // effects in this overlay, but never cover those meshes with legacy shapes.
     if (
+      weapon == Weapon::LightningGun ||
       weapon == Weapon::FreezeGun ||
+      weapon == Weapon::Railgun ||
+      weapon == Weapon::MachineGun ||
+      weapon == Weapon::Shotgun ||
+      weapon == Weapon::GrenadeLauncher ||
+      weapon == Weapon::RocketLauncher ||
       weapon == Weapon::PlasmaGun ||
-      weapon == Weapon::Railgun
+      weapon == Weapon::Revolver
     ) {
       return;
     }
