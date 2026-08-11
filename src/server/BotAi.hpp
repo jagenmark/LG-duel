@@ -167,6 +167,17 @@ enum class BotNavLinkKind : std::uint8_t {
   Teleport,
 };
 
+// A failed special route remains visible to offline validation. These stages
+// identify the first normal-movement proof that did not succeed; they never
+// turn a failed trigger into a graph edge.
+enum class BotNavSpecialFailureStage : std::uint8_t {
+  None,
+  EntrySearch,
+  TriggerActivation,
+  Landing,
+  NodeCapacity,
+};
+
 struct BotNavNode {
   Vec3 position = {};
 };
@@ -184,12 +195,44 @@ struct BotNavSpecialRoute {
   std::uint16_t entryNode = UINT16_MAX;
   std::uint16_t exitNode = UINT16_MAX;
   bool verified = false;
+  BotNavSpecialFailureStage failureStage = BotNavSpecialFailureStage::None;
+};
+
+// These values are generated at map load so a strict validator can report
+// real directed reach without asking the 125 Hz bot motor to do extra work.
+struct BotNavAnchorReach {
+  std::uint16_t node = UINT16_MAX;
+  std::uint16_t weakComponent = UINT16_MAX;
+  std::uint16_t directedReach = 0;
+};
+
+enum class BotNavAnchorKind : std::uint8_t {
+  Spawn,
+  TeamSpawn,
+  Health,
+  NeutralObjective,
+  RedBase,
+  BlueBase,
+  JumpPadEntry,
+  JumpPadLanding,
+  TeleportEntry,
+  TeleportLanding,
+};
+
+struct BotNavRequiredAnchor {
+  BotNavAnchorKind kind = BotNavAnchorKind::Spawn;
+  std::uint16_t sourceIndex = 0;
+  std::uint16_t node = UINT16_MAX;
 };
 
 // The fixed storage makes tactical ticks allocation-free. The builder samples
 // at map-load time and drops excess samples deterministically.
 struct BotNavigationMap {
-  static constexpr std::size_t kMaxNodes = 512;
+  // Imported maps need 2048 bulk nodes before adaptive local refinement. A
+  // fixed 512-node reserve then covers a bounded collision-settled target
+  // flood without moving work into the bot tick or making map size an
+  // unbounded input.
+  static constexpr std::size_t kMaxNodes = 2560;
   static constexpr std::size_t kMaxLinks = kMaxNodes * 10U;
   std::array<BotNavNode, kMaxNodes> nodes = {};
   std::array<BotNavLink, kMaxLinks> links = {};
@@ -209,6 +252,33 @@ struct BotNavigationMap {
   std::size_t regionSeedCount = 0;
   std::size_t regionExpansionWork = 0;
   std::size_t regionNodeCount = 0;
+  std::size_t nodeCapacityRejects = 0;
+  std::size_t linkCapacityRejects = 0;
+  std::size_t localGroundedRejects = 0;
+  std::size_t localTraversalRejects = 0;
+  std::size_t localBroadphaseRetries = 0;
+  std::size_t healthApproachGroundedCandidates = 0;
+  std::size_t healthApproachSimulationTrials = 0;
+  std::size_t surfaceApproachProbeTrials = 0;
+  std::size_t surfaceApproachProbeLinks = 0;
+  std::size_t surfaceApproachTargetCount = 0;
+  std::size_t surfaceApproachBridgeTrials = 0;
+  std::size_t surfaceApproachBridgeLinks = 0;
+  std::size_t surfaceApproachFloodNodes = 0;
+  std::size_t surfaceApproachFloodWork = 0;
+  bool surfaceApproachFloodExhausted = false;
+  std::size_t surfaceDropProbeTrials = 0;
+  std::size_t surfaceDropProbeLinks = 0;
+  bool regionWorkExhausted = false;
+  bool regionTaskCapacityReached = false;
+  // A health node normally rests inside the pickup touch volume. If the item
+  // has no legal resting center, an entry/landing pair records the simulated
+  // walk or jump that crossed it instead. UINT16_MAX means no proof exists.
+  std::array<std::uint16_t, 32> healthAnchorNodes = {};
+  std::array<std::uint16_t, 32> healthApproachEntryNodes = {};
+  std::array<BotNavRequiredAnchor, kMaxNodes> requiredAnchors = {};
+  std::size_t semanticAnchorCount = 0;
+  std::array<BotNavAnchorReach, kMaxNodes> anchorReach = {};
   std::size_t jumpPadRouteCount = 0;
   std::size_t teleportRouteCount = 0;
   std::array<BotNavSpecialRoute, 48> jumpPadRoutes = {};

@@ -1,6 +1,7 @@
 #include "map/MapParser.hpp"
 #include "server/BotAi.hpp"
 #include "sim/Arena.hpp"
+#include "sim/ArenaBroadphase.hpp"
 #include "sim/Movement.hpp"
 
 #include <algorithm>
@@ -171,6 +172,33 @@ namespace {
   return false;
 }
 
+[[nodiscard]] const char* specialFailureStageName(lg::BotNavSpecialFailureStage stage) {
+  switch (stage) {
+  case lg::BotNavSpecialFailureStage::None: return "none";
+  case lg::BotNavSpecialFailureStage::EntrySearch: return "entry-search";
+  case lg::BotNavSpecialFailureStage::TriggerActivation: return "trigger";
+  case lg::BotNavSpecialFailureStage::Landing: return "landing";
+  case lg::BotNavSpecialFailureStage::NodeCapacity: return "node-cap";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] const char* anchorKindName(lg::BotNavAnchorKind kind) {
+  switch (kind) {
+  case lg::BotNavAnchorKind::Spawn: return "spawn";
+  case lg::BotNavAnchorKind::TeamSpawn: return "team-spawn";
+  case lg::BotNavAnchorKind::Health: return "health";
+  case lg::BotNavAnchorKind::NeutralObjective: return "neutral";
+  case lg::BotNavAnchorKind::RedBase: return "red-base";
+  case lg::BotNavAnchorKind::BlueBase: return "blue-base";
+  case lg::BotNavAnchorKind::JumpPadEntry: return "jump-entry";
+  case lg::BotNavAnchorKind::JumpPadLanding: return "jump-landing";
+  case lg::BotNavAnchorKind::TeleportEntry: return "teleport-entry";
+  case lg::BotNavAnchorKind::TeleportLanding: return "teleport-landing";
+  }
+  return "unknown";
+}
+
 [[nodiscard]] int validateNavigation(
   const std::filesystem::path& mapPath,
   const lg::Arena& arena
@@ -184,6 +212,13 @@ namespace {
       << map.missingRequiredAnchorCount << " of " << map.requiredAnchorCount
       << " required gameplay anchors could not be reserved or grounded\n";
     ++failures;
+    for (std::size_t index = 0; index < map.requiredAnchorCount; ++index) {
+      const lg::BotNavRequiredAnchor& anchor = map.requiredAnchors[index];
+      if (anchor.node >= map.nodeCount) {
+        std::cerr << "nav ERROR: " << mapPath.string() << ": missing "
+          << anchorKindName(anchor.kind) << '[' << anchor.sourceIndex << "] anchor\n";
+      }
+    }
   }
   if (map.nodeCount == 0U || map.linkCount == 0U) {
     std::cerr << "nav ERROR: " << mapPath.string() << ": empty navigation graph\n";
@@ -211,8 +246,29 @@ namespace {
   for (std::size_t index = 0; index < arena.teamSpawnCount; ++index) {
     requireNearbyNode("team spawn", arena.teamSpawns[index].position);
   }
+  const auto nodeForHealthAnchor = [&](std::size_t index) {
+    if (index < map.healthApproachEntryNodes.size() &&
+        map.healthApproachEntryNodes[index] < map.nodeCount &&
+        map.healthAnchorNodes[index] < map.nodeCount) {
+      return static_cast<std::size_t>(map.healthAnchorNodes[index]);
+    }
+    return nodeForGroundAnchor(arena.healthPickups[index].position);
+  };
   for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
-    requireNearbyNode("health", arena.healthPickups[index].position);
+    const std::size_t entry = map.healthApproachEntryNodes[index];
+    const std::size_t landing = nodeForHealthAnchor(index);
+    if (entry < map.nodeCount) {
+      const bool attached = landing < map.nodeCount &&
+        (hasDirectLink(map, entry, landing, lg::BotNavLinkKind::Walk) ||
+         hasDirectLink(map, entry, landing, lg::BotNavLinkKind::Jump));
+      if (!attached) {
+        std::cerr << "nav ERROR: " << mapPath.string() << ": health " << index
+          << " has no simulated approach attachment\n";
+        ++failures;
+      }
+    } else {
+      requireNearbyNode("health", arena.healthPickups[index].position);
+    }
   }
   // Normal deathmatch spawns are gameplay regions. Team spawn groups can be
   // intentionally isolated, so the validator checks each group separately.
@@ -262,7 +318,7 @@ namespace {
   }
   std::vector<std::size_t> targetNodes;
   for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
-    appendUniqueNode(targetNodes, nodeForGroundAnchor(arena.healthPickups[index].position));
+    appendUniqueNode(targetNodes, nodeForHealthAnchor(index));
   }
   if (arena.mcguffin.hasNeutralSpawn) {
     appendUniqueNode(targetNodes, nodeForGroundAnchor(arena.mcguffin.neutralSpawn));
@@ -309,7 +365,8 @@ namespace {
     if (!route.verified || route.entryNode >= map.nodeCount || route.exitNode >= map.nodeCount ||
         !hasDirectLink(map, route.entryNode, route.exitNode, lg::BotNavLinkKind::JumpPad)) {
       std::cerr << "nav ERROR: " << mapPath.string() << ": jump pad " << index
-        << " has no simulated directed entry-to-landing route\n";
+        << " has no simulated directed entry-to-landing route (stage="
+        << specialFailureStageName(route.failureStage) << ")\n";
       ++failures;
     }
   }
@@ -318,7 +375,8 @@ namespace {
     if (!route.verified || route.entryNode >= map.nodeCount || route.exitNode >= map.nodeCount ||
         !hasDirectLink(map, route.entryNode, route.exitNode, lg::BotNavLinkKind::Teleport)) {
       std::cerr << "nav ERROR: " << mapPath.string() << ": teleport " << index
-        << " has no simulated directed entry-to-landing route\n";
+        << " has no simulated directed entry-to-landing route (stage="
+        << specialFailureStageName(route.failureStage) << ")\n";
       ++failures;
     }
   }
@@ -331,10 +389,40 @@ namespace {
     << " local_rejects=" << map.localBroadphaseRejects
     << " region_seeds=" << map.regionSeedCount
     << " region_work=" << map.regionExpansionWork
+    << " region_work_exhausted=" << map.regionWorkExhausted
+    << " region_task_capacity=" << map.regionTaskCapacityReached
     << " region_nodes=" << map.regionNodeCount
+    << " node_capacity_rejects=" << map.nodeCapacityRejects
+    << " link_capacity_rejects=" << map.linkCapacityRejects
+    << " grounded_rejects=" << map.localGroundedRejects
+    << " traversal_rejects=" << map.localTraversalRejects
+    << " broadphase_retries=" << map.localBroadphaseRetries
+    << " health_approach_grounded=" << map.healthApproachGroundedCandidates
+    << " health_approach_trials=" << map.healthApproachSimulationTrials
+    << " surface_approach_trials=" << map.surfaceApproachProbeTrials
+    << " surface_approach_links=" << map.surfaceApproachProbeLinks
+    << " surface_approach_targets=" << map.surfaceApproachTargetCount
+    << " surface_approach_bridge_trials=" << map.surfaceApproachBridgeTrials
+    << " surface_approach_bridge_links=" << map.surfaceApproachBridgeLinks
+    << " surface_approach_flood_nodes=" << map.surfaceApproachFloodNodes
+    << " surface_approach_flood_work=" << map.surfaceApproachFloodWork
+    << " surface_approach_flood_exhausted=" << map.surfaceApproachFloodExhausted
+    << " surface_drop_trials=" << map.surfaceDropProbeTrials
+    << " surface_drop_links=" << map.surfaceDropProbeLinks
     << " root_unreachable_anchors=" << map.unreachableAnchorNodes
     << " specials=pads:" << padLinks << '/' << arena.jumpPadCount
     << ",teleports:" << teleportLinks << '/' << arena.teleportCount << '\n';
+  if (failures != 0 || map.nodeCapacityRejects != 0U || map.regionWorkExhausted ||
+      map.regionTaskCapacityReached) {
+    std::cout << "nav DIAG: " << mapPath.string() << " anchors=";
+    for (std::size_t index = 0; index < map.semanticAnchorCount; ++index) {
+      const lg::BotNavAnchorReach& reach = map.anchorReach[index];
+      if (index != 0U) std::cout << ',';
+      std::cout << index << ':' << reach.node << '/' << reach.weakComponent << '/' <<
+        reach.directedReach;
+    }
+    std::cout << '\n';
+  }
   return failures;
 }
 
@@ -346,6 +434,10 @@ namespace {
     lg::ArenaLoadResult result;
     lg::loadArenaFromFile(path.string(), result);
     if (result.ok) {
+      // Match the server map boundary. The broadphase changes only which
+      // collision candidates movement checks; it does not bypass any nav or
+      // trigger proof, and keeps strict validation practical on dense maps.
+      lg::buildArenaCollisionIndex(result.arena);
       std::cout << "map ok: " << path.string() << " boxes="
                 << result.arena.wallCount << " brushes="
                 << result.arena.brushCount << '\n';

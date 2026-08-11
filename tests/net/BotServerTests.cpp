@@ -3,6 +3,7 @@
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
 #include "sim/BalanceConfig.hpp"
+#include "sim/Movement.hpp"
 
 #include <array>
 #include <cmath>
@@ -149,6 +150,103 @@ bool hasNavLink(
     if (map.links[index].kind == kind) return true;
   }
   return false;
+}
+
+bool hasDirectedNavLink(
+  const lg::BotNavigationMap& map,
+  std::size_t from,
+  std::size_t to,
+  lg::BotNavLinkKind kind
+) {
+  for (std::size_t index = 0; index < map.linkCount; ++index) {
+    const lg::BotNavLink& link = map.links[index];
+    if (link.from == from && link.to == to && link.kind == kind) return true;
+  }
+  return false;
+}
+
+std::size_t requiredAnchorNode(
+  const lg::BotNavigationMap& map,
+  lg::BotNavAnchorKind kind
+) {
+  const std::size_t count = std::min(map.requiredAnchorCount, map.requiredAnchors.size());
+  for (std::size_t index = 0; index < count; ++index) {
+    const lg::BotNavRequiredAnchor& anchor = map.requiredAnchors[index];
+    if (anchor.kind == kind && anchor.node < map.nodeCount) return anchor.node;
+  }
+  return lg::BotNavigationMap::kMaxNodes;
+}
+
+// Replays a generated directed route with ordinary input. It does not set a
+// player pose after the initial node: every waypoint, jump, pad, and teleport
+// transition goes through the same movement tick used by the server.
+bool executeNavRoute(
+  const lg::Arena& arena,
+  const lg::BotNavigationMap& map,
+  std::size_t start,
+  std::size_t target
+) {
+  if (start >= map.nodeCount || target >= map.nodeCount) return false;
+  std::array<std::size_t, lg::BotNavigationMap::kMaxNodes> previous = {};
+  previous.fill(lg::BotNavigationMap::kMaxNodes);
+  std::array<std::size_t, lg::BotNavigationMap::kMaxNodes> queue = {};
+  std::size_t read = 0;
+  std::size_t written = 0;
+  queue[written++] = start;
+  previous[start] = start;
+  while (read < written && previous[target] == lg::BotNavigationMap::kMaxNodes) {
+    const std::size_t current = queue[read++];
+    for (std::size_t index = 0; index < map.linkCount; ++index) {
+      const lg::BotNavLink& link = map.links[index];
+      if (link.from != current || previous[link.to] != lg::BotNavigationMap::kMaxNodes) continue;
+      previous[link.to] = current;
+      queue[written++] = link.to;
+    }
+  }
+  if (previous[target] == lg::BotNavigationMap::kMaxNodes) return false;
+  std::array<std::size_t, lg::BotNavigationMap::kMaxNodes> reverse = {};
+  std::size_t routeCount = 0;
+  for (std::size_t node = target; node != start; node = previous[node]) {
+    reverse[routeCount++] = node;
+  }
+  lg::PlayerState player;
+  player.position = map.nodes[start].position;
+  player.bounds = {};
+  player.health = 100;
+  player.onGround = true;
+  player.movementMode = lg::MovementMode::Grounded;
+  std::size_t current = start;
+  for (std::size_t reverseIndex = routeCount; reverseIndex > 0U; --reverseIndex) {
+    const std::size_t next = reverse[reverseIndex - 1U];
+    lg::BotNavLinkKind kind = lg::BotNavLinkKind::Walk;
+    bool found = false;
+    for (std::size_t index = 0; index < map.linkCount; ++index) {
+      if (map.links[index].from == current && map.links[index].to == next) {
+        kind = map.links[index].kind;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+    bool reached = false;
+    for (std::size_t tick = 0; tick < 512U; ++tick) {
+      const lg::Vec3 delta = map.nodes[next].position - player.position;
+      lg::UserCommand command;
+      command.viewYawRadians = std::atan2(delta.y, delta.x);
+      command.forwardMove = 1.0F;
+      command.jump = kind == lg::BotNavLinkKind::Jump;
+      lg::simulateMovement(player, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+      const lg::Vec3 remaining = map.nodes[next].position - player.position;
+      if (std::sqrt(remaining.x * remaining.x + remaining.y * remaining.y +
+          remaining.z * remaining.z) <= 0.55F) {
+        reached = true;
+        break;
+      }
+    }
+    if (!reached) return false;
+    current = next;
+  }
+  return true;
 }
 
 bool sameMotorCommand(const lg::BotMotor& first, const lg::BotMotor& second) {
@@ -474,8 +572,8 @@ int main() {
     const std::size_t left = lg::nearestBotNavNode(map, {-3.0F, 0.0F, 0.9F});
     const std::size_t right = lg::nearestBotNavNode(map, {3.0F, 0.0F, 0.9F});
     failures += expect(map.nodeCount > 0U && map.linkCount > 0U &&
-      navPathExists(map, left, right),
-      "generated navigation should find a player-sized route around a simple wall");
+      navPathExists(map, left, right) && executeNavRoute(aroundWall, map, left, right),
+      "generated navigation should execute a player-command route around a simple wall");
   }
 
   {
@@ -540,11 +638,40 @@ int main() {
     const lg::BotNavigationMap map = lg::buildBotNavigationMap(
       large, lg::MovementTuning{}, lg::CollisionBounds{}
     );
+    const lg::BotNavigationMap repeated = lg::buildBotNavigationMap(
+      large, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
     const std::size_t left = lg::nearestBotNavNode(map, {-45.0F, 0.0F, 0.9F});
     const std::size_t right = lg::nearestBotNavNode(map, {45.0F, 0.0F, 0.9F});
     failures += expect(
-      map.nodeCount > 100U && navPathExists(map, left, right),
-      "large-map grid spacing should still produce collision-validated connected routes"
+      map.nodeCount > 100U && map.nodeCount < lg::BotNavigationMap::kMaxNodes &&
+        !map.nodeCapacityRejects && !map.linkCapacityRejects &&
+        !map.regionWorkExhausted && !map.regionTaskCapacityReached &&
+        navPathExists(map, left, right) &&
+        map.nodeCount == repeated.nodeCount && map.linkCount == repeated.linkCount &&
+        map.regionExpansionWork == repeated.regionExpansionWork,
+      "large-map sampling should retain a deterministic route without exhausting fixed bounds"
+    );
+  }
+
+  {
+    lg::Arena vertical = flatArena();
+    vertical.spawnCount = 2;
+    vertical.spawnPositions[0] = {-5.0F, 0.0F, 0.0F};
+    vertical.spawnPositions[1] = {-4.0F, 3.0F, 0.0F};
+    vertical.walls[0].min = {-1.0F, -4.0F, 0.0F};
+    vertical.walls[0].max = {5.0F, 4.0F, 0.40F};
+    vertical.wallCount = 1;
+    vertical.healthPickups[0].position = {2.0F, 0.0F, 0.40F};
+    vertical.healthPickupCount = 1;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      vertical, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    const std::size_t spawn = requiredAnchorNode(map, lg::BotNavAnchorKind::Spawn);
+    const std::size_t health = requiredAnchorNode(map, lg::BotNavAnchorKind::Health);
+    failures += expect(
+      navPathExists(map, spawn, health) && executeNavRoute(vertical, map, spawn, health),
+      "generated navigation should execute a normal-command route up a vertical step to health"
     );
   }
 
@@ -586,8 +713,70 @@ int main() {
         std::fabs(map.nodes[teleportExit].position.z - special.teleports[0].destination.z) <
           0.01F &&
         hasNavLink(map, lg::BotNavLinkKind::Teleport) &&
-        hasNavLink(map, lg::BotNavLinkKind::JumpPad),
-      "nav should validate real teleport and jump-pad links while preserving exact teleport exits"
+        hasNavLink(map, lg::BotNavLinkKind::JumpPad) &&
+        map.teleportRoutes[0].verified && map.jumpPadRoutes[0].verified &&
+        hasDirectedNavLink(map, map.teleportRoutes[0].entryNode,
+          map.teleportRoutes[0].exitNode, lg::BotNavLinkKind::Teleport) &&
+        !hasDirectedNavLink(map, map.teleportRoutes[0].exitNode,
+          map.teleportRoutes[0].entryNode, lg::BotNavLinkKind::Teleport) &&
+        hasDirectedNavLink(map, map.jumpPadRoutes[0].entryNode,
+          map.jumpPadRoutes[0].exitNode, lg::BotNavLinkKind::JumpPad) &&
+        !hasDirectedNavLink(map, map.jumpPadRoutes[0].exitNode,
+          map.jumpPadRoutes[0].entryNode, lg::BotNavLinkKind::JumpPad) &&
+        executeNavRoute(special, map, map.teleportRoutes[0].entryNode,
+          map.teleportRoutes[0].exitNode) &&
+        executeNavRoute(special, map, map.jumpPadRoutes[0].entryNode,
+          map.jumpPadRoutes[0].exitNode),
+      "nav should execute real teleport and jump-pad routes while preserving exact teleport exits"
+    );
+  }
+
+  {
+    lg::Arena partlyBlockedTrigger = flatArena();
+    partlyBlockedTrigger.spawnCount = 2;
+    partlyBlockedTrigger.teleports[0].min = {-1.0F, -0.20F, 0.0F};
+    partlyBlockedTrigger.teleports[0].max = {1.0F, 0.20F, 0.20F};
+    partlyBlockedTrigger.teleports[0].destination = {5.0F, 0.0F, 0.9F};
+    partlyBlockedTrigger.teleportCount = 1;
+    // The trigger center is solid, but either end still has a legal player
+    // center that overlaps the trigger. This catches center-only entry search.
+    partlyBlockedTrigger.walls[0].min = {-0.60F, -0.35F, 0.0F};
+    partlyBlockedTrigger.walls[0].max = {0.60F, 0.35F, 4.0F};
+    partlyBlockedTrigger.wallCount = 1;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      partlyBlockedTrigger, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    failures += expect(
+      map.teleportRoutes[0].verified &&
+        executeNavRoute(partlyBlockedTrigger, map, map.teleportRoutes[0].entryNode,
+          map.teleportRoutes[0].exitNode),
+      "trigger-entry search should use a valid overlapping side position when its center is blocked"
+    );
+  }
+
+  {
+    lg::Arena mcgRoute = flatArena();
+    mcgRoute.spawnCount = 2;
+    mcgRoute.spawnPositions[0] = {-6.0F, -4.0F, 0.0F};
+    mcgRoute.spawnPositions[1] = {6.0F, 4.0F, 0.0F};
+    mcgRoute.mcguffin.hasNeutralSpawn = true;
+    mcgRoute.mcguffin.neutralSpawn = {0.0F, 0.0F, 0.0F};
+    mcgRoute.mcguffin.hasRedBase = true;
+    mcgRoute.mcguffin.redBase = {{-8.0F, 5.0F, 0.0F}, {-6.0F, 7.0F, 1.0F}, lg::Team::Red};
+    mcgRoute.mcguffin.hasBlueBase = true;
+    mcgRoute.mcguffin.blueBase = {{6.0F, -7.0F, 0.0F}, {8.0F, -5.0F, 1.0F}, lg::Team::Blue};
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      mcgRoute, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    const std::size_t spawn = requiredAnchorNode(map, lg::BotNavAnchorKind::Spawn);
+    const std::size_t objective = requiredAnchorNode(map, lg::BotNavAnchorKind::NeutralObjective);
+    const std::size_t redBase = requiredAnchorNode(map, lg::BotNavAnchorKind::RedBase);
+    const std::size_t blueBase = requiredAnchorNode(map, lg::BotNavAnchorKind::BlueBase);
+    failures += expect(
+      executeNavRoute(mcgRoute, map, spawn, objective) &&
+        executeNavRoute(mcgRoute, map, objective, redBase) &&
+        executeNavRoute(mcgRoute, map, objective, blueBase),
+      "generated navigation should execute normal-command McGuffin objective and base routes"
     );
   }
 
