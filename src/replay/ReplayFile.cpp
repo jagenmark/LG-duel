@@ -71,7 +71,7 @@ bool writeExclusive(const std::filesystem::path &path,
   bool written = true;
   while (offset < bytes.size()) {
     const DWORD request = static_cast<DWORD>(std::min<std::size_t>(
-      bytes.size() - offset, static_cast<std::size_t>(std::numeric_limits<DWORD>::max())
+      bytes.size() - offset, static_cast<std::size_t>((std::numeric_limits<DWORD>::max)())
     ));
     DWORD count = 0U;
     if (!WriteFile(file, bytes.data() + offset, request, &count, nullptr) || count != request) {
