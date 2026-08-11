@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -203,9 +204,13 @@ namespace {
   const std::filesystem::path& mapPath,
   const lg::Arena& arena
 ) {
+  const auto buildStarted = std::chrono::steady_clock::now();
   const lg::BotNavigationMap map = lg::buildBotNavigationMap(
     arena, lg::MovementTuning{}, lg::CollisionBounds{}
   );
+  const double buildMilliseconds = std::chrono::duration<double, std::milli>(
+    std::chrono::steady_clock::now() - buildStarted
+  ).count();
   int failures = 0;
   if (!map.requiredAnchorsComplete) {
     std::cerr << "nav ERROR: " << mapPath.string() << ": "
@@ -395,6 +400,7 @@ namespace {
   std::cout << "nav " << (failures == 0 ? "PASS: " : "FAIL: ") << mapPath.string()
     << " nodes=" << map.nodeCount << " links=" << map.linkCount
     << " components=" << map.weakComponentCount
+    << " build_ms=" << buildMilliseconds
     << " anchors=" << map.requiredAnchorCount
     << " missing_anchors=" << map.missingRequiredAnchorCount
     << " local_links=" << map.localLinkCount
