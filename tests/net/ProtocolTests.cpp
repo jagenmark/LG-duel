@@ -463,8 +463,8 @@ int main() {
     source.weaponDamage.plasmaGunDamage = 20;
     source.weaponDamage.freezeGunDamage = 112;
     source.weaponAmmo.infiniteAmmo = false;
-    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] = 151;
-    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 11;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] = 1000;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 1'000'000;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::RocketLauncher)] = 12;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::MachineGun)] = 101;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Shotgun)] = 13;
@@ -873,8 +873,8 @@ int main() {
     source.selectedWeapons[0] = lg::Weapon::Revolver;
     source.selectedWeapons[1] = lg::Weapon::Railgun;
     source.sniperChargePercent[1] = 73;
-    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::LightningGun)] = 149;
-    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] = 9;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::LightningGun)] = 1000;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] = 1'000'000;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::RocketLauncher)] = 8;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::MachineGun)] = 99;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Shotgun)] = 7;

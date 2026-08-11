@@ -133,7 +133,7 @@ map content hash and is not repeated in snapshots.
 
 ## Networking and presentation
 
-Protocol version 58 replicates the explicit objective state, carrier, dynamic
+Protocol version 59 replicates the explicit objective state, carrier, dynamic
 position, score credit, interaction/final-hold timers, event sequence, team
 scores, round wins, and dynamic base ownership. Snapshot state is sufficient
 to join an active match or recover after packet loss. The client renders simple

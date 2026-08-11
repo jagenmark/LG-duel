@@ -186,6 +186,7 @@ public:
     const DirectionalDamageHudConfig& config,
     bool enabled = true
   ) const;
+  [[nodiscard]] bool hasSeenSequence(std::uint32_t sequence) const;
 
 private:
   struct StoredIndicator {
@@ -204,6 +205,17 @@ private:
   std::array<StoredIndicator, 4> indicators_ = {};
   std::vector<std::uint32_t> seenSequences_;
 };
+
+struct OrderedDirectionalDamageEvents {
+  std::array<IncomingDirectionalDamageEvent, kDamageTakenEventWindow> events = {};
+  std::size_t count = 0;
+};
+
+[[nodiscard]] OrderedDirectionalDamageEvents
+orderedUnseenDirectionalDamageEvents(
+  const DamageTakenEventRing& events,
+  const DirectionalDamageState& state
+);
 
 [[nodiscard]] std::size_t opponentPlayerIndex(
   const ServerSnapshot& snapshot,

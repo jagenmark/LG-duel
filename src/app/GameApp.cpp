@@ -9191,22 +9191,11 @@ int GameApp::run() const {
         damageSnapshot.damageTakenEvents[directionalDamageNowBodyIndex];
       const DirectionalDamageHudConfig config =
         directionalDamageHudConfig(console);
-      for (std::size_t eventIndex = 0;
-           eventIndex < kDamageTakenEventWindow;
-           ++eventIndex) {
-        if (!damageTakenEventActive(events, eventIndex)) {
-          continue;
-        }
-        const DamageTakenEvent& event = events.events[eventIndex];
+      const OrderedDirectionalDamageEvents incomingEvents =
+        orderedUnseenDirectionalDamageEvents(events, directionalDamageState);
+      for (std::size_t index = 0; index < incomingEvents.count; ++index) {
         directionalDamageState.addIncomingDamageEvent(
-          {
-            event.sequence,
-            static_cast<float>(event.direction256) *
-              (6.28318530718F / 256.0F),
-            static_cast<float>(event.presentationDamage) / 255.0F,
-            damageTakenDirectionValid(event),
-            damageTakenIsSelfDamage(event),
-          },
+          incomingEvents.events[index],
           config
         );
       }

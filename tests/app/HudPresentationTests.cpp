@@ -152,6 +152,53 @@ int main() {
   }
 
   {
+    lg::DamageTakenEventRing ring;
+    const std::array<std::uint32_t, 8> sequences = {
+      0xFFFF'FFF8U,
+      0xFFFF'FFFAU,
+      0xFFFF'FFFBU,
+      0xFFFF'FFFCU,
+      0xFFFF'FFFDU,
+      0xFFFF'FFFEU,
+      0xFFFF'FFFFU,
+      1U,
+    };
+    for (const std::uint32_t sequence : sequences) {
+      const std::size_t slot =
+        static_cast<std::size_t>(sequence - 1U) % lg::kDamageTakenEventWindow;
+      ring.events[slot] = {
+        sequence,
+        static_cast<std::uint8_t>(sequence),
+        20U,
+        lg::kDamageTakenDirectionValid,
+        lg::Weapon::Railgun,
+      };
+      (void)lg::setDamageTakenEventActive(ring, slot);
+    }
+    lg::DirectionalDamageState directionalDamage;
+    const lg::OrderedDirectionalDamageEvents ordered =
+      lg::orderedUnseenDirectionalDamageEvents(ring, directionalDamage);
+    bool inOrder = ordered.count == sequences.size();
+    for (std::size_t index = 0; inOrder && index < sequences.size(); ++index) {
+      inOrder = ordered.events[index].sequence == sequences[index];
+    }
+    failures += expect(
+      inOrder,
+      "retained directional damage should sort unseen events oldest-to-newest across ring wrap"
+    );
+    if (ordered.count > 0U) {
+      directionalDamage.addIncomingDamageEvent(ordered.events[0], {});
+    }
+    const auto afterFirst =
+      lg::orderedUnseenDirectionalDamageEvents(ring, directionalDamage);
+    failures += expect(
+      afterFirst.count == sequences.size() - 1U &&
+        afterFirst.events[0].sequence == sequences[1],
+      "retained directional damage should filter sequences already fed to the HUD"
+    );
+  }
+
+  {
     constexpr float kPi = 3.14159265359F;
     constexpr float kHalfPi = kPi * 0.5F;
     lg::DirectionalDamageState directionalDamage;

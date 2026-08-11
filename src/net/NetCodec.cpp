@@ -14,6 +14,12 @@ namespace lg {
 namespace {
 
 constexpr std::size_t kHeaderBytes = 12;
+constexpr std::uint16_t kAmmoExtendedMarker =
+  std::numeric_limits<std::uint16_t>::max();
+
+[[nodiscard]] bool isValidAmmoValue(std::int32_t value) {
+  return value >= 0;
+}
 
 [[nodiscard]] bool isValidWeapon(Weapon weapon) {
   return weapon <= kLastWeapon;
@@ -311,16 +317,33 @@ private:
 };
 
 bool writeAmmoValue(Writer& writer, std::int32_t value) {
-  return value >= 0 && value <= 999 &&
-    writer.writeU16(static_cast<std::uint16_t>(value));
+  if (!isValidAmmoValue(value)) {
+    return false;
+  }
+  if (value < static_cast<std::int32_t>(kAmmoExtendedMarker)) {
+    return writer.writeU16(static_cast<std::uint16_t>(value));
+  }
+  return writer.writeU16(kAmmoExtendedMarker) &&
+    writer.writeU32(static_cast<std::uint32_t>(value));
 }
 
 bool readAmmoValue(Reader& reader, std::int32_t& value) {
   std::uint16_t encoded = 0;
-  if (!reader.readU16(encoded) || encoded > 999U) {
+  if (!reader.readU16(encoded)) {
     return false;
   }
-  value = static_cast<std::int32_t>(encoded);
+  if (encoded != kAmmoExtendedMarker) {
+    value = static_cast<std::int32_t>(encoded);
+    return true;
+  }
+  std::uint32_t extended = 0;
+  if (
+    !reader.readU32(extended) ||
+    extended > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max())
+  ) {
+    return false;
+  }
+  value = static_cast<std::int32_t>(extended);
   return true;
 }
 
@@ -593,7 +616,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     std::all_of(
       packet.weaponAmmo.spawnAmmo.begin(),
       packet.weaponAmmo.spawnAmmo.end(),
-      [](std::int32_t ammo) { return ammo >= 0 && ammo <= 999; }
+      isValidAmmoValue
     ) &&
     writer.writeU8(packet.clientIndex) &&
     writer.writeU8(packet.playerIndex) &&
@@ -854,7 +877,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     std::all_of(
       packet.weaponAmmo.spawnAmmo.begin(),
       packet.weaponAmmo.spawnAmmo.end(),
-      [](std::int32_t ammo) { return ammo >= 0 && ammo <= 999; }
+      isValidAmmoValue
     ) &&
     packet.vampirism >= 0.0F &&
     packet.vampirism <= 2.0F &&
@@ -1863,7 +1886,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     !std::all_of(
       snapshot.weaponAmmo.spawnAmmo.begin(),
       snapshot.weaponAmmo.spawnAmmo.end(),
-      [](std::int32_t ammo) { return ammo >= 0 && ammo <= 999; }
+      isValidAmmoValue
     ) ||
     !std::all_of(
       snapshot.playerAmmo.begin(),
@@ -1872,7 +1895,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
         return std::all_of(
           ammo.begin(),
           ammo.end(),
-          [](std::int32_t value) { return value >= 0 && value <= 999; }
+          isValidAmmoValue
         );
       }
     )
@@ -2689,7 +2712,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !std::all_of(
       decoded.weaponAmmo.spawnAmmo.begin(),
       decoded.weaponAmmo.spawnAmmo.end(),
-      [](std::int32_t ammo) { return ammo >= 0 && ammo <= 999; }
+      isValidAmmoValue
     ) ||
     decoded.vampirism < 0.0F ||
     decoded.vampirism > 2.0F ||

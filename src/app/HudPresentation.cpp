@@ -1,5 +1,6 @@
 #include "app/HudPresentation.hpp"
 
+#include "shared/Sequence.hpp"
 #include "sim/WeaponCatalog.hpp"
 
 #include <algorithm>
@@ -255,6 +256,45 @@ float wrapSignedAngleRadians(float angleRadians) {
 void DirectionalDamageState::reset() {
   indicators_ = {};
   seenSequences_.clear();
+}
+
+bool DirectionalDamageState::hasSeenSequence(std::uint32_t sequence) const {
+  return hasSeen(sequence);
+}
+
+OrderedDirectionalDamageEvents
+orderedUnseenDirectionalDamageEvents(
+  const DamageTakenEventRing& events,
+  const DirectionalDamageState& state
+) {
+  OrderedDirectionalDamageEvents result;
+  for (std::size_t eventIndex = 0;
+       eventIndex < kDamageTakenEventWindow;
+       ++eventIndex) {
+    if (!damageTakenEventActive(events, eventIndex)) {
+      continue;
+    }
+    const DamageTakenEvent& event = events.events[eventIndex];
+    if (state.hasSeenSequence(event.sequence)) {
+      continue;
+    }
+    result.events[result.count++] = {
+      event.sequence,
+      static_cast<float>(event.direction256) * (kTwoPi / 256.0F),
+      static_cast<float>(event.presentationDamage) / 255.0F,
+      damageTakenDirectionValid(event),
+      damageTakenIsSelfDamage(event),
+    };
+  }
+  std::sort(
+    result.events.begin(),
+    result.events.begin() + result.count,
+    [](const IncomingDirectionalDamageEvent& left,
+       const IncomingDirectionalDamageEvent& right) {
+      return isSequenceNewer(right.sequence, left.sequence);
+    }
+  );
+  return result;
 }
 
 void DirectionalDamageState::update(
