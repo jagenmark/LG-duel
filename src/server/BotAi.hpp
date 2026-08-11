@@ -236,6 +236,11 @@ struct BotNavigationMap {
   static constexpr std::size_t kMaxLinks = kMaxNodes * 10U;
   std::array<BotNavNode, kMaxNodes> nodes = {};
   std::array<BotNavLink, kMaxLinks> links = {};
+  // Built once at map load. Tactical replans use this fixed adjacency rather
+  // than scanning every link for each popped path node.
+  std::array<std::uint16_t, kMaxNodes> outgoingLinkHead = {};
+  std::array<std::uint16_t, kMaxLinks> outgoingLinkNext = {};
+  bool outgoingLinksPrepared = false;
   std::size_t nodeCount = 0;
   std::size_t linkCount = 0;
   // Required semantic anchors are inserted before bulk grid samples. A false
@@ -257,8 +262,14 @@ struct BotNavigationMap {
   std::size_t localGroundedRejects = 0;
   std::size_t localTraversalRejects = 0;
   std::size_t localBroadphaseRetries = 0;
+  std::size_t localTraversalSimulationTicks = 0;
+  std::size_t localTraversalStallRejects = 0;
+  std::size_t localSimpleWalkProofTrials = 0;
+  std::size_t localSimpleWalkProofTicks = 0;
+  std::size_t localSimpleWalkRejects = 0;
   std::size_t healthApproachGroundedCandidates = 0;
   std::size_t healthApproachSimulationTrials = 0;
+  std::size_t healthGraphApproachSimulationTrials = 0;
   std::size_t surfaceApproachProbeTrials = 0;
   std::size_t surfaceApproachProbeLinks = 0;
   std::size_t surfaceApproachTargetCount = 0;
@@ -276,6 +287,12 @@ struct BotNavigationMap {
   // walk or jump that crossed it instead. UINT16_MAX means no proof exists.
   std::array<std::uint16_t, 32> healthAnchorNodes = {};
   std::array<std::uint16_t, 32> healthApproachEntryNodes = {};
+  // Only a failed health anchor receives this bounded collision diagnostic.
+  // It never changes validation: it makes an authored occlusion explicit.
+  std::array<bool, 32> healthTouchVolumeOccluded = {};
+  std::array<std::uint32_t, 32> healthTouchVolumeProofs = {};
+  std::array<bool, 32> healthTouchVolumeFreeCenterFound = {};
+  std::array<Vec3, 32> healthTouchVolumeFirstFreeCenter = {};
   std::array<BotNavRequiredAnchor, kMaxNodes> requiredAnchors = {};
   std::size_t semanticAnchorCount = 0;
   std::array<BotNavAnchorReach, kMaxNodes> anchorReach = {};
@@ -292,6 +309,10 @@ struct BotNavigationMap {
   const MovementTuning& movement,
   CollisionBounds bounds
 );
+
+// Manual test maps may call this after populating links. Normal map builds
+// call it before returning, so bot replans stay allocation-free and indexed.
+void prepareBotNavigationMap(BotNavigationMap& map);
 
 [[nodiscard]] std::size_t nearestBotNavNode(
   const BotNavigationMap& map,

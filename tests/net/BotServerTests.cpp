@@ -6,6 +6,7 @@
 #include "sim/Movement.hpp"
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <optional>
@@ -755,6 +756,27 @@ int main() {
   }
 
   {
+    lg::Arena occludedHealth = flatArena();
+    occludedHealth.min = {-5.0F, -5.0F, -4.0F};
+    occludedHealth.max = {5.0F, 5.0F, 4.0F};
+    occludedHealth.healthPickups[0].position = {0.0F, 0.0F, 0.0F};
+    occludedHealth.healthPickupCount = 1;
+    // This one physical wall contains the full legal center volume for the
+    // pickup. It is an authored-data failure, not a missing nav sample.
+    occludedHealth.walls[0].min = {-3.0F, -3.0F, -4.0F};
+    occludedHealth.walls[0].max = {3.0F, 3.0F, 4.0F};
+    occludedHealth.wallCount = 1;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      occludedHealth, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    failures += expect(
+      !map.requiredAnchorsComplete && map.healthTouchVolumeOccluded[0] &&
+        map.healthTouchVolumeProofs[0] > 0U,
+      "health validation should diagnose a pickup whose whole touch volume is physically occluded"
+    );
+  }
+
+  {
     lg::Arena mcgRoute = flatArena();
     mcgRoute.spawnCount = 2;
     mcgRoute.spawnPositions[0] = {-6.0F, -4.0F, 0.0F};
@@ -804,6 +826,77 @@ int main() {
     failures += expect(
       motor.goal == lg::BotGoalKind::Objective && motor.waypointNode == 1U,
       "path planning should retain a complete route longer than the former 64-node limit"
+    );
+  }
+
+  {
+    lg::BotNavigationMap largeRoute;
+    largeRoute.nodeCount = lg::BotNavigationMap::kMaxNodes;
+    for (std::size_t index = 0; index < largeRoute.nodeCount; ++index) {
+      largeRoute.nodes[index].position = {static_cast<float>(index), 0.0F, 0.9F};
+      if (index > 0U) {
+        largeRoute.links[largeRoute.linkCount++] = {
+          static_cast<std::uint16_t>(index - 1U), static_cast<std::uint16_t>(index),
+          lg::BotNavLinkKind::Walk
+        };
+      }
+    }
+    lg::prepareBotNavigationMap(largeRoute);
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = largeRoute.nodes[0].position;
+    sense.objective = {.position = largeRoute.nodes[largeRoute.nodeCount - 1U].position,
+      .active = true};
+    const auto start = std::chrono::steady_clock::now();
+    bool everyPlanStarted = true;
+    constexpr std::size_t kReplanBenchmarkIterations = 128U;
+    for (std::size_t repeat = 0; repeat < kReplanBenchmarkIterations; ++repeat) {
+      lg::BotBrain brain;
+      brain.reset(0x600DU + static_cast<std::uint32_t>(repeat));
+      const lg::BotMotor motor = brain.tick(
+        sense, lg::botDifficultyProfile(lg::BotAttackMode::Medium), largeRoute
+      );
+      everyPlanStarted = everyPlanStarted && motor.goal == lg::BotGoalKind::Objective &&
+        motor.waypointNode < largeRoute.nodeCount &&
+        largeRoute.nodes[motor.waypointNode].position.x > 0.0F &&
+        largeRoute.nodes[motor.waypointNode].position.x < 3.0F;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::steady_clock::now() - start
+    ).count();
+    std::cout << "bot nav benchmark: " << kReplanBenchmarkIterations << " max-graph replans="
+      << elapsed << "us\n";
+    failures += expect(
+      largeRoute.outgoingLinksPrepared && everyPlanStarted && elapsed < 250000,
+      "indexed fixed-heap planning should replan a max-size graph within a bot tick budget"
+    );
+  }
+
+  {
+    lg::BotNavigationMap healthRoute;
+    healthRoute.nodeCount = 3;
+    healthRoute.nodes[0].position = {0.0F, 0.0F, 0.9F};
+    healthRoute.nodes[1].position = {1.0F, 0.0F, 0.9F};
+    healthRoute.nodes[2].position = {8.0F, 0.0F, 0.9F};
+    healthRoute.links[healthRoute.linkCount++] = {0U, 1U, lg::BotNavLinkKind::Walk};
+    healthRoute.healthAnchorNodes.fill(UINT16_MAX);
+    healthRoute.healthAnchorNodes[3] = 1U;
+    lg::prepareBotNavigationMap(healthRoute);
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = healthRoute.nodes[0].position;
+    sense.self.health = 20;
+    sense.healthResources[0] = {3U, healthRoute.nodes[2].position, 25, true};
+    sense.healthResourceCount = 1U;
+    lg::BotBrain brain;
+    brain.reset(0xA11CU);
+    const lg::BotMotor motor = brain.tick(
+      sense, lg::botDifficultyProfile(lg::BotAttackMode::Medium), healthRoute
+    );
+    failures += expect(
+      motor.goal == lg::BotGoalKind::RecoverHealth && motor.waypointNode < healthRoute.nodeCount &&
+        std::fabs(healthRoute.nodes[motor.waypointNode].position.x - 1.0F) < 0.01F,
+      "health routing should use the resource-indexed collision-settled anchor, not its authored point"
     );
   }
 

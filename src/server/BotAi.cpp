@@ -184,6 +184,140 @@ constexpr float kHealthPickupTouchHalfHeight = 0.8F;
     std::fabs(delta.z) <= bounds.halfHeight + kHealthPickupTouchHalfHeight + 0.0001F;
 }
 
+// A failed health anchor normally means sampling or movement could not find a
+// route. This stricter check identifies the different authored-data fault:
+// one real collision primitive contains every legal player center that could
+// overlap the pickup. It uses the same player-expanded brush planes as
+// playerPositionSolid, with the pickup touch cylinder as the tested volume.
+[[nodiscard]] bool healthTouchVolumeFullyOccluded(
+  const Arena& arena,
+  CollisionBounds bounds,
+  const ArenaHealthPickup& pickup,
+  std::uint32_t& proofCells
+) {
+  constexpr float kCollisionEpsilon = 0.0001F;
+  const float touchRadius = bounds.radius + kHealthPickupTouchRadius;
+  const float touchHalfHeight = bounds.halfHeight + kHealthPickupTouchHalfHeight;
+  const auto wallCoversCell = [&](const ArenaWall& wall, Vec3 minimum, Vec3 maximum) {
+    // This considers the center volume while airborne. A ground-state step
+    // exception could only make a low wall less occluding, so it cannot form
+    // a proof here.
+    return wall.min.x - bounds.radius < minimum.x + kCollisionEpsilon &&
+      wall.max.x + bounds.radius > maximum.x - kCollisionEpsilon &&
+      wall.min.y - bounds.radius < minimum.y + kCollisionEpsilon &&
+      wall.max.y + bounds.radius > maximum.y - kCollisionEpsilon &&
+      wall.min.z - bounds.halfHeight < minimum.z + kCollisionEpsilon &&
+      wall.max.z + bounds.halfHeight > maximum.z - kCollisionEpsilon;
+  };
+  const auto brushCoversCell = [&](const ArenaBrush& brush, Vec3 minimum, Vec3 maximum) {
+    if (brush.min.x - bounds.radius >= minimum.x + kCollisionEpsilon ||
+        brush.max.x + bounds.radius <= maximum.x - kCollisionEpsilon ||
+        brush.min.y - bounds.radius >= minimum.y + kCollisionEpsilon ||
+        brush.max.y + bounds.radius <= maximum.y - kCollisionEpsilon ||
+        brush.min.z - bounds.halfHeight >= minimum.z + kCollisionEpsilon ||
+        brush.max.z + bounds.halfHeight <= maximum.z - kCollisionEpsilon) {
+      return false;
+    }
+    const Vec3 center = (minimum + maximum) * 0.5F;
+    const Vec3 halfExtent = (maximum - minimum) * 0.5F;
+    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+      const ArenaBrushFace& face = brush.faces[faceIndex];
+      const float normalXY = std::sqrt((face.normal.x * face.normal.x) +
+        (face.normal.y * face.normal.y));
+      const float playerSupport = bounds.radius * normalXY +
+        bounds.halfHeight * std::fabs(face.normal.z);
+      const float cellSupport = (std::fabs(face.normal.x) * halfExtent.x) +
+        (std::fabs(face.normal.y) * halfExtent.y) +
+        (std::fabs(face.normal.z) * halfExtent.z);
+      if (dot(face.normal, center) + cellSupport >=
+          face.distance + playerSupport - kCollisionEpsilon) return false;
+    }
+    return true;
+  };
+  constexpr float kCellSize = 0.10F;
+  const std::size_t horizontalCells = static_cast<std::size_t>(std::ceil(
+    (touchRadius * 2.0F) / kCellSize
+  ));
+  const std::size_t verticalCells = static_cast<std::size_t>(std::ceil(
+    (touchHalfHeight * 2.0F) / kCellSize
+  ));
+  proofCells = 0;
+  for (std::size_t z = 0; z < verticalCells; ++z) {
+    const float z0 = pickup.position.z - touchHalfHeight + static_cast<float>(z) * kCellSize;
+    const float z1 = std::min(pickup.position.z + touchHalfHeight, z0 + kCellSize);
+    for (std::size_t y = 0; y < horizontalCells; ++y) {
+      const float y0 = pickup.position.y - touchRadius + static_cast<float>(y) * kCellSize;
+      const float y1 = std::min(pickup.position.y + touchRadius, y0 + kCellSize);
+      for (std::size_t x = 0; x < horizontalCells; ++x) {
+        const float x0 = pickup.position.x - touchRadius + static_cast<float>(x) * kCellSize;
+        const float x1 = std::min(pickup.position.x + touchRadius, x0 + kCellSize);
+        const float closestX = std::clamp(pickup.position.x, x0, x1);
+        const float closestY = std::clamp(pickup.position.y, y0, y1);
+        const float dx = closestX - pickup.position.x;
+        const float dy = closestY - pickup.position.y;
+        if ((dx * dx) + (dy * dy) > touchRadius * touchRadius) continue;
+        const Vec3 minimum = {x0, y0, z0};
+        const Vec3 maximum = {x1, y1, z1};
+        bool covered = false;
+        for (std::size_t index = 0; index < arena.wallCount && !covered; ++index) {
+          covered = wallCoversCell(arena.walls[index], minimum, maximum);
+        }
+        for (std::size_t index = 0; index < arena.brushCount && !covered; ++index) {
+          covered = brushCoversCell(arena.brushes[index], minimum, maximum);
+        }
+        // Every legal point lies in one of these cells. Requiring a single
+        // real primitive to cover each full cell makes this a conservative
+        // collision proof, not a sampled route or an anchor exemption.
+        if (!covered) return false;
+        ++proofCells;
+      }
+    }
+  }
+  return proofCells > 0U;
+}
+
+[[nodiscard]] bool healthTouchVolumeLatticeOccluded(
+  const Arena& arena,
+  CollisionBounds bounds,
+  const ArenaHealthPickup& pickup,
+  std::uint32_t& proofCenters,
+  Vec3& firstFreeCenter
+) {
+  // A small fixed raster backs up the conservative whole-cell proof above
+  // when several authored convex brushes jointly seal the touch volume. It
+  // directly calls the server collision predicate at every legal center; it
+  // is diagnostic-only and cannot create or waive a health anchor.
+  constexpr float kSpacing = 0.05F;
+  const float touchRadius = bounds.radius + kHealthPickupTouchRadius;
+  const float touchHalfHeight = bounds.halfHeight + kHealthPickupTouchHalfHeight;
+  const int horizontalSteps = static_cast<int>(std::ceil(touchRadius / kSpacing));
+  const int verticalSteps = static_cast<int>(std::ceil(touchHalfHeight / kSpacing));
+  PlayerState player;
+  player.bounds = bounds;
+  proofCenters = 0;
+  for (int z = -verticalSteps; z <= verticalSteps; ++z) {
+    const float offsetZ = static_cast<float>(z) * kSpacing;
+    if (std::fabs(offsetZ) > touchHalfHeight + 0.0001F) continue;
+    for (int y = -horizontalSteps; y <= horizontalSteps; ++y) {
+      const float offsetY = static_cast<float>(y) * kSpacing;
+      for (int x = -horizontalSteps; x <= horizontalSteps; ++x) {
+        const float offsetX = static_cast<float>(x) * kSpacing;
+        if ((offsetX * offsetX) + (offsetY * offsetY) > touchRadius * touchRadius +
+            0.0001F) {
+          continue;
+        }
+        const Vec3 center = pickup.position + Vec3{offsetX, offsetY, offsetZ};
+        if (!playerPositionSolid(arena, player, center)) {
+          firstFreeCenter = center;
+          return false;
+        }
+        ++proofCenters;
+      }
+    }
+  }
+  return proofCenters > 0U;
+}
+
 // A cheap player-bounds sweep filters links that a straight walking command
 // plainly cannot enter. It never accepts a link: every surviving edge still
 // runs the full fixed-step movement proof below.
@@ -271,7 +405,13 @@ constexpr float kHealthPickupTouchHalfHeight = 0.8F;
   return false;
 }
 
-[[nodiscard]] bool canTraverse(
+struct BotNavTraversalProof {
+  bool reached = false;
+  bool stalled = false;
+  std::size_t simulatedTicks = 0;
+};
+
+[[nodiscard]] BotNavTraversalProof canTraverse(
   const Arena& arena,
   const MovementTuning& movement,
   CollisionBounds bounds,
@@ -280,6 +420,7 @@ constexpr float kHealthPickupTouchHalfHeight = 0.8F;
   bool jump,
   int maximumTicks = 1536
 ) {
+  BotNavTraversalProof proof;
   PlayerState player;
   player.position = from;
   player.bounds = bounds;
@@ -312,11 +453,23 @@ constexpr float kHealthPickupTouchHalfHeight = 0.8F;
   );
   for (int tick = 0; tick < ticks; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    ++proof.simulatedTicks;
     if (distance3d(player.position, to) <= kNavReachRadius) {
-      return true;
+      proof.reached = true;
+      return proof;
+    }
+    // A walk command has no later input change. Once normal movement has
+    // spent a fixed warm-up at rest against collision, more identical ticks
+    // cannot turn that rejected edge into a valid one. Keep jump proofs at
+    // their full horizon because their airborne arc can still cross a gap.
+    if (!jump && tick >= 47 && player.onGround &&
+        (player.velocity.x * player.velocity.x) + (player.velocity.y * player.velocity.y) <=
+          0.0001F) {
+      proof.stalled = true;
+      return proof;
     }
   }
-  return false;
+  return proof;
 }
 
 // Special links use the same trigger order as ordinary movement. Starting at
@@ -604,6 +757,30 @@ BotNavigationMap buildBotNavigationMap(
   constexpr std::size_t kLinkIndexSlots = 65536U;
   constexpr std::uint32_t kEmptyLinkIndex = UINT32_MAX;
   std::vector<std::uint32_t> linkIndex(kLinkIndexSlots, kEmptyLinkIndex);
+  const auto directedLinkKey = [](std::size_t from, std::size_t to) {
+    return static_cast<std::uint32_t>(from * BotNavigationMap::kMaxNodes + to);
+  };
+  const auto indexedKeyExists = [&](const std::vector<std::uint32_t>& index,
+                                    std::uint32_t key) {
+    std::size_t slot = (key * 0x9e3779b9U) & (kLinkIndexSlots - 1U);
+    for (std::size_t probe = 0; probe < kLinkIndexSlots; ++probe) {
+      const std::uint32_t stored = index[slot];
+      if (stored == kEmptyLinkIndex) return false;
+      if (stored == key) return true;
+      slot = (slot + 1U) & (kLinkIndexSlots - 1U);
+    }
+    return false;
+  };
+  const auto addIndexedKey = [&](std::vector<std::uint32_t>& index, std::uint32_t key) {
+    std::size_t slot = (key * 0x9e3779b9U) & (kLinkIndexSlots - 1U);
+    for (std::size_t probe = 0; probe < kLinkIndexSlots; ++probe) {
+      if (index[slot] == kEmptyLinkIndex || index[slot] == key) {
+        index[slot] = key;
+        return;
+      }
+      slot = (slot + 1U) & (kLinkIndexSlots - 1U);
+    }
+  };
   auto addGroundedNodeIndex = [&](Vec3 hint, float mergeDistance = 0.35F) {
     Vec3 position = {};
     if (!groundedNodePosition(arena, bounds, hint, position)) {
@@ -818,19 +995,9 @@ BotNavigationMap buildBotNavigationMap(
       ++map.linkCapacityRejects;
       return;
     }
-    const std::uint32_t key = static_cast<std::uint32_t>(
-      from * BotNavigationMap::kMaxNodes + to
-    );
-    std::size_t slot = (key * 0x9e3779b9U) & (kLinkIndexSlots - 1U);
-    for (std::size_t probe = 0; probe < kLinkIndexSlots; ++probe) {
-      const std::uint32_t existing = linkIndex[slot];
-      if (existing == kEmptyLinkIndex) {
-        linkIndex[slot] = key;
-        break;
-      }
-      if (existing == key) return;
-      slot = (slot + 1U) & (kLinkIndexSlots - 1U);
-    }
+    const std::uint32_t key = directedLinkKey(from, to);
+    if (indexedKeyExists(linkIndex, key)) return;
+    addIndexedKey(linkIndex, key);
     map.links[map.linkCount++] = BotNavLink{
       static_cast<std::uint16_t>(from), static_cast<std::uint16_t>(to), kind};
   };
@@ -938,6 +1105,17 @@ BotNavigationMap buildBotNavigationMap(
     map.healthApproachEntryNodes[index] = static_cast<std::uint16_t>(entryNode);
     rememberSemanticAnchor(entryNode);
     rememberSemanticAnchor(landingNode);
+  }
+  for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
+    if (healthNodes[index] < map.nodeCount) continue;
+    map.healthTouchVolumeOccluded[index] = healthTouchVolumeFullyOccluded(
+      arena, bounds, arena.healthPickups[index], map.healthTouchVolumeProofs[index]);
+    if (!map.healthTouchVolumeOccluded[index]) {
+      map.healthTouchVolumeOccluded[index] = healthTouchVolumeLatticeOccluded(
+        arena, bounds, arena.healthPickups[index], map.healthTouchVolumeProofs[index],
+        map.healthTouchVolumeFirstFreeCenter[index]);
+      map.healthTouchVolumeFreeCenterFound[index] = !map.healthTouchVolumeOccluded[index];
+    }
   }
   for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
     requireAnchor(healthNodes[index], BotNavAnchorKind::Health, index);
@@ -1142,6 +1320,8 @@ BotNavigationMap buildBotNavigationMap(
   };
   const auto tryDirectedLink = [&](std::size_t from, std::size_t to, bool retryBroadphase) {
     if (from >= map.nodeCount || to >= map.nodeCount || from == to) return false;
+    const std::uint32_t forwardKey = directedLinkKey(from, to);
+    if (indexedKeyExists(linkIndex, forwardKey)) return true;
     ++map.localTraversalTrials;
     const bool forwardBroadphaseBlocked = linearlyBlockedForPlayer(
       arena, bounds, map.nodes[from].position, map.nodes[to].position
@@ -1151,19 +1331,31 @@ BotNavigationMap buildBotNavigationMap(
       return false;
     }
     if (forwardBroadphaseBlocked) ++map.localBroadphaseRetries;
+    const bool sameLevelSimpleWalk = !forwardBroadphaseBlocked &&
+      std::fabs(map.nodes[from].position.z - map.nodes[to].position.z) <= 0.05F;
+    const auto runProof = [&](std::size_t start, std::size_t goal, bool jump,
+                              bool simpleWalk) {
+      const BotNavTraversalProof proof = canTraverse(arena, movement, bounds,
+        map.nodes[start].position, map.nodes[goal].position, jump, 384);
+      map.localTraversalSimulationTicks += proof.simulatedTicks;
+      map.localTraversalStallRejects += proof.stalled ? 1U : 0U;
+      if (simpleWalk && !jump) {
+        ++map.localSimpleWalkProofTrials;
+        map.localSimpleWalkProofTicks += proof.simulatedTicks;
+        map.localSimpleWalkRejects += proof.reached ? 0U : 1U;
+      }
+      return proof.reached;
+    };
     BotNavLinkKind kind = std::fabs(map.nodes[from].position.z - map.nodes[to].position.z) <= 0.05F
       ? BotNavLinkKind::Walk : BotNavLinkKind::Step;
     // A local edge can descend a tall authored ledge. Keep the proof bounded,
     // but allow its fixed simulation window to cover a normal fall instead of
     // rejecting it at the former one-second cap.
-    constexpr int kLocalTraversalMaximumTicks = 384;
-    bool reached = canTraverse(arena, movement, bounds, map.nodes[from].position,
-      map.nodes[to].position, false, kLocalTraversalMaximumTicks);
+    bool reached = runProof(from, to, false, sameLevelSimpleWalk);
     // A gap can have equal floor heights.  Prove a normal jump in that case
     // too; z alone does not describe the movement rule.
     if (!reached) {
-      reached = canTraverse(arena, movement, bounds, map.nodes[from].position,
-      map.nodes[to].position, true, kLocalTraversalMaximumTicks);
+      reached = runProof(from, to, true, false);
       if (reached) kind = BotNavLinkKind::Jump;
     }
     if (!reached) {
@@ -1174,17 +1366,19 @@ BotNavigationMap buildBotNavigationMap(
     // Direction stays explicit. Flat or symmetric ground earns a reverse
     // link only after its own normal movement proof; pads and teleports never
     // pass through this helper and remain one-way trigger transitions.
+    const std::uint32_t reverseKey = directedLinkKey(to, from);
+    if (indexedKeyExists(linkIndex, reverseKey)) return true;
     ++map.localTraversalTrials;
     const bool reverseBroadphaseBlocked = linearlyBlockedForPlayer(
       arena, bounds, map.nodes[to].position, map.nodes[from].position
     );
     if (!reverseBroadphaseBlocked || retryBroadphase) {
       if (reverseBroadphaseBlocked) ++map.localBroadphaseRetries;
-      bool reverseReached = canTraverse(arena, movement, bounds, map.nodes[to].position,
-        map.nodes[from].position, false, kLocalTraversalMaximumTicks);
+      const bool reverseSameLevelSimpleWalk = !reverseBroadphaseBlocked &&
+        std::fabs(map.nodes[from].position.z - map.nodes[to].position.z) <= 0.05F;
+      bool reverseReached = runProof(to, from, false, reverseSameLevelSimpleWalk);
       if (!reverseReached && kind == BotNavLinkKind::Jump) {
-        reverseReached = canTraverse(arena, movement, bounds, map.nodes[to].position,
-          map.nodes[from].position, true, kLocalTraversalMaximumTicks);
+        reverseReached = runProof(to, from, true, false);
       }
       if (reverseReached) {
         addLink(to, from, kind);
@@ -1291,6 +1485,78 @@ BotNavigationMap buildBotNavigationMap(
     }
     runFlood();
   }
+  // A pickup can have a free airborne touch center without any standable
+  // center inside its touch volume. For a still-missing resource, retry from
+  // the nearest collision-settled graph nodes after the normal bulk flood.
+  // Each candidate uses the same UserCommand walk/jump replay and records
+  // its actual post-touch landing, so this is an attachment proof rather
+  // than an authored-point snap or a direct player-state move.
+  constexpr std::size_t kHealthGraphApproachTrialBudget = 64U;
+  const auto attachMissingHealthFromGraph = [&](std::size_t healthIndex) {
+    if (healthIndex >= arena.healthPickupCount || healthNodes[healthIndex] < map.nodeCount) {
+      return false;
+    }
+    std::array<std::size_t, kHealthGraphApproachTrialBudget> candidates = {};
+    std::array<float, kHealthGraphApproachTrialBudget> candidateDistances = {};
+    candidates.fill(BotNavigationMap::kMaxNodes);
+    candidateDistances.fill(std::numeric_limits<float>::infinity());
+    for (std::size_t node = 0; node < map.nodeCount; ++node) {
+      const float distance = distance3d(map.nodes[node].position,
+        arena.healthPickups[healthIndex].position);
+      for (std::size_t slot = 0; slot < candidates.size(); ++slot) {
+        if (distance >= candidateDistances[slot]) continue;
+        for (std::size_t shift = candidates.size() - 1U; shift > slot; --shift) {
+          candidates[shift] = candidates[shift - 1U];
+          candidateDistances[shift] = candidateDistances[shift - 1U];
+        }
+        candidates[slot] = node;
+        candidateDistances[slot] = distance;
+        break;
+      }
+    }
+    for (std::size_t slot = 0; slot < candidates.size(); ++slot) {
+      const std::size_t entryNode = candidates[slot];
+      if (entryNode >= map.nodeCount) break;
+      Vec3 landing = {};
+      ++map.healthGraphApproachSimulationTrials;
+      BotNavLinkKind kind = BotNavLinkKind::Walk;
+      if (!simulateHealthApproach(arena, movement, bounds, map.nodes[entryNode].position,
+          arena.healthPickups[healthIndex], false, landing)) {
+        ++map.healthGraphApproachSimulationTrials;
+        kind = BotNavLinkKind::Jump;
+        if (!simulateHealthApproach(arena, movement, bounds, map.nodes[entryNode].position,
+            arena.healthPickups[healthIndex], true, landing)) {
+          continue;
+        }
+      }
+      const std::size_t landingNode = addExactNodeIndex(landing, false);
+      if (landingNode >= map.nodeCount) continue;
+      addLink(entryNode, landingNode, kind);
+      healthNodes[healthIndex] = landingNode;
+      map.healthAnchorNodes[healthIndex] = static_cast<std::uint16_t>(landingNode);
+      map.healthApproachEntryNodes[healthIndex] = static_cast<std::uint16_t>(entryNode);
+      rememberSemanticAnchor(entryNode);
+      rememberSemanticAnchor(landingNode);
+      const std::size_t anchorCount = std::min(map.requiredAnchorCount,
+        map.requiredAnchors.size());
+      for (std::size_t anchor = 0; anchor < anchorCount; ++anchor) {
+        BotNavRequiredAnchor& required = map.requiredAnchors[anchor];
+        if (required.kind != BotNavAnchorKind::Health || required.sourceIndex != healthIndex ||
+            required.node < map.nodeCount) {
+          continue;
+        }
+        required.node = static_cast<std::uint16_t>(landingNode);
+        if (map.missingRequiredAnchorCount > 0U) --map.missingRequiredAnchorCount;
+        map.requiredAnchorsComplete = map.missingRequiredAnchorCount == 0U;
+        break;
+      }
+      return true;
+    }
+    return false;
+  };
+  for (std::size_t healthIndex = 0; healthIndex < arena.healthPickupCount; ++healthIndex) {
+    attachMissingHealthFromGraph(healthIndex);
+  }
   // Refine only semantic targets that the normal flood cannot reach from a
   // real spawn.  Required-anchor kinds keep this decision inside nav build
   // data instead of relying on validator rules or map names.
@@ -1316,15 +1582,47 @@ BotNavigationMap buildBotNavigationMap(
   std::array<std::uint16_t, BotNavigationMap::kMaxLinks> incomingNext = {};
   std::array<std::uint16_t, BotNavigationMap::kMaxNodes> outgoingHead = {};
   std::array<std::uint16_t, BotNavigationMap::kMaxLinks> outgoingNext = {};
-  incomingHead.fill(UINT16_MAX);
-  outgoingHead.fill(UINT16_MAX);
-  for (std::size_t link = 0; link < map.linkCount; ++link) {
-    const BotNavLink& edge = map.links[link];
-    incomingNext[link] = incomingHead[edge.to];
-    incomingHead[edge.to] = static_cast<std::uint16_t>(link);
-    outgoingNext[link] = outgoingHead[edge.from];
-    outgoingHead[edge.from] = static_cast<std::uint16_t>(link);
-  }
+  std::array<bool, BotNavigationMap::kMaxNodes> reachableFromEverySpawn = {};
+  std::array<std::size_t, BotNavigationMap::kMaxNodes> spawnReachCounts = {};
+  std::size_t smallestSpawnReach = BotNavigationMap::kMaxNodes;
+  const auto rebuildRefinementReach = [&] {
+    incomingHead.fill(UINT16_MAX);
+    outgoingHead.fill(UINT16_MAX);
+    for (std::size_t link = 0; link < map.linkCount; ++link) {
+      const BotNavLink& edge = map.links[link];
+      incomingNext[link] = incomingHead[edge.to];
+      incomingHead[edge.to] = static_cast<std::uint16_t>(link);
+      outgoingNext[link] = outgoingHead[edge.from];
+      outgoingHead[edge.from] = static_cast<std::uint16_t>(link);
+    }
+    reachableFromEverySpawn.fill(spawnNodeCount > 0U);
+    spawnReachCounts.fill(0U);
+    smallestSpawnReach = BotNavigationMap::kMaxNodes;
+    for (std::size_t source = 0; source < spawnNodeCount; ++source) {
+      std::array<bool, BotNavigationMap::kMaxNodes> seen = {};
+      std::array<std::size_t, BotNavigationMap::kMaxNodes> queue = {};
+      std::size_t head = 0;
+      std::size_t tail = 0;
+      seen[spawnNodes[source]] = true;
+      queue[tail++] = spawnNodes[source];
+      while (head < tail) {
+        const std::size_t current = queue[head++];
+        for (std::uint16_t link = outgoingHead[current]; link != UINT16_MAX;
+             link = outgoingNext[link]) {
+          const std::size_t next = map.links[link].to;
+          if (!seen[next]) {
+            seen[next] = true;
+            queue[tail++] = next;
+          }
+        }
+      }
+      spawnReachCounts[source] = tail;
+      smallestSpawnReach = std::min(smallestSpawnReach, tail);
+      for (std::size_t node = 0; node < map.nodeCount; ++node) {
+        reachableFromEverySpawn[node] = reachableFromEverySpawn[node] && seen[node];
+      }
+    }
+  };
   const auto allSpawnsCanReach = [&](std::size_t target) {
     if (spawnNodeCount == 0U || target >= map.nodeCount) return true;
     std::array<bool, BotNavigationMap::kMaxNodes> seen = {};
@@ -1364,36 +1662,6 @@ BotNavigationMap buildBotNavigationMap(
     }
     return false;
   };
-  std::array<bool, BotNavigationMap::kMaxNodes> reachableFromEverySpawn = {};
-  std::array<std::size_t, BotNavigationMap::kMaxNodes> spawnReachCounts = {};
-  reachableFromEverySpawn.fill(spawnNodeCount > 0U);
-  for (std::size_t source = 0; source < spawnNodeCount; ++source) {
-    std::array<bool, BotNavigationMap::kMaxNodes> seen = {};
-    std::array<std::size_t, BotNavigationMap::kMaxNodes> queue = {};
-    std::size_t head = 0;
-    std::size_t tail = 0;
-    seen[spawnNodes[source]] = true;
-    queue[tail++] = spawnNodes[source];
-    while (head < tail) {
-      const std::size_t current = queue[head++];
-      for (std::uint16_t link = outgoingHead[current]; link != UINT16_MAX;
-           link = outgoingNext[link]) {
-        const std::size_t next = map.links[link].to;
-        if (!seen[next]) {
-          seen[next] = true;
-          queue[tail++] = next;
-        }
-      }
-    }
-    spawnReachCounts[source] = tail;
-    for (std::size_t node = 0; node < map.nodeCount; ++node) {
-      reachableFromEverySpawn[node] = reachableFromEverySpawn[node] && seen[node];
-    }
-  }
-  std::size_t smallestSpawnReach = BotNavigationMap::kMaxNodes;
-  for (std::size_t source = 0; source < spawnNodeCount; ++source) {
-    smallestSpawnReach = std::min(smallestSpawnReach, spawnReachCounts[source]);
-  }
   const auto isSmallestSpawnRegion = [&](std::size_t node) {
     for (std::size_t source = 0; source < spawnNodeCount; ++source) {
       if (spawnNodes[source] == node && spawnReachCounts[source] == smallestSpawnReach) {
@@ -1417,6 +1685,7 @@ BotNavigationMap buildBotNavigationMap(
   constexpr std::size_t kSurfaceApproachJoinTrialBudget = 64U;
   constexpr std::array<float, 3U> kSurfaceApproachHeightOffsets = {{0.0F, 0.85F, -0.85F}};
   constexpr std::size_t kSurfaceApproachTargetBudget = 16U;
+  rebuildRefinementReach();
   for (std::size_t anchor = 0;
        anchor < semanticSeedCount && map.surfaceApproachTargetCount < kSurfaceApproachTargetBudget;
        ++anchor) {
@@ -1509,6 +1778,10 @@ BotNavigationMap buildBotNavigationMap(
     map.surfaceApproachFloodExhausted = map.surfaceApproachFloodExhausted || (!joined &&
       (targetFloodWork == kSurfaceApproachWorkBudget ||
         targetFloodNodes + 1U >= kSurfaceApproachNodeBudget));
+    // A join changes the directed graph. Recompute before the next target so
+    // it sees the new spawn-reachable surface instead of spending reserve on
+    // a destination that the previous refinement already connected.
+    if (joined) rebuildRefinementReach();
   }
   if (map.surfaceApproachTargetCount > 0U && map.regionExpansionWork < kRegionExpansionWorkLimit) {
     runFlood();
@@ -1598,7 +1871,23 @@ BotNavigationMap buildBotNavigationMap(
     }
     diagnostic.directedReach = static_cast<std::uint16_t>(tail);
   }
+  prepareBotNavigationMap(map);
   return map;
+}
+
+void prepareBotNavigationMap(BotNavigationMap& map) {
+  map.outgoingLinkHead.fill(UINT16_MAX);
+  map.outgoingLinkNext.fill(UINT16_MAX);
+  // Prepending from the end preserves link insertion order for each source.
+  // That keeps A* tie behavior stable across rebuilds and platforms.
+  for (std::size_t index = map.linkCount; index > 0U; --index) {
+    const std::size_t linkIndex = index - 1U;
+    const BotNavLink& link = map.links[linkIndex];
+    if (link.from >= map.nodeCount || link.to >= map.nodeCount) continue;
+    map.outgoingLinkNext[linkIndex] = map.outgoingLinkHead[link.from];
+    map.outgoingLinkHead[link.from] = static_cast<std::uint16_t>(linkIndex);
+  }
+  map.outgoingLinksPrepared = true;
 }
 
 std::size_t nearestBotNavNode(const BotNavigationMap& map, Vec3 position) {
@@ -1753,22 +2042,65 @@ bool BotBrain::planPath(
   std::array<float, BotNavigationMap::kMaxNodes> gScore = {};
   std::array<std::uint16_t, BotNavigationMap::kMaxNodes> cameFrom = {};
   std::array<bool, BotNavigationMap::kMaxNodes> closed = {};
+  std::array<std::uint16_t, BotNavigationMap::kMaxNodes> heap = {};
+  std::array<std::uint16_t, BotNavigationMap::kMaxNodes> heapPosition = {};
   gScore.fill(std::numeric_limits<float>::infinity());
   cameFrom.fill(std::numeric_limits<std::uint16_t>::max());
-  gScore[startNode] = 0.0F;
-  for (std::size_t step = 0; step < navigation.nodeCount; ++step) {
-    std::size_t current = BotNavigationMap::kMaxNodes;
-    float bestScore = std::numeric_limits<float>::infinity();
-    for (std::size_t index = 0; index < navigation.nodeCount; ++index) {
-      if (closed[index]) continue;
-      const float fScore = gScore[index] + distance3d(
-        navigation.nodes[index].position, navigation.nodes[targetNode].position);
-      if (fScore < bestScore) {
-        bestScore = fScore;
-        current = index;
-      }
+  heapPosition.fill(UINT16_MAX);
+  const auto fScore = [&](std::size_t node) {
+    return gScore[node] + distance3d(
+      navigation.nodes[node].position, navigation.nodes[targetNode].position
+    );
+  };
+  const auto comesBefore = [&](std::size_t first, std::size_t second) {
+    const float firstScore = fScore(first);
+    const float secondScore = fScore(second);
+    return firstScore < secondScore || (firstScore == secondScore && first < second);
+  };
+  std::size_t heapCount = 0;
+  const auto siftUp = [&](std::size_t index) {
+    while (index > 0U) {
+      const std::size_t parent = (index - 1U) / 2U;
+      if (!comesBefore(heap[index], heap[parent])) break;
+      std::swap(heap[index], heap[parent]);
+      heapPosition[heap[index]] = static_cast<std::uint16_t>(index);
+      heapPosition[heap[parent]] = static_cast<std::uint16_t>(parent);
+      index = parent;
     }
-    if (current >= navigation.nodeCount || !std::isfinite(bestScore)) break;
+  };
+  const auto siftDown = [&](std::size_t index) {
+    while (true) {
+      const std::size_t left = index * 2U + 1U;
+      if (left >= heapCount) break;
+      const std::size_t right = left + 1U;
+      std::size_t child = left;
+      if (right < heapCount && comesBefore(heap[right], heap[left])) child = right;
+      if (!comesBefore(heap[child], heap[index])) break;
+      std::swap(heap[index], heap[child]);
+      heapPosition[heap[index]] = static_cast<std::uint16_t>(index);
+      heapPosition[heap[child]] = static_cast<std::uint16_t>(child);
+      index = child;
+    }
+  };
+  const auto pushOrDecrease = [&](std::size_t node) {
+    if (heapPosition[node] == UINT16_MAX) {
+      heap[heapCount] = static_cast<std::uint16_t>(node);
+      heapPosition[node] = static_cast<std::uint16_t>(heapCount++);
+    }
+    siftUp(heapPosition[node]);
+  };
+  gScore[startNode] = 0.0F;
+  pushOrDecrease(startNode);
+  while (heapCount > 0U) {
+    const std::size_t current = heap[0];
+    --heapCount;
+    if (heapCount > 0U) {
+      heap[0] = heap[heapCount];
+      heapPosition[heap[0]] = 0U;
+      siftDown(0U);
+    }
+    heapPosition[current] = UINT16_MAX;
+    if (closed[current]) continue;
     if (current == targetNode) {
       std::array<std::uint16_t, BotNavigationMap::kMaxNodes> reversed = {};
       std::size_t count = 0;
@@ -1800,14 +2132,27 @@ bool BotBrain::planPath(
       return pathCount_ > 0U;
     }
     closed[current] = true;
-    for (std::size_t linkIndex = 0; linkIndex < navigation.linkCount; ++linkIndex) {
-      const BotNavLink& link = navigation.links[linkIndex];
-      if (link.from != current || closed[link.to]) continue;
+    const auto relax = [&](const BotNavLink& link) {
+      if (closed[link.to]) return;
       const float tentative = gScore[current] + distance3d(
         navigation.nodes[current].position, navigation.nodes[link.to].position);
       if (tentative < gScore[link.to]) {
         gScore[link.to] = tentative;
         cameFrom[link.to] = static_cast<std::uint16_t>(current);
+        pushOrDecrease(link.to);
+      }
+    };
+    if (navigation.outgoingLinksPrepared) {
+      for (std::uint16_t linkIndex = navigation.outgoingLinkHead[current];
+           linkIndex != UINT16_MAX; linkIndex = navigation.outgoingLinkNext[linkIndex]) {
+        relax(navigation.links[linkIndex]);
+      }
+    } else {
+      // Hand-assembled test maps can omit the map-load preparation. Runtime
+      // maps always use the indexed branch above.
+      for (std::size_t linkIndex = 0; linkIndex < navigation.linkCount; ++linkIndex) {
+        const BotNavLink& link = navigation.links[linkIndex];
+        if (link.from == current) relax(link);
       }
     }
   }
@@ -1974,14 +2319,12 @@ BotMotor BotBrain::tick(
       const float distance = horizontalDistance(sense.self.position, resource.position);
       if (distance < bestDistance) {
         bestDistance = distance;
-        // A normal pickup uses its authored position. An airborne pickup has
-        // no resting center, so its map-load proof supplies the landing that
-        // the bot must route through after crossing the real touch volume.
-        const std::size_t attachmentEntry = navigation.healthApproachEntryNodes[index];
-        const std::size_t attachmentLanding = navigation.healthAnchorNodes[index];
-        movementGoal = attachmentEntry < navigation.nodeCount &&
-            attachmentLanding < navigation.nodeCount
-          ? navigation.nodes[attachmentLanding].position : resource.position;
+        // The public resource index selects the corresponding map-load touch
+        // proof. This uses the exact collision-settled node for both ordinary
+        // and airborne pickups instead of snapping back to the authored point.
+        const std::size_t healthAnchor = navigation.healthAnchorNodes[index];
+        movementGoal = healthAnchor < navigation.nodeCount
+          ? navigation.nodes[healthAnchor].position : resource.position;
         output.goal = BotGoalKind::RecoverHealth;
       }
     }

@@ -247,8 +247,7 @@ namespace {
     requireNearbyNode("team spawn", arena.teamSpawns[index].position);
   }
   const auto nodeForHealthAnchor = [&](std::size_t index) {
-    if (index < map.healthApproachEntryNodes.size() &&
-        map.healthApproachEntryNodes[index] < map.nodeCount &&
+    if (index < map.healthAnchorNodes.size() &&
         map.healthAnchorNodes[index] < map.nodeCount) {
       return static_cast<std::size_t>(map.healthAnchorNodes[index]);
     }
@@ -267,6 +266,18 @@ namespace {
         ++failures;
       }
     } else {
+      if (index < map.healthTouchVolumeOccluded.size() &&
+          map.healthTouchVolumeOccluded[index]) {
+        std::cerr << "nav ERROR: " << mapPath.string() << ": health " << index
+          << " has no collision-free player center anywhere in its pickup touch volume"
+          << " (direct collision proof=" << map.healthTouchVolumeProofs[index] << ")\n";
+      } else if (index < map.healthTouchVolumeFreeCenterFound.size() &&
+                 map.healthTouchVolumeFreeCenterFound[index]) {
+        const lg::Vec3 center = map.healthTouchVolumeFirstFreeCenter[index];
+        std::cerr << "nav DIAG: " << mapPath.string() << ": health " << index
+          << " collision probe found a free touch center at (" << center.x << ',' << center.y
+          << ',' << center.z << "); no grounded normal-command approach was proved\n";
+      }
       requireNearbyNode("health", arena.healthPickups[index].position);
     }
   }
@@ -397,8 +408,14 @@ namespace {
     << " grounded_rejects=" << map.localGroundedRejects
     << " traversal_rejects=" << map.localTraversalRejects
     << " broadphase_retries=" << map.localBroadphaseRetries
+    << " proof_ticks=" << map.localTraversalSimulationTicks
+    << " proof_stalls=" << map.localTraversalStallRejects
+    << " simple_walk_trials=" << map.localSimpleWalkProofTrials
+    << " simple_walk_ticks=" << map.localSimpleWalkProofTicks
+    << " simple_walk_rejects=" << map.localSimpleWalkRejects
     << " health_approach_grounded=" << map.healthApproachGroundedCandidates
     << " health_approach_trials=" << map.healthApproachSimulationTrials
+    << " health_graph_approach_trials=" << map.healthGraphApproachSimulationTrials
     << " surface_approach_trials=" << map.surfaceApproachProbeTrials
     << " surface_approach_links=" << map.surfaceApproachProbeLinks
     << " surface_approach_targets=" << map.surfaceApproachTargetCount
