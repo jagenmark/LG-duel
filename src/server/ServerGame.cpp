@@ -29,11 +29,43 @@ constexpr std::uint32_t kLocalHitFeedbackEventRetentionTicks = 32;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 constexpr float kProjectileCollisionEpsilon = 0.0001F;
-constexpr float kHealthPickupTouchRadius = 0.7F;
-constexpr float kHealthPickupTouchHalfHeight = 0.8F;
 constexpr float kPi = 3.14159265359F;
 constexpr float kHalfPi = kPi * 0.5F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
+
+[[nodiscard]] bool sameBotNavigationTuning(
+  const MovementTuning& left,
+  const MovementTuning& right
+) {
+  return left.flightEnabled == right.flightEnabled &&
+    left.groundAcceleration == right.groundAcceleration &&
+    left.airAcceleration == right.airAcceleration &&
+    left.groundFriction == right.groundFriction &&
+    left.stopSpeed == right.stopSpeed &&
+    left.gravity == right.gravity &&
+    left.maxGroundSpeed == right.maxGroundSpeed &&
+    left.maxAirSpeed == right.maxAirSpeed &&
+    left.jumpImpulse == right.jumpImpulse &&
+    left.airControlEnabled == right.airControlEnabled &&
+    left.dashTargetSpeed == right.dashTargetSpeed &&
+    left.dashMaxSpeed == right.dashMaxSpeed &&
+    left.dashAcceleration == right.dashAcceleration &&
+    left.dashDuration == right.dashDuration &&
+    left.dashCooldown == right.dashCooldown &&
+    left.dashGroundHopVelocity == right.dashGroundHopVelocity &&
+    left.dashAirHopVelocity == right.dashAirHopVelocity &&
+    left.flightAcceleration == right.flightAcceleration &&
+    left.maxFlightSpeed == right.maxFlightSpeed &&
+    left.flightDamping == right.flightDamping &&
+    left.flightGravityCancel == right.flightGravityCancel;
+}
+
+[[nodiscard]] CollisionBounds botNavigationBounds(float scaleXY, float scaleZ) {
+  CollisionBounds bounds = kDefaultPlayerBounds;
+  bounds.radius *= scaleXY;
+  bounds.halfHeight *= scaleZ;
+  return bounds;
+}
 
 [[nodiscard]] std::uint32_t scenarioRandomState(
   std::uint64_t seed,
@@ -1937,8 +1969,17 @@ void ServerGame::setRuntimeGameplayTuning(
   int botDodgeMaxIntervalMs,
   WeaponSwitchingMode weaponSwitchingMode
 ) {
-  movementTuning_ = movementTuning;
-  movementTuning_.maxAirSpeed = movementTuning_.maxGroundSpeed;
+  MovementTuning normalizedMovementTuning = movementTuning;
+  normalizedMovementTuning.maxAirSpeed = normalizedMovementTuning.maxGroundSpeed;
+  const CollisionBounds previousNavigationBounds =
+    botNavigationBounds(playerSizeScaleXY_, playerSizeScaleZ_);
+  const CollisionBounds nextNavigationBounds =
+    botNavigationBounds(playerSizeScaleXY, playerSizeScaleZ);
+  const bool rebuildNavigation =
+    !sameBotNavigationTuning(movementTuning_, normalizedMovementTuning) ||
+    previousNavigationBounds.radius != nextNavigationBounds.radius ||
+    previousNavigationBounds.halfHeight != nextNavigationBounds.halfHeight;
+  movementTuning_ = normalizedMovementTuning;
   snapshot_.movementTuning = movementTuning_;
   playerSizeScaleXY_ = playerSizeScaleXY;
   playerSizeScaleZ_ = playerSizeScaleZ;
@@ -2026,7 +2067,9 @@ void ServerGame::setRuntimeGameplayTuning(
   ) {
     respawnRound();
   }
-  rebuildBotNavigation();
+  if (rebuildNavigation) {
+    rebuildBotNavigation();
+  }
 }
 
 void ServerGame::setWeaponSwitchingMode(WeaponSwitchingMode mode) {
@@ -2243,6 +2286,10 @@ std::uint64_t ServerGame::botDeterminismHash() const {
     }
   }
   return hash;
+}
+
+std::uint32_t ServerGame::botNavigationBuildCount() const {
+  return botNavigationBuildCount_;
 }
 
 std::uint64_t ServerGame::botHiddenAttackInvariantCount() const {
@@ -3553,12 +3600,7 @@ void ServerGame::updateHealthPickups() {
       if (player.health >= healthAmount_) {
         continue;
       }
-      const Vec3 delta = player.position - pickup.position;
-      const float touchRadius = player.bounds.radius + kHealthPickupTouchRadius;
-      if (
-        (delta.x * delta.x) + (delta.y * delta.y) > touchRadius * touchRadius ||
-        std::fabs(delta.z) > player.bounds.halfHeight + kHealthPickupTouchHalfHeight
-      ) {
+      if (!playerTouchesHealthPickup(player.bounds, player.position, pickup)) {
         continue;
       }
 
@@ -4081,10 +4123,10 @@ void ServerGame::updateParticipatingPlayers() {
 }
 
 void ServerGame::rebuildBotNavigation() {
-  CollisionBounds bounds = kDefaultPlayerBounds;
-  bounds.radius *= playerSizeScaleXY_;
-  bounds.halfHeight *= playerSizeScaleZ_;
+  const CollisionBounds bounds =
+    botNavigationBounds(playerSizeScaleXY_, playerSizeScaleZ_);
   botNavigation_ = buildBotNavigationMap(arena_, movementTuning_, bounds);
+  ++botNavigationBuildCount_;
 }
 
 BotSenseFrame ServerGame::buildBotSenseFrame(

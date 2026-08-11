@@ -275,8 +275,9 @@ namespace {
                  map.healthTouchVolumeFreeCenterFound[index]) {
         const lg::Vec3 center = map.healthTouchVolumeFirstFreeCenter[index];
         std::cerr << "nav DIAG: " << mapPath.string() << ": health " << index
-          << " collision probe found a free touch center at (" << center.x << ',' << center.y
-          << ',' << center.z << "); no grounded normal-command approach was proved\n";
+          << " collision probe found an exact collision-free touch center at ("
+          << center.x << ',' << center.y << ',' << center.z
+          << "); no grounded normal-command approach was proved\n";
       }
       requireNearbyNode("health", arena.healthPickups[index].position);
     }

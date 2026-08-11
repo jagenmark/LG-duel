@@ -756,6 +756,39 @@ int main() {
   }
 
   {
+    lg::ArenaHealthPickup pickup;
+    pickup.position = {0.0F, 0.0F, 0.0F};
+    const lg::CollisionBounds bounds = {};
+    const float touchRadius = bounds.radius + lg::kHealthPickupTouchRadius;
+    const float touchHalfHeight = bounds.halfHeight + lg::kHealthPickupTouchHalfHeight;
+    failures += expect(
+      lg::playerTouchesHealthPickup(bounds, {touchRadius, 0.0F, 0.0F}, pickup) &&
+        lg::playerTouchesHealthPickup(bounds, {0.0F, 0.0F, touchHalfHeight}, pickup) &&
+        !lg::playerTouchesHealthPickup(bounds, {touchRadius + 0.001F, 0.0F, 0.0F}, pickup) &&
+        !lg::playerTouchesHealthPickup(bounds, {0.0F, 0.0F, touchHalfHeight + 0.001F}, pickup),
+      "health touch checks should include the exact server boundary and reject points outside it"
+    );
+  }
+
+  {
+    lg::Arena healthAnchor = flatArena();
+    healthAnchor.healthPickups[0].position = {0.137F, -0.083F, 0.0F};
+    healthAnchor.healthPickupCount = 1;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      healthAnchor, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    const std::size_t healthNode = map.healthAnchorNodes[0];
+    failures += expect(
+      healthNode < map.nodeCount &&
+        lg::playerTouchesHealthPickup(
+          lg::CollisionBounds{}, map.nodes[healthNode].position,
+          healthAnchor.healthPickups[0]
+        ),
+      "a health resource anchor must remain at its proven touch center after node insertion"
+    );
+  }
+
+  {
     lg::Arena occludedHealth = flatArena();
     occludedHealth.min = {-5.0F, -5.0F, -4.0F};
     occludedHealth.max = {5.0F, 5.0F, 4.0F};
@@ -994,6 +1027,46 @@ int main() {
       debug.find("target=none") != std::string::npos &&
         debug.find("resources=0") != std::string::npos,
       "vertical FOV and wall-free hidden-height pickups must not enter filtered bot sense"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    const lg::ServerSnapshot tuning = server.snapshot();
+    const std::uint32_t initialBuilds = server.botNavigationBuildCount();
+    lg::WeaponDamageTuning damage = tuning.weaponDamage;
+    ++damage.machineGunDamage;
+    const auto applyRuntimeTuning = [&](const lg::MovementTuning& movement, float scaleXY) {
+      server.setRuntimeGameplayTuning(
+        movement,
+        scaleXY,
+        tuning.playerSizeScaleZ,
+        tuning.lightningKnockback,
+        tuning.lightningFireHz,
+        tuning.rocketKnockback,
+        tuning.knockbackTimeMs,
+        damage,
+        tuning.vampirism,
+        tuning.selfDamagePercent,
+        tuning.healthAmount + 1,
+        !tuning.weaponAmmo.infiniteAmmo,
+        tuning.botDodgeEnabled,
+        tuning.botDodgeMinIntervalMs,
+        tuning.botDodgeMaxIntervalMs,
+        tuning.weaponSwitchingMode
+      );
+    };
+    applyRuntimeTuning(tuning.movementTuning, tuning.playerSizeScaleXY);
+    const std::uint32_t nonNavigationBuilds = server.botNavigationBuildCount();
+    lg::MovementTuning movement = tuning.movementTuning;
+    movement.groundAcceleration += 1.0F;
+    applyRuntimeTuning(movement, tuning.playerSizeScaleXY);
+    applyRuntimeTuning(movement, tuning.playerSizeScaleXY * 1.1F);
+    failures += expect(
+      nonNavigationBuilds == initialBuilds &&
+        server.botNavigationBuildCount() == initialBuilds + 2U,
+      "runtime damage, health, and ammo changes must not rebuild nav, while movement and bounds changes must"
     );
   }
 

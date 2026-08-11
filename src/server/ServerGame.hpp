@@ -107,6 +107,8 @@ public:
   [[nodiscard]] bool botWeaponAuto() const;
   [[nodiscard]] std::uint64_t botCommandIngressCount(std::size_t playerIndex) const;
   [[nodiscard]] std::uint64_t botDeterminismHash() const;
+  // Server-local counter for tests. It never enters snapshots or bot input.
+  [[nodiscard]] std::uint32_t botNavigationBuildCount() const;
   [[nodiscard]] std::uint64_t botHiddenAttackInvariantCount() const;
   [[nodiscard]] const BotRuntimeStats& botRuntimeStats() const;
   [[nodiscard]] std::string botDebugString(std::size_t playerIndex) const;
@@ -369,6 +371,7 @@ private:
   Weapon botWeapon_ = Weapon::MachineGun;
   bool botWeaponAuto_ = true;
   BotNavigationMap botNavigation_ = {};
+  std::uint32_t botNavigationBuildCount_ = 0;
   // These retain only already-filtered frames. They keep expensive LOS/FOV
   // work below the 125 Hz motor rate and never expose raw server state to AI.
   std::array<BotSenseFrame, kDuelPlayerCount> botSenseFrames_ = {};

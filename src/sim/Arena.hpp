@@ -161,6 +161,23 @@ struct ArenaHealthPickup {
   HealthPickupType type = HealthPickupType::Small;
 };
 
+// Server pickup collection and map navigation must agree on this boundary.
+// Equality counts as a touch, matching the server's strict "outside" test.
+inline constexpr float kHealthPickupTouchRadius = 0.7F;
+inline constexpr float kHealthPickupTouchHalfHeight = 0.8F;
+
+[[nodiscard]] inline bool playerTouchesHealthPickup(
+  CollisionBounds bounds,
+  Vec3 position,
+  const ArenaHealthPickup& pickup
+) {
+  const Vec3 delta = position - pickup.position;
+  const float touchRadius = bounds.radius + kHealthPickupTouchRadius;
+  const float touchHalfHeight = bounds.halfHeight + kHealthPickupTouchHalfHeight;
+  return (delta.x * delta.x) + (delta.y * delta.y) <= touchRadius * touchRadius &&
+    delta.z >= -touchHalfHeight && delta.z <= touchHalfHeight;
+}
+
 struct ArenaMcGuffinBase {
   Vec3 min = {};
   Vec3 max = {};

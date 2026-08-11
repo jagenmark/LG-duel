@@ -170,20 +170,6 @@ struct NavSamplingBounds {
     position.z - bounds.halfHeight <= maximum.z;
 }
 
-constexpr float kHealthPickupTouchRadius = 0.7F;
-constexpr float kHealthPickupTouchHalfHeight = 0.8F;
-
-[[nodiscard]] bool playerWouldTouchHealthPickup(
-  CollisionBounds bounds,
-  Vec3 position,
-  const ArenaHealthPickup& pickup
-) {
-  const Vec3 delta = position - pickup.position;
-  const float radius = bounds.radius + kHealthPickupTouchRadius;
-  return (delta.x * delta.x) + (delta.y * delta.y) <= radius * radius + 0.0001F &&
-    std::fabs(delta.z) <= bounds.halfHeight + kHealthPickupTouchHalfHeight + 0.0001F;
-}
-
 // A failed health anchor normally means sampling or movement could not find a
 // route. This stricter check identifies the different authored-data fault:
 // one real collision primitive contains every legal player center that could
@@ -276,17 +262,16 @@ constexpr float kHealthPickupTouchHalfHeight = 0.8F;
   return proofCells > 0U;
 }
 
-[[nodiscard]] bool healthTouchVolumeLatticeOccluded(
+[[nodiscard]] bool findFreeHealthTouchCenter(
   const Arena& arena,
   CollisionBounds bounds,
   const ArenaHealthPickup& pickup,
   std::uint32_t& proofCenters,
   Vec3& firstFreeCenter
 ) {
-  // A small fixed raster backs up the conservative whole-cell proof above
-  // when several authored convex brushes jointly seal the touch volume. It
-  // directly calls the server collision predicate at every legal center; it
-  // is diagnostic-only and cannot create or waive a health anchor.
+  // This diagnostic records only an exact legal touch center that the server
+  // collision predicate accepts. Exhausting the raster proves nothing, so it
+  // never labels a pickup invalid or changes anchor eligibility.
   constexpr float kSpacing = 0.05F;
   const float touchRadius = bounds.radius + kHealthPickupTouchRadius;
   const float touchHalfHeight = bounds.halfHeight + kHealthPickupTouchHalfHeight;
@@ -297,25 +282,22 @@ constexpr float kHealthPickupTouchHalfHeight = 0.8F;
   proofCenters = 0;
   for (int z = -verticalSteps; z <= verticalSteps; ++z) {
     const float offsetZ = static_cast<float>(z) * kSpacing;
-    if (std::fabs(offsetZ) > touchHalfHeight + 0.0001F) continue;
+    if (offsetZ < -touchHalfHeight || offsetZ > touchHalfHeight) continue;
     for (int y = -horizontalSteps; y <= horizontalSteps; ++y) {
       const float offsetY = static_cast<float>(y) * kSpacing;
       for (int x = -horizontalSteps; x <= horizontalSteps; ++x) {
         const float offsetX = static_cast<float>(x) * kSpacing;
-        if ((offsetX * offsetX) + (offsetY * offsetY) > touchRadius * touchRadius +
-            0.0001F) {
-          continue;
-        }
         const Vec3 center = pickup.position + Vec3{offsetX, offsetY, offsetZ};
-        if (!playerPositionSolid(arena, player, center)) {
+        if (playerTouchesHealthPickup(bounds, center, pickup) &&
+            !playerPositionSolid(arena, player, center)) {
           firstFreeCenter = center;
-          return false;
+          return true;
         }
         ++proofCenters;
       }
     }
   }
-  return proofCenters > 0U;
+  return false;
 }
 
 // A cheap player-bounds sweep filters links that a straight walking command
@@ -566,10 +548,10 @@ struct BotNavTraversalProof {
   command.viewYawRadians = std::atan2(delta.y, delta.x);
   command.forwardMove = 1.0F;
   command.jump = jump;
-  bool touched = playerWouldTouchHealthPickup(bounds, player.position, pickup);
+  bool touched = playerTouchesHealthPickup(bounds, player.position, pickup);
   for (std::size_t tick = 0; tick < 384U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
-    touched = touched || playerWouldTouchHealthPickup(bounds, player.position, pickup);
+    touched = touched || playerTouchesHealthPickup(bounds, player.position, pickup);
     if (!touched) continue;
     command.forwardMove = 0.0F;
     command.jump = false;
@@ -895,8 +877,10 @@ BotNavigationMap buildBotNavigationMap(
       Vec3 settled = {};
       if (groundedNodePosition(arena, bounds,
           pickup.position + Vec3{0.0F, 0.0F, verticalOffset}, settled) &&
-          playerWouldTouchHealthPickup(bounds, settled, pickup)) {
-        return addExactNodeIndex(settled);
+          playerTouchesHealthPickup(bounds, settled, pickup)) {
+        // A nearby bulk or semantic node may not itself touch the item.
+        // Preserve the proven settled center as a dedicated resource anchor.
+        return addExactNodeIndex(settled, false);
       }
       // A blocked origin can leave only part of the legal pickup disk open.
       // Cover its interior with a fixed lattice before checking the outer
@@ -909,8 +893,8 @@ BotNavigationMap buildBotNavigationMap(
           const Vec3 hint = pickup.position +
             Vec3{x * (maximumRadius * 0.98F), y * (maximumRadius * 0.98F), verticalOffset};
           if (groundedNodePosition(arena, bounds, hint, settled) &&
-              playerWouldTouchHealthPickup(bounds, settled, pickup)) {
-            return addExactNodeIndex(settled);
+              playerTouchesHealthPickup(bounds, settled, pickup)) {
+            return addExactNodeIndex(settled, false);
           }
         }
       }
@@ -919,8 +903,8 @@ BotNavigationMap buildBotNavigationMap(
         const Vec3 hint = pickup.position + direction * (maximumRadius * 0.995F) +
           Vec3{0.0F, 0.0F, verticalOffset};
         if (groundedNodePosition(arena, bounds, hint, settled) &&
-            playerWouldTouchHealthPickup(bounds, settled, pickup)) {
-          return addExactNodeIndex(settled);
+            playerTouchesHealthPickup(bounds, settled, pickup)) {
+          return addExactNodeIndex(settled, false);
         }
       }
     }
@@ -1111,10 +1095,10 @@ BotNavigationMap buildBotNavigationMap(
     map.healthTouchVolumeOccluded[index] = healthTouchVolumeFullyOccluded(
       arena, bounds, arena.healthPickups[index], map.healthTouchVolumeProofs[index]);
     if (!map.healthTouchVolumeOccluded[index]) {
-      map.healthTouchVolumeOccluded[index] = healthTouchVolumeLatticeOccluded(
-        arena, bounds, arena.healthPickups[index], map.healthTouchVolumeProofs[index],
+      std::uint32_t testedCenters = 0;
+      map.healthTouchVolumeFreeCenterFound[index] = findFreeHealthTouchCenter(
+        arena, bounds, arena.healthPickups[index], testedCenters,
         map.healthTouchVolumeFirstFreeCenter[index]);
-      map.healthTouchVolumeFreeCenterFound[index] = !map.healthTouchVolumeOccluded[index];
     }
   }
   for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
@@ -1485,78 +1469,6 @@ BotNavigationMap buildBotNavigationMap(
     }
     runFlood();
   }
-  // A pickup can have a free airborne touch center without any standable
-  // center inside its touch volume. For a still-missing resource, retry from
-  // the nearest collision-settled graph nodes after the normal bulk flood.
-  // Each candidate uses the same UserCommand walk/jump replay and records
-  // its actual post-touch landing, so this is an attachment proof rather
-  // than an authored-point snap or a direct player-state move.
-  constexpr std::size_t kHealthGraphApproachTrialBudget = 64U;
-  const auto attachMissingHealthFromGraph = [&](std::size_t healthIndex) {
-    if (healthIndex >= arena.healthPickupCount || healthNodes[healthIndex] < map.nodeCount) {
-      return false;
-    }
-    std::array<std::size_t, kHealthGraphApproachTrialBudget> candidates = {};
-    std::array<float, kHealthGraphApproachTrialBudget> candidateDistances = {};
-    candidates.fill(BotNavigationMap::kMaxNodes);
-    candidateDistances.fill(std::numeric_limits<float>::infinity());
-    for (std::size_t node = 0; node < map.nodeCount; ++node) {
-      const float distance = distance3d(map.nodes[node].position,
-        arena.healthPickups[healthIndex].position);
-      for (std::size_t slot = 0; slot < candidates.size(); ++slot) {
-        if (distance >= candidateDistances[slot]) continue;
-        for (std::size_t shift = candidates.size() - 1U; shift > slot; --shift) {
-          candidates[shift] = candidates[shift - 1U];
-          candidateDistances[shift] = candidateDistances[shift - 1U];
-        }
-        candidates[slot] = node;
-        candidateDistances[slot] = distance;
-        break;
-      }
-    }
-    for (std::size_t slot = 0; slot < candidates.size(); ++slot) {
-      const std::size_t entryNode = candidates[slot];
-      if (entryNode >= map.nodeCount) break;
-      Vec3 landing = {};
-      ++map.healthGraphApproachSimulationTrials;
-      BotNavLinkKind kind = BotNavLinkKind::Walk;
-      if (!simulateHealthApproach(arena, movement, bounds, map.nodes[entryNode].position,
-          arena.healthPickups[healthIndex], false, landing)) {
-        ++map.healthGraphApproachSimulationTrials;
-        kind = BotNavLinkKind::Jump;
-        if (!simulateHealthApproach(arena, movement, bounds, map.nodes[entryNode].position,
-            arena.healthPickups[healthIndex], true, landing)) {
-          continue;
-        }
-      }
-      const std::size_t landingNode = addExactNodeIndex(landing, false);
-      if (landingNode >= map.nodeCount) continue;
-      addLink(entryNode, landingNode, kind);
-      healthNodes[healthIndex] = landingNode;
-      map.healthAnchorNodes[healthIndex] = static_cast<std::uint16_t>(landingNode);
-      map.healthApproachEntryNodes[healthIndex] = static_cast<std::uint16_t>(entryNode);
-      rememberSemanticAnchor(entryNode);
-      rememberSemanticAnchor(landingNode);
-      const std::size_t anchorCount = std::min(map.requiredAnchorCount,
-        map.requiredAnchors.size());
-      for (std::size_t anchor = 0; anchor < anchorCount; ++anchor) {
-        BotNavRequiredAnchor& required = map.requiredAnchors[anchor];
-        if (required.kind != BotNavAnchorKind::Health || required.sourceIndex != healthIndex ||
-            required.node < map.nodeCount) {
-          continue;
-        }
-        required.node = static_cast<std::uint16_t>(landingNode);
-        if (map.missingRequiredAnchorCount > 0U) --map.missingRequiredAnchorCount;
-        map.requiredAnchorsComplete = map.missingRequiredAnchorCount == 0U;
-        break;
-      }
-      return true;
-    }
-    return false;
-  };
-  for (std::size_t healthIndex = 0; healthIndex < arena.healthPickupCount; ++healthIndex) {
-    attachMissingHealthFromGraph(healthIndex);
-  }
   // Refine only semantic targets that the normal flood cannot reach from a
   // real spawn.  Required-anchor kinds keep this decision inside nav build
   // data instead of relying on validator rules or map names.
@@ -1686,6 +1598,80 @@ BotNavigationMap buildBotNavigationMap(
   constexpr std::array<float, 3U> kSurfaceApproachHeightOffsets = {{0.0F, 0.85F, -0.85F}};
   constexpr std::size_t kSurfaceApproachTargetBudget = 16U;
   rebuildRefinementReach();
+  // A pickup can have a free airborne touch center without any standable
+  // center inside its touch volume. Retry a missing resource only from nodes
+  // every current spawn can reach, then record the real UserCommand landing.
+  // A local but isolated approach cannot satisfy gameplay coverage.
+  constexpr std::size_t kHealthGraphApproachTrialBudget = 64U;
+  const auto attachMissingHealthFromGraph = [&](std::size_t healthIndex) {
+    if (healthIndex >= arena.healthPickupCount || healthNodes[healthIndex] < map.nodeCount) {
+      return false;
+    }
+    std::array<std::size_t, kHealthGraphApproachTrialBudget> candidates = {};
+    std::array<float, kHealthGraphApproachTrialBudget> candidateDistances = {};
+    candidates.fill(BotNavigationMap::kMaxNodes);
+    candidateDistances.fill(std::numeric_limits<float>::infinity());
+    for (std::size_t node = 0; node < map.nodeCount; ++node) {
+      if (!reachableFromEverySpawn[node]) continue;
+      const float distance = distance3d(map.nodes[node].position,
+        arena.healthPickups[healthIndex].position);
+      for (std::size_t slot = 0; slot < candidates.size(); ++slot) {
+        if (distance >= candidateDistances[slot]) continue;
+        for (std::size_t shift = candidates.size() - 1U; shift > slot; --shift) {
+          candidates[shift] = candidates[shift - 1U];
+          candidateDistances[shift] = candidateDistances[shift - 1U];
+        }
+        candidates[slot] = node;
+        candidateDistances[slot] = distance;
+        break;
+      }
+    }
+    for (std::size_t slot = 0; slot < candidates.size(); ++slot) {
+      const std::size_t entryNode = candidates[slot];
+      if (entryNode >= map.nodeCount) break;
+      Vec3 landing = {};
+      ++map.healthGraphApproachSimulationTrials;
+      BotNavLinkKind kind = BotNavLinkKind::Walk;
+      if (!simulateHealthApproach(arena, movement, bounds, map.nodes[entryNode].position,
+          arena.healthPickups[healthIndex], false, landing)) {
+        ++map.healthGraphApproachSimulationTrials;
+        kind = BotNavLinkKind::Jump;
+        if (!simulateHealthApproach(arena, movement, bounds, map.nodes[entryNode].position,
+            arena.healthPickups[healthIndex], true, landing)) {
+          continue;
+        }
+      }
+      const std::size_t landingNode = addExactNodeIndex(landing, false);
+      if (landingNode >= map.nodeCount) continue;
+      addLink(entryNode, landingNode, kind);
+      healthNodes[healthIndex] = landingNode;
+      map.healthAnchorNodes[healthIndex] = static_cast<std::uint16_t>(landingNode);
+      map.healthApproachEntryNodes[healthIndex] = static_cast<std::uint16_t>(entryNode);
+      rememberSemanticAnchor(entryNode);
+      rememberSemanticAnchor(landingNode);
+      const std::size_t anchorCount = std::min(map.requiredAnchorCount,
+        map.requiredAnchors.size());
+      for (std::size_t anchor = 0; anchor < anchorCount; ++anchor) {
+        BotNavRequiredAnchor& required = map.requiredAnchors[anchor];
+        if (required.kind != BotNavAnchorKind::Health || required.sourceIndex != healthIndex ||
+            required.node < map.nodeCount) {
+          continue;
+        }
+        required.node = static_cast<std::uint16_t>(landingNode);
+        if (map.missingRequiredAnchorCount > 0U) --map.missingRequiredAnchorCount;
+        map.requiredAnchorsComplete = map.missingRequiredAnchorCount == 0U;
+        break;
+      }
+      return true;
+    }
+    return false;
+  };
+  bool attachedHealthFromReachableGraph = false;
+  for (std::size_t healthIndex = 0; healthIndex < arena.healthPickupCount; ++healthIndex) {
+    attachedHealthFromReachableGraph = attachMissingHealthFromGraph(healthIndex) ||
+      attachedHealthFromReachableGraph;
+  }
+  if (attachedHealthFromReachableGraph) rebuildRefinementReach();
   for (std::size_t anchor = 0;
        anchor < semanticSeedCount && map.surfaceApproachTargetCount < kSurfaceApproachTargetBudget;
        ++anchor) {
