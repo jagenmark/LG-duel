@@ -30,11 +30,13 @@ namespace {
 constexpr std::uint32_t kMaxLagCompensationTicks = 25;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
 constexpr std::uint32_t kLocalHitFeedbackEventRetentionTicks = 32;
+constexpr std::uint32_t kDamageTakenEventRetentionTicks = 32;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 constexpr float kProjectileCollisionEpsilon = 0.0001F;
 constexpr float kPi = 3.14159265359F;
 constexpr float kHalfPi = kPi * 0.5F;
+constexpr float kTwoPi = kPi * 2.0F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 
 [[nodiscard]] bool sameBotNavigationTuning(
@@ -69,6 +71,20 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   bounds.radius *= scaleXY;
   bounds.halfHeight *= scaleZ;
   return bounds;
+}
+
+[[nodiscard]] std::uint8_t quantizeDamageBearing(Vec3 victim, Vec3 source) {
+  const float x = source.x - victim.x;
+  const float y = source.y - victim.y;
+  const float horizontalLengthSquared = (x * x) + (y * y);
+  if (!std::isfinite(x) || !std::isfinite(y) ||
+      horizontalLengthSquared <= 0.00000001F) {
+    return 0U;
+  }
+  const float bearing = std::atan2(y, x);
+  const float wrapped = bearing < 0.0F ? bearing + kTwoPi : bearing;
+  const long rounded = std::lround(wrapped * (256.0F / kTwoPi));
+  return static_cast<std::uint8_t>(rounded & 0xFFL);
 }
 
 [[nodiscard]] std::uint32_t scenarioRandomState(
@@ -639,6 +655,7 @@ void ServerGame::tick(float fixedDt) {
   snapshot_.grenadeBounceAudioEvents = {};
   snapshot_.fragEvents = {};
   snapshot_.localHitFeedbackEvents = {};
+  snapshot_.damageTakenEvents = {};
   // Event fields describe occurrences, not durable state. They are rebuilt for
   // this tick and restored near publication only for packet-loss tolerance.
   for (std::uint32_t& cooldown : railgunCooldownTicks_) {
@@ -1287,7 +1304,8 @@ void ServerGame::tick(float fixedDt) {
       snapshot_.lightningGuns[attackerIndex].damageApplied,
       snapshot_.lightningGuns[attackerIndex].knockbackImpulse,
       Weapon::LightningGun,
-      snapshot_.lightningGuns[attackerIndex].headshot
+      snapshot_.lightningGuns[attackerIndex].headshot,
+      {true, snapshot_.lightningGuns[attackerIndex].start}
     );
     applyDamageAndKnockback(
       attackerIndex,
@@ -1295,7 +1313,8 @@ void ServerGame::tick(float fixedDt) {
       snapshot_.weaponFires[attackerIndex].damageApplied,
       snapshot_.weaponFires[attackerIndex].knockbackImpulse,
       snapshot_.weaponFires[attackerIndex].weapon,
-      snapshot_.weaponFires[attackerIndex].headshot
+      snapshot_.weaponFires[attackerIndex].headshot,
+      {true, snapshot_.weaponFires[attackerIndex].start}
     );
     applyDamageAndKnockback(
       attackerIndex,
@@ -1303,7 +1322,8 @@ void ServerGame::tick(float fixedDt) {
       snapshot_.lightningGuns[attackerIndex].damageApplied,
       {},
       Weapon::FreezeGun,
-      snapshot_.lightningGuns[attackerIndex].headshot
+      snapshot_.lightningGuns[attackerIndex].headshot,
+      {true, snapshot_.lightningGuns[attackerIndex].start}
     );
   }
 
@@ -1987,6 +2007,10 @@ bool ServerGame::restoreReplayCheckpoint(
 }
 
 void ServerGame::resetMatch() {
+  ++damageFeedbackRevision_;
+  if (damageFeedbackRevision_ == 0U) {
+    damageFeedbackRevision_ = 1U;
+  }
   const std::uint32_t serverTick = snapshot_.serverTick;
   const auto playerNames = snapshot_.playerNames;
   const auto connectedPlayers = snapshot_.connectedPlayers;
@@ -2000,6 +2024,7 @@ void ServerGame::resetMatch() {
   snapshot_ = {};
   snapshot_.serverTick = serverTick;
   snapshot_.mapRevision = mapRevision_;
+  snapshot_.damageFeedbackRevision = damageFeedbackRevision_;
   snapshot_.map = mapDescriptor_;
   snapshot_.connectedPlayers = connectedPlayers;
   snapshot_.botPlayers = botPlayers;
@@ -2081,6 +2106,10 @@ void ServerGame::resetMatch() {
   recentGrenadeBounceAudioEventTicks_ = {};
   recentFragEvents_ = {};
   recentFragEventTicks_ = {};
+  recentLocalHitFeedbackEvents_ = {};
+  recentLocalHitFeedbackEventTicks_ = {};
+  recentDamageTakenEvents_ = {};
+  recentDamageTakenEventTicks_ = {};
   footstepStates_ = {};
   footstepSequences_ = {};
   clearProjectiles();
@@ -3598,9 +3627,10 @@ void ServerGame::applyDamageAndKnockback(
   int damageApplied,
   Vec3 knockbackImpulse,
   Weapon weapon,
-  bool headshot
+  bool headshot,
+  DamageContext context
 ) {
-  if (targetIndex >= kDuelPlayerCount) {
+  if (attackerIndex >= kDuelPlayerCount || targetIndex >= kDuelPlayerCount) {
     return;
   }
   const bool combatPhase =
@@ -3623,7 +3653,7 @@ void ServerGame::applyDamageAndKnockback(
   }
   // Clamp before recording feedback and statistics so every downstream system
   // observes actual health removed rather than the weapon's nominal damage.
-  damageApplied = std::min(damageApplied, target.health);
+  damageApplied = std::clamp(damageApplied, 0, target.health);
   if (damageApplied > 0 && attackerIndex < kDuelPlayerCount) {
     ++botRuntimeStats_.acceptedDamageEvents[attackerIndex][targetIndex];
   }
@@ -3657,6 +3687,41 @@ void ServerGame::applyDamageAndKnockback(
     event.damageApplied = damageApplied;
     event.headshot = headshot;
     event.weapon = weapon;
+  }
+
+  if (damageApplied > 0) {
+    const std::uint32_t sequence =
+      nextNonZeroSequence(damageTakenSequences_[targetIndex]);
+    damageTakenSequences_[targetIndex] = sequence;
+    const std::size_t eventSlot =
+      static_cast<std::size_t>(sequence - 1U) % kDamageTakenEventWindow;
+    DamageTakenEventRing& ring = snapshot_.damageTakenEvents[targetIndex];
+    DamageTakenEvent& event = ring.events[eventSlot];
+    event.sequence = sequence;
+    event.direction256 = context.hasSourcePosition
+      ? quantizeDamageBearing(target.position, context.sourcePosition)
+      : 0U;
+    event.presentationDamage = static_cast<std::uint8_t>(
+      std::min(damageApplied, 255)
+    );
+    event.metadata = 0U;
+    if (context.hasSourcePosition &&
+        std::isfinite(context.sourcePosition.x) &&
+        std::isfinite(context.sourcePosition.y) &&
+        std::isfinite(context.sourcePosition.z) &&
+        ((context.sourcePosition.x - target.position.x) *
+           (context.sourcePosition.x - target.position.x) +
+         (context.sourcePosition.y - target.position.y) *
+           (context.sourcePosition.y - target.position.y)) > 0.00000001F) {
+      event.metadata |= kDamageTakenDirectionValid;
+    }
+    if (attackerIndex == targetIndex) {
+      event.metadata |= kDamageTakenSelfDamage;
+    }
+    event.metadata |= kDamageTakenAttackerValid;
+    event.metadata |= static_cast<std::uint8_t>(attackerIndex << 4U);
+    event.weapon = weapon;
+    (void)setDamageTakenEventActive(ring, eventSlot);
   }
 
   if (
@@ -4107,6 +4172,8 @@ void ServerGame::simulateRockets(float fixedDt) {
     explosion.sequence = rocketExplosionSequences_[rocket.owner];
     explosion.projectileSequence = rocket.sequence;
     explosion.position = explosionPosition;
+    const Vec3 directImpactPosition = explosionPosition;
+    const Vec3 splashExplosionPosition = explosion.position;
     const float radius = grenade
       ? grenadeLauncherTuning_.radius
       : plasma
@@ -4190,7 +4257,10 @@ void ServerGame::simulateRockets(float fixedDt) {
         appliedDamage,
         knockbackDirection * knockback * knockbackScale,
         rocket.weapon,
-        false
+        false,
+        playerIndex == directTarget
+          ? DamageContext{true, directImpactPosition}
+          : DamageContext{true, splashExplosionPosition}
       );
     }
   }
@@ -4743,6 +4813,21 @@ void ServerGame::restoreTransientCombatEvents() {
           recentLocalHitFeedbackEvents_[playerIndex][eventSlot];
       }
     }
+    for (std::size_t eventSlot = 0; eventSlot < kDamageTakenEventWindow; ++eventSlot) {
+      if (
+        damageTakenEventActive(recentDamageTakenEvents_[playerIndex], eventSlot) &&
+        snapshot_.serverTick -
+            recentDamageTakenEventTicks_[playerIndex][eventSlot] <=
+          kDamageTakenEventRetentionTicks
+      ) {
+        snapshot_.damageTakenEvents[playerIndex].events[eventSlot] =
+          recentDamageTakenEvents_[playerIndex].events[eventSlot];
+        (void)setDamageTakenEventActive(
+          snapshot_.damageTakenEvents[playerIndex],
+          eventSlot
+        );
+      }
+    }
   }
   for (std::size_t index = 0; index < snapshot_.grenadeBounceAudioEvents.size(); ++index) {
     if (
@@ -4785,6 +4870,22 @@ void ServerGame::rememberTransientCombatEvents() {
         recentLocalHitFeedbackEvents_[playerIndex][eventSlot] =
           snapshot_.localHitFeedbackEvents[playerIndex][eventSlot];
         recentLocalHitFeedbackEventTicks_[playerIndex][eventSlot] =
+          snapshot_.serverTick;
+      }
+    }
+    for (std::size_t eventSlot = 0; eventSlot < kDamageTakenEventWindow; ++eventSlot) {
+      if (
+        damageTakenEventActive(snapshot_.damageTakenEvents[playerIndex], eventSlot) &&
+        snapshot_.damageTakenEvents[playerIndex].events[eventSlot].sequence !=
+          recentDamageTakenEvents_[playerIndex].events[eventSlot].sequence
+      ) {
+        recentDamageTakenEvents_[playerIndex].events[eventSlot] =
+          snapshot_.damageTakenEvents[playerIndex].events[eventSlot];
+        (void)setDamageTakenEventActive(
+          recentDamageTakenEvents_[playerIndex],
+          eventSlot
+        );
+        recentDamageTakenEventTicks_[playerIndex][eventSlot] =
           snapshot_.serverTick;
       }
     }
@@ -5463,6 +5564,7 @@ bool ServerGame::applyScenarioSetup(
   snapshot_.grenadeBounceAudioEvents = {};
   snapshot_.fragEvents = {};
   snapshot_.localHitFeedbackEvents = {};
+  snapshot_.damageTakenEvents = {};
   recentWeaponFires_ = {};
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
@@ -5475,12 +5577,15 @@ bool ServerGame::applyScenarioSetup(
   recentFragEventTicks_ = {};
   recentLocalHitFeedbackEvents_ = {};
   recentLocalHitFeedbackEventTicks_ = {};
+  recentDamageTakenEvents_ = {};
+  recentDamageTakenEventTicks_ = {};
   projectileSequences_ = {};
   rocketExplosionSequences_ = {};
   grenadeBounceSequences_ = {};
   grenadeBounceEventSequences_ = {};
   fragEventSequences_ = {};
   localHitFeedbackSequences_ = {};
+  damageTakenSequences_ = {};
   footstepSequences_ = {};
   footstepStates_ = {};
 

@@ -61,10 +61,16 @@ void copySnapshotConfiguration(ServerSnapshot& destination,
   destination.mcguffinConfig = source.mcguffinConfig;
 }
 
+void copySnapshotPlayerNames(ServerSnapshot& destination,
+                             const ServerSnapshot& source) {
+  destination.playerNames = source.playerNames;
+}
+
 WirePacket configurationSignature(const ServerSnapshot& snapshot) {
   ServerSnapshot canonical;
   canonical.map = {"config", 1U};
   canonical.hasCombatStats = false;
+  canonical.hasPlayerNames = false;
   copySnapshotConfiguration(canonical, snapshot);
   WirePacket signature;
   if (!encodeServerSnapshot(canonical, signature)) {
@@ -271,6 +277,7 @@ struct UdpServerTransport::Impl {
     std::uint32_t lastFullArenaTick = 0;
     std::uint32_t chatAckSequence = 0;
     std::uint32_t acknowledgedConfigurationRevision = 0;
+    std::uint32_t acknowledgedPlayerNameRevision = 0;
     std::uint32_t latestCommandDatagramSequence = 0;
     std::uint32_t commandDatagramAckBits = 0;
     std::uint32_t lastCombatStatsTick = 0;
@@ -397,6 +404,7 @@ struct UdpServerTransport::Impl {
           clients[slotIndex].lastFullArenaTick = 0;
           clients[slotIndex].chatAckSequence = 0;
           clients[slotIndex].acknowledgedConfigurationRevision = 0;
+          clients[slotIndex].acknowledgedPlayerNameRevision = 0;
           clients[slotIndex].latestCommandDatagramSequence = 0;
           clients[slotIndex].commandDatagramAckBits = 0;
           clients[slotIndex].lastCombatStatsTick = 0;
@@ -442,6 +450,11 @@ struct UdpServerTransport::Impl {
               clients[slotIndex].acknowledgedConfigurationRevision =
                 bundle.commands[index].acknowledgedConfigurationRevision;
             }
+            if (bundle.commands[index].acknowledgedPlayerNameRevision ==
+                playerNameRevision) {
+              clients[slotIndex].acknowledgedPlayerNameRevision =
+                playerNameRevision;
+            }
             if (bundle.commands[index].wantsScoreboardStats &&
                 !clients[slotIndex].wantsScoreboardStats) {
               // Interest is repeated for loss tolerance; only the opening edge
@@ -473,6 +486,10 @@ struct UdpServerTransport::Impl {
           if (packet.acknowledgedConfigurationRevision <= configurationRevision) {
             clients[slotIndex].acknowledgedConfigurationRevision =
               packet.acknowledgedConfigurationRevision;
+          }
+          if (packet.acknowledgedPlayerNameRevision == playerNameRevision) {
+            clients[slotIndex].acknowledgedPlayerNameRevision =
+              playerNameRevision;
           }
           if (packet.wantsScoreboardStats &&
               !clients[slotIndex].wantsScoreboardStats) {
@@ -539,6 +556,9 @@ struct UdpServerTransport::Impl {
   ChatHistory chatHistory = {};
   WirePacket configurationBytes;
   std::uint32_t configurationRevision = 0;
+  std::array<std::string, kDuelPlayerCount> playerNameValues = {};
+  std::uint32_t playerNameRevision = 0;
+  bool hasPlayerNameValues = false;
   std::string error;
 };
 
@@ -652,6 +672,13 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
     ++impl_->configurationRevision;
     if (impl_->configurationRevision == 0) impl_->configurationRevision = 1;
   }
+  if (!impl_->hasPlayerNameValues ||
+      snapshot.playerNames != impl_->playerNameValues) {
+    impl_->playerNameValues = snapshot.playerNames;
+    impl_->hasPlayerNameValues = true;
+    ++impl_->playerNameRevision;
+    if (impl_->playerNameRevision == 0U) impl_->playerNameRevision = 1U;
+  }
   const std::uint8_t spectatorCount = impl_->spectatorCount();
   for (Impl::ClientSlot& client : impl_->clients) {
     if (!client.active) {
@@ -670,6 +697,16 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
     networkSnapshot.configurationRevision = impl_->configurationRevision;
     networkSnapshot.hasConfiguration =
       client.acknowledgedConfigurationRevision != impl_->configurationRevision;
+    networkSnapshot.playerNameRevision = impl_->playerNameRevision;
+    networkSnapshot.hasPlayerNames =
+      client.acknowledgedPlayerNameRevision != impl_->playerNameRevision;
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      if (networkSnapshot.localSpectator ||
+          playerIndex != networkSnapshot.localPlayerIndex) {
+        networkSnapshot.localHitFeedbackEvents[playerIndex].fill({});
+        networkSnapshot.damageTakenEvents[playerIndex].clear();
+      }
+    }
     // Presentation-only aggregates stay out of the latency-sensitive gameplay
     // datagram and are sent independently to interested clients below.
     networkSnapshot.hasCombatStats = false;
@@ -1255,6 +1292,8 @@ struct UdpClientTransport::Impl {
           latestProjectileMapRevision = 0U;
           latestProjectileRevision = 0U;
           configurationRevision = 0;
+          playerNameRevision = 0;
+          playerNameCache = {};
           hasCombatStats = false;
           combatStatsServerTick = 0;
           pendingCombatStatsServerTick = 0;
@@ -1303,6 +1342,8 @@ struct UdpClientTransport::Impl {
       latestProjectileMapRevision = 0U;
       latestProjectileRevision = 0U;
       configurationRevision = 0;
+      playerNameRevision = 0;
+      playerNameCache = {};
       hasCombatStats = false;
       combatStatsServerTick = 0;
       pendingCombatStatsServerTick = 0;
@@ -1346,6 +1387,8 @@ struct UdpClientTransport::Impl {
   std::deque<CommandPacket> commandHistory;
   ServerSnapshot configurationCache = {};
   std::uint32_t configurationRevision = 0;
+  ServerSnapshot playerNameCache = {};
+  std::uint32_t playerNameRevision = 0;
   std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
   std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
   std::array<RoundCombatStats, kDuelPlayerCount> pendingRoundCombatStats = {};
@@ -1446,6 +1489,8 @@ void UdpClientTransport::disconnect() {
   impl_->latestProjectileMapRevision = 0U;
   impl_->latestProjectileRevision = 0U;
   impl_->configurationRevision = 0;
+  impl_->playerNameRevision = 0;
+  impl_->playerNameCache = {};
   impl_->hasCombatStats = false;
   impl_->combatStatsServerTick = 0;
   impl_->pendingCombatStatsServerTick = 0;
@@ -1482,6 +1527,8 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
   stampedPacket.clientNonce = impl_->nonce;
   stampedPacket.acknowledgedConfigurationRevision =
     impl_->configurationRevision;
+  stampedPacket.acknowledgedPlayerNameRevision =
+    impl_->playerNameRevision;
 
   WirePacket singleCommandWire;
   if (!encodeCommandPacket(stampedPacket, singleCommandWire)) {
@@ -1590,6 +1637,25 @@ bool UdpClientTransport::receiveSnapshot(ServerSnapshot& snapshot) {
     }
     copySnapshotConfiguration(snapshot, impl_->configurationCache);
     snapshot.hasConfiguration = true;
+  }
+  if (snapshot.hasPlayerNames) {
+    if (impl_->playerNameRevision == 0U ||
+        snapshot.playerNameRevision == impl_->playerNameRevision ||
+        isSequenceNewer(snapshot.playerNameRevision, impl_->playerNameRevision)) {
+      copySnapshotPlayerNames(impl_->playerNameCache, snapshot);
+      impl_->playerNameRevision = snapshot.playerNameRevision;
+    } else {
+      copySnapshotPlayerNames(snapshot, impl_->playerNameCache);
+      snapshot.playerNameRevision = impl_->playerNameRevision;
+    }
+  } else {
+    if (impl_->playerNameRevision == 0U ||
+        isSequenceNewer(snapshot.playerNameRevision, impl_->playerNameRevision)) {
+      return false;
+    }
+    copySnapshotPlayerNames(snapshot, impl_->playerNameCache);
+    snapshot.playerNameRevision = impl_->playerNameRevision;
+    snapshot.hasPlayerNames = true;
   }
   if (snapshot.hasCombatStats) {
     impl_->roundCombatStats = snapshot.roundCombatStats;

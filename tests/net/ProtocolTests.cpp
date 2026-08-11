@@ -2,6 +2,8 @@
 #include "net/LoopbackTransport.hpp"
 #include "sim/MovementModes.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -25,6 +27,162 @@ bool nearlyEqual(float lhs, float rhs, float epsilon = 0.0001F) {
 
 lg::MapDescriptor testMapDescriptor() {
   return {"testmap", 0x12345678U};
+}
+
+bool expandSnapshotForMutation(
+  const lg::WirePacket& wire,
+  lg::WirePacket& expanded
+) {
+  constexpr std::size_t headerBytes = 12U;
+  constexpr std::uint8_t compressedFlag = 1U;
+  constexpr std::size_t minMatchBytes = 3U;
+  if (wire.size() < headerBytes) return false;
+  if (wire[7] == 0U) {
+    expanded = wire;
+    return true;
+  }
+  if (wire[7] != compressedFlag) return false;
+
+  const std::size_t expandedPayloadBytes =
+    static_cast<std::size_t>(wire[headerBytes]) |
+    (static_cast<std::size_t>(wire[headerBytes + 1U]) << 8U);
+  lg::WirePacket payload;
+  payload.reserve(expandedPayloadBytes);
+  std::size_t inputOffset = headerBytes + 2U;
+  while (inputOffset < wire.size() && payload.size() < expandedPayloadBytes) {
+    const std::uint8_t control = wire[inputOffset++];
+    for (std::size_t token = 0U;
+         token < 8U && payload.size() < expandedPayloadBytes;
+         ++token) {
+      if ((control & (std::uint8_t{1} << token)) == 0U) {
+        if (inputOffset >= wire.size()) return false;
+        payload.push_back(wire[inputOffset++]);
+        continue;
+      }
+      if (inputOffset + 2U > wire.size()) return false;
+      const std::uint16_t encoded = static_cast<std::uint16_t>(wire[inputOffset]) |
+        (static_cast<std::uint16_t>(wire[inputOffset + 1U]) << 8U);
+      inputOffset += 2U;
+      const std::size_t distance = (encoded & 0x0FFFU) + 1U;
+      const std::size_t length = (encoded >> 12U) + minMatchBytes;
+      if (distance > payload.size() ||
+          length > expandedPayloadBytes - payload.size()) return false;
+      const std::size_t matchOffset = payload.size() - distance;
+      for (std::size_t index = 0U; index < length; ++index) {
+        payload.push_back(payload[matchOffset + index]);
+      }
+    }
+  }
+  if (inputOffset != wire.size() || payload.size() != expandedPayloadBytes) {
+    return false;
+  }
+
+  expanded.assign(wire.begin(), wire.begin() + headerBytes);
+  expanded[7] = 0U;
+  expanded[8] = static_cast<std::uint8_t>(expandedPayloadBytes);
+  expanded[9] = static_cast<std::uint8_t>(expandedPayloadBytes >> 8U);
+  expanded.insert(expanded.end(), payload.begin(), payload.end());
+  return true;
+}
+
+bool compactSnapshotForMutation(
+  lg::WirePacket& wire,
+  std::size_t forceLiteralOffset
+) {
+  constexpr std::size_t headerBytes = 12U;
+  constexpr std::size_t matchWindow = 4096U;
+  constexpr std::size_t minMatchBytes = 3U;
+  constexpr std::size_t maxMatchBytes = 18U;
+  constexpr std::uint8_t compressedFlag = 1U;
+  if (wire.size() < headerBytes || forceLiteralOffset >= wire.size()) return false;
+
+  const std::size_t payloadBytes = wire.size() - headerBytes;
+  lg::WirePacket compressed = {
+    static_cast<std::uint8_t>(payloadBytes),
+    static_cast<std::uint8_t>(payloadBytes >> 8U),
+  };
+  std::array<std::int32_t, matchWindow> latest = {};
+  latest.fill(-1);
+  std::size_t inputOffset = headerBytes;
+  while (inputOffset < wire.size()) {
+    const std::size_t controlOffset = compressed.size();
+    compressed.push_back(0U);
+    std::uint8_t control = 0U;
+    for (std::size_t token = 0U; token < 8U && inputOffset < wire.size(); ++token) {
+      std::size_t matchLength = 0U;
+      std::size_t matchDistance = 0U;
+      if (inputOffset + minMatchBytes <= wire.size()) {
+        const std::uint32_t matchValue =
+          static_cast<std::uint32_t>(wire[inputOffset]) |
+          (static_cast<std::uint32_t>(wire[inputOffset + 1U]) << 8U) |
+          (static_cast<std::uint32_t>(wire[inputOffset + 2U]) << 16U);
+        const std::size_t hash =
+          static_cast<std::size_t>((matchValue * 2654435761U) >> 20U);
+        const std::int32_t candidate = latest[hash];
+        latest[hash] = static_cast<std::int32_t>(inputOffset);
+        if (candidate >= static_cast<std::int32_t>(headerBytes)) {
+          const std::size_t candidateOffset = static_cast<std::size_t>(candidate);
+          const std::size_t distance = inputOffset - candidateOffset;
+          if (distance <= matchWindow) {
+            const std::size_t limit = std::min(maxMatchBytes, wire.size() - inputOffset);
+            while (matchLength < limit &&
+                   wire[candidateOffset + matchLength] ==
+                     wire[inputOffset + matchLength]) {
+              ++matchLength;
+            }
+            if (inputOffset <= forceLiteralOffset &&
+                forceLiteralOffset < inputOffset + matchLength) {
+              matchLength = 0U;
+            }
+            if (matchLength >= minMatchBytes) matchDistance = distance;
+          }
+        }
+      }
+      if (matchLength >= minMatchBytes) {
+        control |= static_cast<std::uint8_t>(1U << token);
+        const std::uint16_t encoded = static_cast<std::uint16_t>(
+          (matchDistance - 1U) | ((matchLength - minMatchBytes) << 12U)
+        );
+        compressed.push_back(static_cast<std::uint8_t>(encoded));
+        compressed.push_back(static_cast<std::uint8_t>(encoded >> 8U));
+        inputOffset += matchLength;
+      } else {
+        compressed.push_back(wire[inputOffset++]);
+      }
+    }
+    compressed[controlOffset] = control;
+  }
+  if (compressed.size() >= payloadBytes) return false;
+
+  lg::WirePacket compacted(wire.begin(), wire.begin() + headerBytes);
+  compacted[7] = compressedFlag;
+  compacted.insert(compacted.end(), compressed.begin(), compressed.end());
+  const std::size_t compactedPayloadBytes = compacted.size() - headerBytes;
+  if (compacted.size() > lg::kMaxUdpApplicationDatagramBytes) return false;
+  compacted[8] = static_cast<std::uint8_t>(compactedPayloadBytes);
+  compacted[9] = static_cast<std::uint8_t>(compactedPayloadBytes >> 8U);
+  wire = std::move(compacted);
+  return true;
+}
+
+std::size_t findDamageEventPayload(
+  const lg::WirePacket& wire,
+  const lg::DamageTakenEvent& event
+) {
+  const std::array<std::uint8_t, 8U> payload = {
+    static_cast<std::uint8_t>(event.sequence),
+    static_cast<std::uint8_t>(event.sequence >> 8U),
+    static_cast<std::uint8_t>(event.sequence >> 16U),
+    static_cast<std::uint8_t>(event.sequence >> 24U),
+    event.direction256,
+    event.presentationDamage,
+    event.metadata,
+    static_cast<std::uint8_t>(event.weapon),
+  };
+  const auto found = std::search(wire.begin(), wire.end(), payload.begin(), payload.end());
+  return found == wire.end()
+    ? wire.size()
+    : static_cast<std::size_t>(std::distance(wire.begin(), found));
 }
 
 } // namespace
@@ -249,6 +407,7 @@ int main() {
     source.clientNonce = 12345;
     source.command.sequence = 42;
     source.acknowledgedConfigurationRevision = 77;
+    source.acknowledgedPlayerNameRevision = 31;
     source.wantsScoreboardStats = true;
     source.command.clientTick = 99;
     source.command.viewYawRadians = 1.25F;
@@ -356,6 +515,10 @@ int main() {
     failures += expect(
       decoded.acknowledgedConfigurationRevision == 77,
       "configuration acknowledgement should round trip"
+    );
+    failures += expect(
+      decoded.acknowledgedPlayerNameRevision == 31,
+      "player-name acknowledgement should round trip"
     );
     failures += expect(decoded.wantsScoreboardStats,
                        "scoreboard statistics interest should round trip");
@@ -546,6 +709,7 @@ int main() {
       command.command.sequence = static_cast<std::uint32_t>(100U + index);
       command.viewedServerTick = static_cast<std::uint32_t>(80U + index);
       command.acknowledgedConfigurationRevision = 77;
+      command.acknowledgedPlayerNameRevision = 31;
     }
     failures += expect(
       lg::encodeCommandBundle(gameplayBundle, wire) &&
@@ -684,6 +848,7 @@ int main() {
     source.acknowledgedCommandDatagramSequence = 88;
     source.commandDatagramAckBits = 0xA5A55A5AU;
     source.mapRevision = 77;
+    source.damageFeedbackRevision = 81;
     source.projectileRevision = 79;
     source.map = testMapDescriptor();
     source.acknowledgedCommand = {12, 34};
@@ -795,6 +960,19 @@ int main() {
     source.localHitFeedbackEvents[0][1].targetPlayerIndex = 2;
     source.localHitFeedbackEvents[0][1].damageApplied = 80;
     source.localHitFeedbackEvents[0][1].weapon = lg::Weapon::RocketLauncher;
+    lg::DamageTakenEventRing& damageRing = source.damageTakenEvents[1];
+    lg::DamageTakenEvent& damageEvent = damageRing.events[3];
+    damageEvent.sequence = 73U;
+    damageEvent.direction256 = 192U;
+    damageEvent.presentationDamage = 255U;
+    damageEvent.metadata = lg::kDamageTakenDirectionValid |
+      lg::kDamageTakenAttackerValid;
+    damageEvent.weapon = lg::Weapon::RocketLauncher;
+    failures += expect(
+      lg::setDamageTakenEventActive(damageRing, 3U) &&
+        !lg::setDamageTakenEventActive(damageRing, lg::kDamageTakenEventWindow),
+      "damage-taken ring helpers should enforce slot bounds"
+    );
     source.footstepAudioEvents[1].active = true;
     source.footstepAudioEvents[1].jumping = true;
     source.footstepAudioEvents[1].landing = true;
@@ -837,6 +1015,7 @@ int main() {
     source.matchCombatStats[1].weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
       {74, 450, 90};
     source.playerNames = {"yg", "opponent"};
+    source.playerNameRevision = 17U;
     source.matchPhase = lg::MatchPhase::Countdown;
     source.matchRules.roundLimit = 10;
     source.matchRules.timeLimitMinutes = 5;
@@ -923,6 +1102,7 @@ int main() {
     failures += expect(lg::encodeServerSnapshot(source, wire), "snapshot should encode");
     failures += expect(wire.size() <= lg::kMaxPacketBytes, "snapshot should respect packet limit");
     const std::size_t activeCombatSnapshotBytes = wire.size();
+    const bool activeCombatCompressed = wire[7] == 1U;
     failures += expect(
       activeCombatSnapshotBytes < 2800,
       "representative active-combat snapshot should remain below 2800 bytes"
@@ -930,6 +1110,10 @@ int main() {
     failures += expect(lg::decodeServerSnapshot(wire, decoded), "snapshot should decode");
     failures += expect(decoded.serverTick == 1234, "snapshot tick should round trip");
     failures += expect(decoded.mapRevision == 77, "snapshot map revision should round trip");
+    failures += expect(
+      decoded.damageFeedbackRevision == 81,
+      "damage-feedback timeline revision should round trip"
+    );
     failures += expect(
       decoded.projectileRevision == 79,
       "snapshot projectile generation should round trip"
@@ -973,6 +1157,119 @@ int main() {
     failures += expect(
       decoded.playerAmmo == source.playerAmmo,
       "per-player ammo should round trip"
+    );
+    failures += expect(
+      decoded.playerNameRevision == 17U && decoded.hasPlayerNames &&
+        decoded.playerNames[0] == "yg",
+      "versioned player names should round trip"
+    );
+    failures += expect(
+      lg::damageTakenEventActive(decoded.damageTakenEvents[1], 3U) &&
+        decoded.damageTakenEvents[1].events[3].sequence == 73U &&
+        decoded.damageTakenEvents[1].events[3].direction256 == 192U &&
+        decoded.damageTakenEvents[1].events[3].presentationDamage == 255U &&
+        lg::damageTakenHasAttacker(decoded.damageTakenEvents[1].events[3]) &&
+        !lg::damageTakenIsSelfDamage(decoded.damageTakenEvents[1].events[3]) &&
+        decoded.damageTakenEvents[1].events[3].weapon ==
+          lg::Weapon::RocketLauncher,
+      "victim damage event should round trip through its outer mask"
+    );
+    lg::WirePacket malformedWire;
+    lg::WirePacket expandedWire;
+    failures += expect(
+      lg::encodeServerSnapshot(source, malformedWire) &&
+        expandSnapshotForMutation(malformedWire, expandedWire),
+      "snapshot should expand for malformed damage-event tests"
+    );
+    const std::size_t damageEventOffset = findDamageEventPayload(
+      expandedWire,
+      source.damageTakenEvents[1].events[3]
+    );
+    failures += expect(
+      damageEventOffset != expandedWire.size(),
+      "damage event payload should be located for malformed decode tests"
+    );
+    if (damageEventOffset != expandedWire.size()) {
+      failures += expect(
+        lg::decodeServerSnapshot(wire, decoded),
+        "the unmodified compressed snapshot should decode before mutation"
+      );
+
+      malformedWire = expandedWire;
+      malformedWire[damageEventOffset + 6U] |= std::uint8_t{1} << 3U;
+      failures += expect(
+        compactSnapshotForMutation(malformedWire, damageEventOffset + 6U) &&
+          !lg::decodeServerSnapshot(malformedWire, decoded),
+        "decoder should reject reserved damage-event metadata bits"
+      );
+
+      malformedWire = expandedWire;
+      malformedWire[damageEventOffset + 6U] = static_cast<std::uint8_t>(
+        lg::kDamageTakenDirectionValid |
+        lg::kDamageTakenAttackerValid |
+        (std::uint8_t{1} << 4U)
+      );
+      failures += expect(
+        compactSnapshotForMutation(malformedWire, damageEventOffset + 6U) &&
+          !lg::decodeServerSnapshot(malformedWire, decoded),
+        "decoder should reject self-damage without the self flag"
+      );
+    }
+    lg::ServerSnapshot malformedDamage = source;
+    malformedDamage.damageTakenEvents[1].events[3].metadata |= 1U << 3U;
+    failures += expect(
+      !lg::encodeServerSnapshot(malformedDamage, wire),
+      "damage event metadata should reject its reserved bit"
+    );
+    malformedDamage = source;
+    malformedDamage.damageTakenEvents[1].events[3].metadata = 1U << 4U;
+    failures += expect(
+      !lg::encodeServerSnapshot(malformedDamage, wire),
+      "damage event metadata should reject a packed attacker without its flag"
+    );
+    malformedDamage = source;
+    malformedDamage.damageTakenEvents[1].events[3].metadata = 0U;
+    failures += expect(
+      !lg::encodeServerSnapshot(malformedDamage, wire),
+      "damage event without direction validity should require a zero bearing"
+    );
+    malformedDamage = source;
+    malformedDamage.damageTakenEvents[1].events[3].metadata =
+      lg::kDamageTakenDirectionValid |
+      lg::kDamageTakenSelfDamage |
+      lg::kDamageTakenAttackerValid;
+    failures += expect(
+      !lg::encodeServerSnapshot(malformedDamage, wire),
+      "self-damage metadata should name the victim as its attacker"
+    );
+    malformedDamage = source;
+    malformedDamage.damageTakenEvents[1].events[3].metadata =
+      lg::kDamageTakenDirectionValid |
+      lg::kDamageTakenAttackerValid |
+      (std::uint8_t{1} << 4U);
+    failures += expect(
+      !lg::encodeServerSnapshot(malformedDamage, wire),
+      "a victim-named attacker should set self-damage metadata"
+    );
+    malformedDamage = source;
+    malformedDamage.damageTakenEvents[1].events[3].sequence = 0U;
+    failures += expect(
+      !lg::encodeServerSnapshot(malformedDamage, wire),
+      "damage event metadata should reject zero sequences"
+    );
+    lg::ServerSnapshot leanNames = source;
+    leanNames.playerNameRevision = 18U;
+    leanNames.hasPlayerNames = false;
+    failures += expect(
+      lg::encodeServerSnapshot(leanNames, wire) &&
+        lg::decodeServerSnapshot(wire, decoded) &&
+        decoded.playerNameRevision == 18U && !decoded.hasPlayerNames,
+      "lean snapshots should carry a name revision without a name payload"
+    );
+    failures += expect(
+      lg::encodeServerSnapshot(source, wire) &&
+        lg::decodeServerSnapshot(wire, decoded),
+      "full snapshot should restore the round-trip fixture after lean-name test"
     );
     failures += expect(
       decoded.lightningGuns[0].hit &&
@@ -1188,9 +1485,11 @@ int main() {
     leanSnapshot.participatingPlayers[1] = true;
     leanSnapshot.hasCombatStats = false;
     leanSnapshot.hasConfiguration = false;
+    leanSnapshot.hasPlayerNames = false;
     failures += expect(lg::encodeServerSnapshot(leanSnapshot, wire),
                        "lean snapshot should encode");
     const std::size_t leanBytes = wire.size();
+    const bool leanCompressed = wire[7] == 1U;
     lg::ServerSnapshot decodedLean;
     failures += expect(
       lg::decodeServerSnapshot(wire, decodedLean) &&
@@ -1203,12 +1502,22 @@ int main() {
     failures += expect(lg::encodeServerSnapshot(fullConfigSnapshot, wire),
                        "configuration refresh snapshot should encode");
     const std::size_t configurationBytes = wire.size();
+    const bool configurationCompressed = wire[7] == 1U;
 
     lg::ServerSnapshot fullSnapshot = fullConfigSnapshot;
     fullSnapshot.hasCombatStats = true;
+    fullSnapshot.hasPlayerNames = true;
     failures += expect(lg::encodeServerSnapshot(fullSnapshot, wire),
                        "full refresh snapshot should encode");
     const std::size_t fullBytes = wire.size();
+    const bool fullCompressed = wire[7] == 1U;
+    lg::ServerSnapshot nameRefreshSnapshot = leanSnapshot;
+    nameRefreshSnapshot.hasPlayerNames = true;
+    failures += expect(
+      lg::encodeServerSnapshot(nameRefreshSnapshot, wire),
+      "name refresh snapshot should encode"
+    );
+    const std::size_t nameRefreshBytes = wire.size();
     failures += expect(
       fullBytes <= lg::kMaxUdpApplicationDatagramBytes,
       "compressible combat-statistics fixture should stay within one datagram"
@@ -1217,7 +1526,10 @@ int main() {
                        "normal and configuration refresh snapshots should stay below budget");
     std::cout << "snapshot bytes: gameplay=" << leanBytes
               << " configuration-retry=" << configurationBytes
-              << " embedded-stats-fixture=" << fullBytes << '\n';
+              << " embedded-stats-fixture=" << fullBytes
+              << " name-refresh=" << nameRefreshBytes
+              << " compressed=" << leanCompressed << '/'
+              << configurationCompressed << '/' << fullCompressed << '\n';
 
     lg::CombatStatsPacket statsPacket;
     statsPacket.serverTick = 1234;
@@ -1293,6 +1605,7 @@ int main() {
       "typical six-player snapshot should encode"
     );
     const std::size_t sixPlayerSnapshotBytes = wire.size();
+    const bool sixPlayerCompressed = wire[7] == 1U;
     failures += expect(
       sixPlayerSnapshotBytes < 2500,
       "typical six-player snapshot should remain below 2500 bytes"
@@ -1300,7 +1613,10 @@ int main() {
     std::cout << "snapshot bytes: duel=" << leanBytes
                << " duel-full=" << fullBytes
                << " six-player=" << sixPlayerSnapshotBytes
-               << " active-combat=" << activeCombatSnapshotBytes << '\n';
+               << " active-combat=" << activeCombatSnapshotBytes
+               << " compressed=" << leanCompressed << '/'
+               << fullCompressed << '/' << sixPlayerCompressed << '/'
+               << activeCombatCompressed << '\n';
 
     lg::ServerSnapshot sixteenPlayerSnapshot = leanSnapshot;
     sixteenPlayerSnapshot.gameMode = lg::GameMode::ClanArena;
@@ -1354,7 +1670,50 @@ int main() {
       "all sixteen slots and the final hit-feedback window should round trip"
     );
     std::cout << "snapshot bytes: sixteen-player="
-              << sixteenPlayerSnapshotBytes << '\n';
+              << sixteenPlayerSnapshotBytes
+              << " compressed=" << (wire[7] == 1U) << '\n';
+
+    lg::ServerSnapshot retainedDamageBurst = leanSnapshot;
+    retainedDamageBurst.hasLocalClientState = true;
+    retainedDamageBurst.localPlayerIndex = 0;
+    for (std::size_t slot = 0; slot < lg::kDamageTakenEventWindow; ++slot) {
+      lg::DamageTakenEventRing& ring = retainedDamageBurst.damageTakenEvents[0];
+      ring.events[slot] = {
+        static_cast<std::uint32_t>(1000U + slot),
+        static_cast<std::uint8_t>(slot * 31U),
+        255U,
+        static_cast<std::uint8_t>(
+          lg::kDamageTakenDirectionValid |
+          lg::kDamageTakenAttackerValid |
+          ((slot % lg::kDuelPlayerCount) << 4U) |
+          (slot == 0U ? lg::kDamageTakenSelfDamage : 0U)
+        ),
+        lg::Weapon::RocketLauncher,
+      };
+      (void)lg::setDamageTakenEventActive(ring, slot);
+    }
+    failures += expect(
+      lg::encodeBoundedGameplaySnapshot(retainedDamageBurst, wire) &&
+        wire.size() <= lg::kMaxUdpApplicationDatagramBytes,
+      "a recipient's full retained damage ring should fit one UDP datagram"
+    );
+    lg::ServerSnapshot decodedRetainedDamageBurst;
+    bool fullRetainedRingRoundTrips =
+      lg::decodeServerSnapshot(wire, decodedRetainedDamageBurst);
+    for (std::size_t slot = 0;
+         fullRetainedRingRoundTrips && slot < lg::kDamageTakenEventWindow;
+         ++slot) {
+      fullRetainedRingRoundTrips =
+        lg::damageTakenEventActive(decodedRetainedDamageBurst.damageTakenEvents[0], slot) &&
+        decodedRetainedDamageBurst.damageTakenEvents[0].events[slot].sequence ==
+          static_cast<std::uint32_t>(1000U + slot);
+    }
+    failures += expect(
+      fullRetainedRingRoundTrips,
+      "bounded snapshots should retain every event in the full victim ring"
+    );
+    std::cout << "snapshot bytes: retained-damage-burst=" << wire.size()
+              << " compressed=" << (wire[7] == 1U) << '\n';
 
     lg::ServerSnapshot unboundedBurst = sixteenPlayerSnapshot;
     for (std::size_t player = 0; player < lg::kDuelPlayerCount; ++player) {
@@ -1440,8 +1799,9 @@ int main() {
       };
     }
     failures += expect(
-      !lg::encodeServerSnapshot(twoBeamBurst, wire) && wire.empty(),
-      "two beams plus low-priority debug events should exceed one datagram"
+      lg::encodeServerSnapshot(twoBeamBurst, wire) &&
+        wire.size() <= lg::kMaxUdpApplicationDatagramBytes,
+      "two beams plus low-priority debug events should fit after packet cuts"
     );
     lg::WirePacket boundedTwoBeamWire;
     lg::ServerSnapshot decodedTwoBeam;
@@ -1455,12 +1815,11 @@ int main() {
         decodedTwoBeam.lightningGuns[1].active &&
         decodedTwoBeam.lightningGuns[0].damageApplied == 6 &&
         decodedTwoBeam.lightningGuns[1].damageApplied == 6 &&
-        !decodedTwoBeam.lightningGuns[0].hasRewindDebug &&
-        !decodedTwoBeam.lightningGuns[1].hasRewindDebug &&
+        decodedTwoBeam.lightningGuns[0].hasRewindDebug &&
+        decodedTwoBeam.lightningGuns[1].hasRewindDebug &&
         twoBeamBurst.lightningGuns[0].hasRewindDebug &&
         twoBeamBurst.lightningGuns[1].hasRewindDebug,
-      "bounded gameplay encoding should keep two-beam health and damage while "
-      "dropping rewind debug without changing its input"
+      "bounded gameplay encoding should preserve a snapshot that already fits"
     );
 
     lg::ServerSnapshot recipientlessBurst = unboundedBurst;
@@ -1502,13 +1861,13 @@ int main() {
           recipientlessWire,
           decodedRecipientless
         ) &&
-        !decodedRecipientless.lightningGuns[0].active &&
+        decodedRecipientless.lightningGuns[0].active &&
         decodedRecipientless.localHitFeedbackEvents[0][0].active &&
         decodedRecipientless.localHitFeedbackEvents[0][0].sequence ==
           preservedFeedback.sequence &&
         decodedRecipientless.localHitFeedbackEvents[0][0].damageApplied ==
           preservedFeedback.damageApplied,
-      "recipient-free bounded encoding should drop beams before hit feedback"
+      "recipient-free bounded encoding should preserve fitting feedback"
     );
 
     failures += expect(
@@ -1576,8 +1935,8 @@ int main() {
       "large map descriptor snapshot should encode"
     );
     failures += expect(
-      wire.size() == smallMapSnapshotBytes,
-      "snapshot wire size should not scale with static map complexity"
+      wire.size() <= smallMapSnapshotBytes + 16U,
+      "snapshot wire size should not materially scale with static map complexity"
     );
     failures += expect(
       lg::decodeServerSnapshot(wire, decodedLargeMap),

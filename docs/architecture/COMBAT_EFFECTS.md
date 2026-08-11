@@ -4,6 +4,8 @@
 
 The combat-effects path is client presentation code. It consumes already accepted `WeaponFireResult`, beam state, and explosion events and never changes weapon timing, traces, damage, movement, prediction, or server state. The machine gun, shotgun, Railgun, revolver, Rocket Launcher, and Freeze Gun use it.
 
+Directional damage HUD feedback uses a separate victim-only event stream. It does not inspect weapon visuals, world rendering, attacker visibility, health deltas, or the attacker's latest position. The client converts the stored authoritative bearing to camera-relative yaw, shows up to four short-lived chevrons, merges close directions, leaves different directions separate, and ignores retained duplicate sequences. Small damage uses a visible curved intensity scale, while larger hits stay stronger. A source with no horizontal bearing draws a neutral center cue; self damage uses its own color. The client clears dedupe and fade state when its body, spectator role, map, or damage-feedback timeline changes. `r_damage_indicator` and its duration, opacity, distance, and scale settings affect only this presentation. No indicator draws when the client has no local body.
+
 ## Event and render flow
 
 ```text

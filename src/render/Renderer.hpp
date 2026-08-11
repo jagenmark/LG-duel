@@ -488,6 +488,7 @@ struct HudRenderState {
   bool showOpponentHealthBar = false;
   std::int32_t healthAmount = 100;
   DamageNumberPresentation damageNumbers;
+  DirectionalDamagePresentation directionalDamage;
   NetGraphState netGraph;
 };
 

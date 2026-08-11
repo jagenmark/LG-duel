@@ -50,9 +50,41 @@ The optional client-carried `g_*` tuning path is a temporary development afforda
 
 ## Snapshot Ownership
 
-`ServerSnapshot` is authoritative for player states, selected weapons, lightning results, weapon fire and explosion events, freeze-gun ice pools, footsteps, frags, scores, teams, match phase/rules, cvar-derived gameplay tuning, map revision, and optional arena data. Bounded projectile update packets carry display state for live projectiles. Chat history is authoritative server state but uses its separate acknowledged packet stream.
+`ServerSnapshot` is authoritative for player states, selected weapons, lightning results, weapon fire and explosion events, freeze-gun ice pools, footsteps, frags, scores, teams, match phase/rules, cvar-derived gameplay tuning, map revision, damage-feedback timeline revision, and optional arena data. Bounded projectile update packets carry display state for live projectiles. Chat history is authoritative server state but uses its separate acknowledged packet stream.
 
-Inactive fixed-capacity event slots are represented by multiword occupancy masks; unused high bits are invalid rather than aliases for future slots. The per-player local-hit-feedback window is likewise a multiword mask and covers all four events for all sixteen players. Gameplay snapshots do not carry scoreboard combat aggregates over UDP. Instead, every command repeats whether that client currently has the scoreboard open; a closed-to-open transition sends four independently bounded four-player statistics pages immediately, followed by 5 Hz refreshes only to that client while the scoreboard remains open. The client stages pages by server tick and publishes a new aggregate only after all sixteen player rows arrive, so diverse valid counters never require fragmentation or leave a partially updated scoreboard. Gameplay configuration has its own revision: snapshots carry that revision, commands acknowledge the latest configuration installed by the client, and the server repeats the full configuration block per client until the matching acknowledgement arrives. A client never applies a lean snapshot for an unknown configuration revision.
+Inactive fixed-capacity event slots are represented by multiword occupancy masks; unused high bits are invalid rather than aliases for future slots. Sparse payloads do not repeat an `active` byte. Each sixteen-player boolean row uses a validated `uint16_t` mask; the 32 health-pickup bits use a `uint32_t` mask. Snapshot ammo uses checked `uint16_t` values at the codec edge while simulation keeps its signed values. Gameplay snapshots do not carry scoreboard combat aggregates over UDP. Instead, every command repeats whether that client currently has the scoreboard open; a closed-to-open transition sends four independently bounded four-player statistics pages immediately, followed by 5 Hz refreshes only to that client while the scoreboard remains open. The client stages pages by server tick and publishes a new aggregate only after all sixteen player rows arrive, so diverse valid counters never require fragmentation or leave a partially updated scoreboard. Gameplay configuration has its own revision: snapshots carry that revision, commands acknowledge the latest configuration installed by the client, and the server repeats the full configuration block per client until the matching acknowledgement arrives. A client never applies a lean snapshot for an unknown configuration revision.
+
+Player names have a separate revision and acknowledgement. The server sends a full name row until that client acknowledges the exact revision, then sends only the revision. The client caches a full row, rejects a lean snapshot for an unknown newer row, and never lets an old full row roll its cache back. This keeps a roster change loss-safe without writing names into normal gameplay snapshots.
+
+## Victim damage feedback
+
+The server records `DamageTakenEvent` records by victim. The sparse wire payload is eight bytes: `sequence:u32`, `direction256:u8`, `presentationDamage:u8`, `metadata:u8`, and `weapon:u8`. `presentationDamage` is `min(actual health loss, 255)` and does not affect authoritative health. Metadata bit 0 marks a valid direction, bit 1 self damage, bit 2 a valid attacker, and bits 4-7 hold that attacker slot. Bit 3 is reserved and rejected. A no-direction event must encode bearing zero. A self event must name that victim as its valid attacker, and that matching attacker must set the self bit. These checks reject ambiguous or forged packet forms.
+
+`direction256` is a victim-to-source horizontal world bearing: 0 is +X and 64 is +Y. Each victim retains the newest eight events for up to 32 ticks. Slot `(sequence - 1) % 8` makes overflow deterministic: a ninth new event replaces the oldest matching slot, so a sustained stream keeps its newest eight events rather than claiming an impossible 32-tick history. A single event with no newer collision stays for 32 ticks. Recipients get only their own victim row and attacker hit-marker row before the first encode; observers get neither. The client dedupes sequences and subtracts the presented camera yaw only for HUD display. It never derives direction from another player's replicated position. `damageFeedbackRevision` advances on every match reset, including map and scenario setup; the client clears its damage-event dedupe and fade state when that timeline changes, so a fresh setup may safely restart event sequences at one.
+
+The bounded snapshot encoder drops rewind data, movement audio, beams, fire and blast visuals, frags, attacker hit feedback, then victim damage feedback. It never drops player, health, score, objective, match, configuration, or cached-roster correctness.
+
+## Measured snapshot sizes
+
+The table records compressed packet bytes from `lg_duel_protocol_tests` on the same fixtures. Projectile packets did not change.
+
+| Fixture | Before | After | Change | Compressed | Optional blocks |
+| --- | ---: | ---: | ---: | --- | --- |
+| Gameplay duel | 485 | 383 | -102 (-21.0%) | yes | config, names, stats omitted |
+| Configuration retry | 692 | 585 | -107 (-15.5%) | yes | config only |
+| Name refresh | 485 | 447 | -38 (-7.8%) | yes | names only |
+| Full duel | 972 | 927 | -45 (-4.6%) | yes | config, names, stats |
+| Six-player | 490 | 386 | -104 (-21.2%) | yes | config, names, stats omitted |
+| Active combat | 1,066 | 1,011 | -55 (-5.2%) | yes | config and names; combat events |
+| Sixteen-player | 685 | 583 | -102 (-14.9%) | yes | config, names, stats omitted |
+| Full retained damage ring | n/a | 444 | new | yes | eight victim events |
+| Control command bundle | 1,140 | 1,110 | -30 (-2.6%) | no | control commands |
+| Gameplay command bundle | 549 | 597 | +48 (+8.7%) | no | name-revision acknowledgement |
+| Maximum projectile update | 1,173 | 1,173 | 0 | no | projectile updates |
+
+One active victim event costs 8 payload bytes plus the 16-byte snapshot occupancy mask; a full eight-slot row costs 64 payload bytes. All player ammo saves 288 raw bytes. A fully acknowledged default name row saves about 146 raw bytes. The packed fixed boolean arrays save 98 raw bytes in this snapshot shape. Each active sparse event saves one payload activity byte.
+
+We trialled a stateless `uint16_t` player-slot mask that wrote only connected or bot rows. It reduced the compressed duel fixture from 383 to 203 bytes, but changed the six-player fixture from 386 to 389 bytes and the sixteen-player fixture from 583 to 586 bytes. It also omitted a server-maintained waiting player state that a client may need before connection. We rejected the trial and kept dense, stateless player rows; the current sixteen-player fixture remains 583 bytes, well below the ceiling.
 
 Arena data is intentionally revision-gated. `ClientGame::receiveSnapshots()` ignores snapshots with a new `mapRevision` unless `hasArena` is true. When an arena is received, the client caches it locally and clears `snapshot_.arena` before storing the snapshot to avoid carrying large static data in normal client state.
 

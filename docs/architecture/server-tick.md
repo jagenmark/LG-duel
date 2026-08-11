@@ -7,7 +7,7 @@
 1. `receivedCommandThisTick_` is cleared and `receiveCommands()` drains the transport.
 2. `updateMatchState()` advances waiting, ready, countdown, live, round-end, and match-end phases.
 3. `updateBotCommands()` fills commands for bot-controlled participant slots.
-4. One-tick snapshot event arrays are cleared: weapon fires, explosions, footsteps, grenade bounces, frags, and local hit feedback.
+4. One-tick snapshot event arrays are cleared: weapon fires, explosions, footsteps, grenade bounces, frags, attacker hit feedback, and victim damage feedback.
 5. Weapon cooldowns and pullout timers are decremented.
 6. For each player, the selected weapon is updated and `simulateMovement()` runs for living players, including bounded jumppad trigger checks after arena collision.
 7. Player/player collision is resolved, then player/arena collision is resolved, then footstep events are generated.
@@ -36,6 +36,7 @@ breaks the tie and ends the match. McGuffin keeps its objective-owned timing.
 - Jumppad launch is server-authoritative movement state. Trigger cooldown comes from `balance.cfg`, runs as a fixed tick countdown on player state, and is not added to per-tick network packets.
 - `recordHistory()` happens after `serverTick` increments so lag compensation can find a frame by authoritative tick number.
 - Transient events are remembered before restore; restoring after simulation keeps short-lived events visible across packet loss without making them persistent gameplay state.
+- `applyDamageAndKnockback()` is the sole victim-feedback sink. It records actual clamped health loss and the source point at the authoritative hit. Hitscan, Lightning Gun, and Freeze Gun use the traced shot start. Direct rockets, grenades, and plasma use the resolved impact; splash damage uses the explosion point. Self damage keeps that impact or explosion point and sets the self flag. A missing or coincident source clears the direction-valid bit instead of normalizing a zero vector.
 
 ## Footguns
 
@@ -43,4 +44,4 @@ breaks the tie and ends the match. McGuffin keeps its objective-owned timing.
 - Do not add unbounded per-player/projectile/event containers. Current arrays are fixed-size around `kDuelPlayerCount`, `kMaxRocketProjectiles`, and small event windows.
 - If a new event must survive packet loss, add explicit retention/sequence behavior like the existing recent event arrays.
 - If command semantics change, update snapshot acknowledgements and client prediction/reconciliation assumptions together.
-- Map changes call `setArena()`, bump `mapRevision_`, reset the match, clear history, and require clients to receive the arena before accepting later snapshots.
+- Map changes call `setArena()`, bump `mapRevision_`, reset the match, clear history, and require clients to receive the arena before accepting later snapshots. Every match reset advances `damageFeedbackRevision_` before it clears transient rings. Scenario setup also restarts their sequences. This lets client HUD event dedupe reset without confusing a fresh setup with retained packets from the old one.

@@ -75,6 +75,35 @@ std::size_t teamScoreIndex(Team team) {
   return {true, kind, worldPosition};
 }
 
+constexpr float kPi = 3.14159265359F;
+constexpr float kTwoPi = 6.28318530718F;
+
+[[nodiscard]] float directionalDuration(
+  const DirectionalDamageHudConfig& config
+) {
+  return std::isfinite(config.durationSeconds)
+    ? std::clamp(config.durationSeconds, 0.05F, 10.0F)
+    : 0.8F;
+}
+
+[[nodiscard]] float directionalMergeAngle(
+  const DirectionalDamageHudConfig& config
+) {
+  return std::isfinite(config.mergeAngleRadians)
+    ? std::clamp(std::fabs(config.mergeAngleRadians), 0.01F, kPi)
+    : 0.45F;
+}
+
+[[nodiscard]] float directionalStrength(float value) {
+  if (!std::isfinite(value) || value <= 0.0F) {
+    return 0.0F;
+  }
+  // A byte stores the presentation damage, not an alpha value. Keep the
+  // smallest authoritative hit visible, while preserving a clear difference
+  // between a scratch and a large blast.
+  return std::clamp(0.35F + 0.65F * std::sqrt(value), 0.0F, 1.0F);
+}
+
 } // namespace
 
 void DamageNumberState::reset() {
@@ -209,6 +238,187 @@ void DamageNumberState::remember(const EventKey& key) {
   seenEvents_.push_back(key);
   if (seenEvents_.size() > kMaxRememberedEvents) {
     seenEvents_.erase(seenEvents_.begin());
+  }
+}
+
+float wrapSignedAngleRadians(float angleRadians) {
+  if (!std::isfinite(angleRadians)) {
+    return 0.0F;
+  }
+  float wrapped = std::fmod(angleRadians + kPi, kTwoPi);
+  if (wrapped < 0.0F) {
+    wrapped += kTwoPi;
+  }
+  return wrapped - kPi;
+}
+
+void DirectionalDamageState::reset() {
+  indicators_ = {};
+  seenSequences_.clear();
+}
+
+void DirectionalDamageState::update(
+  float deltaSeconds,
+  const DirectionalDamageHudConfig& config
+) {
+  const float delta = std::isfinite(deltaSeconds)
+    ? std::max(0.0F, deltaSeconds)
+    : 0.0F;
+  const float duration = directionalDuration(config);
+  for (StoredIndicator& indicator : indicators_) {
+    if (!indicator.active) {
+      continue;
+    }
+    indicator.ageSeconds += delta;
+    if (!std::isfinite(indicator.ageSeconds) || indicator.ageSeconds >= duration) {
+      indicator = {};
+    }
+  }
+}
+
+void DirectionalDamageState::addIncomingDamageEvent(
+  const IncomingDirectionalDamageEvent& event,
+  const DirectionalDamageHudConfig& config
+) {
+  if (hasSeen(event.sequence)) {
+    return;
+  }
+  remember(event.sequence);
+
+  const float strength = directionalStrength(event.presentationStrength);
+  if (
+    strength <= 0.0F ||
+    (event.directionValid && !std::isfinite(event.sourceBearingRadians))
+  ) {
+    return;
+  }
+
+  const float sourceBearing = event.directionValid
+    ? wrapSignedAngleRadians(event.sourceBearingRadians)
+    : 0.0F;
+  const float mergeAngle = directionalMergeAngle(config);
+  StoredIndicator* merged = nullptr;
+  float smallestDifference = kTwoPi;
+  for (StoredIndicator& indicator : indicators_) {
+    if (
+      !indicator.active ||
+      indicator.selfDamage != event.selfDamage ||
+      indicator.directionValid != event.directionValid
+    ) {
+      continue;
+    }
+    if (!event.directionValid) {
+      merged = &indicator;
+      break;
+    }
+    const float difference = std::fabs(wrapSignedAngleRadians(
+      sourceBearing - indicator.sourceBearingRadians
+    ));
+    if (difference <= mergeAngle && difference < smallestDifference) {
+      merged = &indicator;
+      smallestDifference = difference;
+    }
+  }
+
+  if (merged != nullptr) {
+    if (event.directionValid) {
+      const float difference = wrapSignedAngleRadians(
+        sourceBearing - merged->sourceBearingRadians
+      );
+      merged->sourceBearingRadians = wrapSignedAngleRadians(
+        merged->sourceBearingRadians + difference * 0.5F
+      );
+    }
+    merged->sequence = event.sequence;
+    merged->strength = std::max(merged->strength, strength);
+    merged->ageSeconds = 0.0F;
+    return;
+  }
+
+  const float duration = directionalDuration(config);
+  StoredIndicator* slot = nullptr;
+  for (StoredIndicator& indicator : indicators_) {
+    if (!indicator.active || indicator.ageSeconds >= duration) {
+      slot = &indicator;
+      break;
+    }
+  }
+  if (slot == nullptr) {
+    slot = &*std::max_element(
+      indicators_.begin(),
+      indicators_.end(),
+      [](const StoredIndicator& lhs, const StoredIndicator& rhs) {
+        return lhs.ageSeconds < rhs.ageSeconds;
+      }
+    );
+  }
+  *slot = {
+    true,
+    event.sequence,
+    sourceBearing,
+    strength,
+    0.0F,
+    event.directionValid,
+    event.selfDamage,
+  };
+}
+
+DirectionalDamagePresentation DirectionalDamageState::presentation(
+  float cameraYawRadians,
+  const DirectionalDamageHudConfig& config,
+  bool enabled
+) const {
+  DirectionalDamagePresentation result;
+  result.enabled = enabled;
+  result.distancePixels = std::isfinite(config.distancePixels)
+    ? std::clamp(config.distancePixels, 24.0F, 2000.0F)
+    : 112.0F;
+  result.scale = std::isfinite(config.scale)
+    ? std::clamp(config.scale, 0.25F, 4.0F)
+    : 1.0F;
+  const float duration = directionalDuration(config);
+  const float maxOpacity = std::isfinite(config.maxOpacity)
+    ? std::clamp(config.maxOpacity, 0.0F, 1.0F)
+    : 0.85F;
+  const float cameraYaw = std::isfinite(cameraYawRadians)
+    ? wrapSignedAngleRadians(cameraYawRadians)
+    : 0.0F;
+
+  for (std::size_t index = 0; index < indicators_.size(); ++index) {
+    const StoredIndicator& stored = indicators_[index];
+    if (!stored.active || stored.ageSeconds >= duration) {
+      continue;
+    }
+    const float life = std::clamp(stored.ageSeconds / duration, 0.0F, 1.0F);
+    const float opacity = maxOpacity * stored.strength * (1.0F - life);
+    if (opacity <= 0.0F) {
+      continue;
+    }
+    result.indicators[index] = {
+      true,
+      stored.sequence,
+      stored.directionValid
+        ? wrapSignedAngleRadians(stored.sourceBearingRadians - cameraYaw)
+        : 0.0F,
+      opacity,
+      stored.strength,
+      stored.directionValid,
+      stored.selfDamage,
+    };
+  }
+  return result;
+}
+
+bool DirectionalDamageState::hasSeen(std::uint32_t sequence) const {
+  return std::find(seenSequences_.begin(), seenSequences_.end(), sequence) !=
+    seenSequences_.end();
+}
+
+void DirectionalDamageState::remember(std::uint32_t sequence) {
+  constexpr std::size_t kMaxRememberedSequences = 128;
+  seenSequences_.push_back(sequence);
+  if (seenSequences_.size() > kMaxRememberedSequences) {
+    seenSequences_.erase(seenSequences_.begin());
   }
 }
 

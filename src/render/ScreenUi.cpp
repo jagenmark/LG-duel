@@ -2559,6 +2559,107 @@ void addCrosshair(
   }
 }
 
+void addDirectionalDamageIndicators(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const DirectionalDamagePresentation& presentation
+) {
+  if (!presentation.enabled || width <= 0 || height <= 0) {
+    return;
+  }
+
+  const float scale = std::isfinite(presentation.scale)
+    ? std::clamp(presentation.scale, 0.25F, 4.0F)
+    : 1.0F;
+  const float centerX = static_cast<float>(width) * 0.5F;
+  const float centerY = static_cast<float>(height) * 0.5F;
+  const float edgeDistance = std::min(
+    static_cast<float>(width),
+    static_cast<float>(height)
+  ) * 0.45F;
+  const float requestedDistance = std::isfinite(presentation.distancePixels)
+    ? presentation.distancePixels * scale
+    : 112.0F * scale;
+  const float distance = std::clamp(
+    requestedDistance,
+    20.0F * scale,
+    std::max(20.0F * scale, edgeDistance)
+  );
+  const float chevronLength = 20.0F * scale;
+  const float chevronWidth = 10.0F * scale;
+  const float lineWidth = std::max(1.0F, 2.0F * scale);
+
+  for (const DirectionalDamageIndicator& indicator : presentation.indicators) {
+    const float opacity = std::isfinite(indicator.opacity)
+      ? std::clamp(indicator.opacity, 0.0F, 1.0F)
+      : 0.0F;
+    if (!indicator.active || opacity <= 0.0F) {
+      continue;
+    }
+    const RenderColor color = indicator.selfDamage
+      ? RenderColor{255, 186, 66, static_cast<std::uint8_t>(opacity * 255.0F)}
+      : RenderColor{255, 76, 70, static_cast<std::uint8_t>(opacity * 255.0F)};
+
+    if (!indicator.directionValid) {
+      const float radius = 8.0F * scale;
+      addLine(drawList, {centerX, centerY - radius},
+              {centerX + radius, centerY}, color, lineWidth);
+      addLine(drawList, {centerX + radius, centerY},
+              {centerX, centerY + radius}, color, lineWidth);
+      addLine(drawList, {centerX, centerY + radius},
+              {centerX - radius, centerY}, color, lineWidth);
+      addLine(drawList, {centerX - radius, centerY},
+              {centerX, centerY - radius}, color, lineWidth);
+      continue;
+    }
+
+    const float relativeYaw = std::isfinite(indicator.relativeYawRadians)
+      ? std::atan2(
+          std::sin(indicator.relativeYawRadians),
+          std::cos(indicator.relativeYawRadians)
+        )
+      : 0.0F;
+    const ScreenPoint direction = {
+      -std::sin(relativeYaw),
+      -std::cos(relativeYaw),
+    };
+    const ScreenPoint perpendicular = {-direction.y, direction.x};
+    const ScreenPoint tip = {
+      centerX + direction.x * distance,
+      centerY + direction.y * distance,
+    };
+    const ScreenPoint base = {
+      tip.x - direction.x * chevronLength,
+      tip.y - direction.y * chevronLength,
+    };
+
+    if (indicator.selfDamage) {
+      addLine(
+        drawList,
+        {base.x - perpendicular.x * chevronWidth,
+         base.y - perpendicular.y * chevronWidth},
+        {base.x + perpendicular.x * chevronWidth,
+         base.y + perpendicular.y * chevronWidth},
+        color, lineWidth
+      );
+      continue;
+    }
+    addLine(
+      drawList,
+      {base.x - perpendicular.x * chevronWidth,
+       base.y - perpendicular.y * chevronWidth},
+      tip, color, lineWidth
+    );
+    addLine(
+      drawList,
+      {base.x + perpendicular.x * chevronWidth,
+       base.y + perpendicular.y * chevronWidth},
+      tip, color, lineWidth
+    );
+  }
+}
+
 void addHitMarker(
   DrawList2D& drawList,
   int width,
@@ -4401,6 +4502,12 @@ DrawList2D buildScreenUi(
   } else {
     addCrosshair(drawList, outputWidth, outputHeight, settings);
   }
+  addDirectionalDamageIndicators(
+    drawList,
+    outputWidth,
+    outputHeight,
+    hud.directionalDamage
+  );
   addHitMarker(drawList, outputWidth, outputHeight, settings);
   addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
   addDashIndicator(drawList, outputWidth, outputHeight, localPlayer, settings);

@@ -327,6 +327,17 @@ void copyTextToClipboard(std::string_view text) {
   };
 }
 
+[[nodiscard]] DirectionalDamageHudConfig directionalDamageHudConfig(
+  const ConsoleSystem& console
+) {
+  return {
+    console.getFloat("r_damage_indicator_duration"),
+    console.getFloat("r_damage_indicator_opacity"),
+    console.getFloat("r_damage_indicator_distance"),
+    console.getFloat("r_damage_indicator_scale"),
+  };
+}
+
 [[nodiscard]] LocalDamageSource localDamageSourceForWeapon(Weapon weapon) {
   if (weapon == Weapon::LightningGun) {
     return LocalDamageSource::LightningGun;
@@ -6322,6 +6333,12 @@ int GameApp::run() const {
   std::array<std::uint32_t, kDuelPlayerCount> lastDamageNumberFeedbackSequences = {};
   std::array<bool, kDuelPlayerCount> hasLastDamageNumberFeedbackSequence = {};
   bool damageNumberStateInitialized = false;
+  DirectionalDamageState directionalDamageState;
+  const ClientGame* directionalDamageGame = nullptr;
+  bool directionalDamageHasBody = false;
+  std::size_t directionalDamageBodyIndex = kDuelPlayerCount;
+  std::uint32_t directionalDamageMapRevision = 0;
+  std::uint32_t directionalDamageTimelineRevision = 0;
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount>
     lastPlayedGrenadeBounceAudioSequences = {};
@@ -9138,7 +9155,61 @@ int GameApp::run() const {
       lastDamageNumberFeedbackSequences = {};
       hasLastDamageNumberFeedbackSequence = {};
       damageNumberStateInitialized = false;
+      directionalDamageState.reset();
       audio.resetLightningGunFire();
+    }
+    const bool directionalDamageNowHasBody =
+      currentAudioGame != nullptr &&
+      currentAudioGame->hasSnapshot() &&
+      !session.spectator() &&
+      session.playerIndex() < kDuelPlayerCount;
+    const std::size_t directionalDamageNowBodyIndex =
+      directionalDamageNowHasBody ? session.playerIndex() : kDuelPlayerCount;
+    const std::uint32_t directionalDamageNowMapRevision =
+      currentAudioGame != nullptr && currentAudioGame->hasSnapshot()
+      ? currentAudioGame->snapshot().mapRevision : 0U;
+    const std::uint32_t directionalDamageNowTimelineRevision =
+      currentAudioGame != nullptr && currentAudioGame->hasSnapshot()
+      ? currentAudioGame->snapshot().damageFeedbackRevision : 0U;
+    if (
+      directionalDamageGame != currentAudioGame ||
+      directionalDamageHasBody != directionalDamageNowHasBody ||
+      directionalDamageBodyIndex != directionalDamageNowBodyIndex ||
+      directionalDamageMapRevision != directionalDamageNowMapRevision ||
+      directionalDamageTimelineRevision != directionalDamageNowTimelineRevision
+    ) {
+      directionalDamageState.reset();
+      directionalDamageGame = currentAudioGame;
+      directionalDamageHasBody = directionalDamageNowHasBody;
+      directionalDamageBodyIndex = directionalDamageNowBodyIndex;
+      directionalDamageMapRevision = directionalDamageNowMapRevision;
+      directionalDamageTimelineRevision = directionalDamageNowTimelineRevision;
+    }
+    if (directionalDamageNowHasBody) {
+      const ServerSnapshot& damageSnapshot = currentAudioGame->snapshot();
+      const DamageTakenEventRing& events =
+        damageSnapshot.damageTakenEvents[directionalDamageNowBodyIndex];
+      const DirectionalDamageHudConfig config =
+        directionalDamageHudConfig(console);
+      for (std::size_t eventIndex = 0;
+           eventIndex < kDamageTakenEventWindow;
+           ++eventIndex) {
+        if (!damageTakenEventActive(events, eventIndex)) {
+          continue;
+        }
+        const DamageTakenEvent& event = events.events[eventIndex];
+        directionalDamageState.addIncomingDamageEvent(
+          {
+            event.sequence,
+            static_cast<float>(event.direction256) *
+              (6.28318530718F / 256.0F),
+            static_cast<float>(event.presentationDamage) / 255.0F,
+            damageTakenDirectionValid(event),
+            damageTakenIsSelfDamage(event),
+          },
+          config
+        );
+      }
     }
     if (
       audioAvailable &&
@@ -10410,6 +10481,10 @@ int GameApp::run() const {
       outerFrameElapsed.count(),
       damageNumbersConfig(console)
     );
+    directionalDamageState.update(
+      outerFrameElapsed.count(),
+      directionalDamageHudConfig(console)
+    );
     updateKillFeedState(killFeedState, outerFrameElapsed.count());
     if (session.game() != nullptr && session.game()->hasSnapshot()) {
       consumeKillFeedEvents(killFeedState, session.game()->snapshot());
@@ -10588,6 +10663,17 @@ int GameApp::run() const {
     hud.sniperScopeAmount = sniperAdsAmount;
     hud.previousWeapon = previousViewWeapon;
     hud.damageNumbers = damageNumberState.presentation();
+    const bool damageIndicatorsEnabled =
+      console.getBool("r_damage_indicator") &&
+      !session.spectator() &&
+      session.game() != nullptr &&
+      session.game()->hasSnapshot() &&
+      session.playerIndex() < kDuelPlayerCount;
+    hud.directionalDamage = directionalDamageState.presentation(
+      renderPlayer.viewYawRadians,
+      directionalDamageHudConfig(console),
+      damageIndicatorsEnabled
+    );
     hud.killFeedLines = killFeedPresentation(killFeedState);
     if (console.getBool("cl_showfps")) {
       hud.fpsText = std::to_string(static_cast<int>(

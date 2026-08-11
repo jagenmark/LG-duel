@@ -310,6 +310,20 @@ private:
   std::size_t offset_ = 0;
 };
 
+bool writeAmmoValue(Writer& writer, std::int32_t value) {
+  return value >= 0 && value <= 999 &&
+    writer.writeU16(static_cast<std::uint16_t>(value));
+}
+
+bool readAmmoValue(Reader& reader, std::int32_t& value) {
+  std::uint16_t encoded = 0;
+  if (!reader.readU16(encoded) || encoded > 999U) {
+    return false;
+  }
+  value = static_cast<std::int32_t>(encoded);
+  return true;
+}
+
 bool writeHeader(Writer& writer, PacketType type) {
   return writer.writeU32(kProtocolMagic) &&
     writer.writeU16(kProtocolVersion) &&
@@ -634,15 +648,15 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeI32(packet.weaponDamage.plasmaGunDamage) &&
     writer.writeI32(packet.weaponDamage.freezeGunDamage) &&
     writer.writeBool(packet.weaponAmmo.infiniteAmmo) &&
-    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) &&
-    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) &&
-    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)]) &&
-    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::MachineGun)]) &&
-    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) &&
-    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) &&
-    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) &&
-    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) &&
-    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) &&
+    writeAmmoValue(writer, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) &&
+    writeAmmoValue(writer, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) &&
+    writeAmmoValue(writer, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)]) &&
+    writeAmmoValue(writer, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::MachineGun)]) &&
+    writeAmmoValue(writer, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) &&
+    writeAmmoValue(writer, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) &&
+    writeAmmoValue(writer, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) &&
+    writeAmmoValue(writer, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) &&
+    writeAmmoValue(writer, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) &&
     writer.writeFloat(packet.vampirism) &&
     writer.writeU8(packet.selfDamagePercent) &&
     writer.writeI32(packet.healthAmount) &&
@@ -666,6 +680,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
       writer.writeBool(packet.requestMcGuffinThrow) &&
       writer.writeBool(packet.wantsScoreboardStats) &&
       writer.writeU32(packet.acknowledgedConfigurationRevision) &&
+      writer.writeU32(packet.acknowledgedPlayerNameRevision) &&
       writeActionEdgeState(writer, packet.actionEdges);
 }
 
@@ -729,15 +744,15 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readI32(packet.weaponDamage.plasmaGunDamage) ||
     !reader.readI32(packet.weaponDamage.freezeGunDamage) ||
     !reader.readBool(packet.weaponAmmo.infiniteAmmo) ||
-    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) ||
-    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) ||
-    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)]) ||
-    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::MachineGun)]) ||
-    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) ||
-    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) ||
-    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) ||
-    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) ||
-    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) ||
+    !readAmmoValue(reader, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) ||
+    !readAmmoValue(reader, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) ||
+    !readAmmoValue(reader, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)]) ||
+    !readAmmoValue(reader, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::MachineGun)]) ||
+    !readAmmoValue(reader, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) ||
+    !readAmmoValue(reader, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) ||
+    !readAmmoValue(reader, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) ||
+    !readAmmoValue(reader, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) ||
+    !readAmmoValue(reader, packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) ||
     !reader.readFloat(packet.vampirism) ||
     !reader.readU8(packet.selfDamagePercent) ||
     !reader.readI32(packet.healthAmount) ||
@@ -761,6 +776,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
       !reader.readBool(packet.requestMcGuffinThrow) ||
       !reader.readBool(packet.wantsScoreboardStats) ||
       !reader.readU32(packet.acknowledgedConfigurationRevision) ||
+      !reader.readU32(packet.acknowledgedPlayerNameRevision) ||
       !readActionEdgeState(reader, packet.actionEdges)
     ) {
     return false;
@@ -932,6 +948,7 @@ bool writeCompactCommand(Writer& writer, const CommandPacket& packet) {
     writer.writeU8(static_cast<std::uint8_t>(command.weapon)) &&
     writer.writeU32(packet.viewedServerTick) &&
     writer.writeU32(packet.acknowledgedConfigurationRevision) &&
+    writer.writeU32(packet.acknowledgedPlayerNameRevision) &&
     writer.writeBool(hasControl) &&
     (!hasControl || writeCommandBody(writer, packet));
 }
@@ -964,6 +981,7 @@ bool readCompactCommand(
     !reader.readU8(weapon) ||
     !reader.readU32(compact.viewedServerTick) ||
     !reader.readU32(compact.acknowledgedConfigurationRevision) ||
+    !reader.readU32(compact.acknowledgedPlayerNameRevision) ||
     !reader.readBool(hasControl)
   ) {
     return false;
@@ -1001,7 +1019,9 @@ bool readCompactCommand(
     full.viewedServerTick != compact.viewedServerTick ||
     full.wantsScoreboardStats != compact.wantsScoreboardStats ||
     full.acknowledgedConfigurationRevision !=
-      compact.acknowledgedConfigurationRevision
+      compact.acknowledgedConfigurationRevision ||
+    full.acknowledgedPlayerNameRevision !=
+      compact.acknowledgedPlayerNameRevision
   ) {
     return false;
   }
@@ -1089,9 +1109,6 @@ bool readPlayer(Reader& reader, PlayerState& player) {
 }
 
 bool writeLightningGun(Writer& writer, const LightningGunResult& result) {
-  if (!writer.writeBool(result.active)) {
-    return false;
-  }
   if (!result.active) {
     return true;
   }
@@ -1123,12 +1140,7 @@ bool writeLightningGun(Writer& writer, const LightningGunResult& result) {
 bool readLightningGun(Reader& reader, LightningGunResult& result) {
   std::int32_t damageApplied = 0;
   std::uint8_t targetPlayerIndex = 255;
-  if (!reader.readBool(result.active)) {
-    return false;
-  }
-  if (!result.active) {
-    return true;
-  }
+  result.active = true;
   if (
     !readVec3(reader, result.start) ||
     !readVec3(reader, result.end) ||
@@ -1180,10 +1192,7 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
 }
 
 bool writeWeaponFire(Writer& writer, const WeaponFireResult& result) {
-  if (!writer.writeBool(result.fired)) {
-    return false;
-  }
-  return !result.fired || (writeVec3(writer, result.start) &&
+  return result.fired && (writeVec3(writer, result.start) &&
     writeVec3(writer, result.end) &&
     writer.writeBool(result.hit) &&
     writer.writeBool(result.headshot) &&
@@ -1203,12 +1212,7 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
   std::uint8_t pelletHitCount = 0;
   std::uint8_t pelletHeadshotCount = 0;
   std::uint32_t visualSeed = 0;
-  if (!reader.readBool(result.fired)) {
-    return false;
-  }
-  if (!result.fired) {
-    return true;
-  }
+  result.fired = true;
   if (
     !readVec3(reader, result.start) ||
     !readVec3(reader, result.end) ||
@@ -1244,31 +1248,23 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
 }
 
 bool writeRocketExplosion(Writer& writer, const RocketExplosionResult& result) {
-  if (result.weapon > kLastWeapon) {
+  if (!result.active || result.weapon > kLastWeapon) {
     return false;
   }
-  if (!writer.writeBool(result.active)) {
-    return false;
-  }
-  return !result.active || (writeVec3(writer, result.position) &&
+  return writeVec3(writer, result.position) &&
     writer.writeFloat(result.radius) &&
     writer.writeI32(result.ownerDamageApplied) &&
     writer.writeI32(result.opponentDamageApplied) &&
     writer.writeU32(result.sequence) &&
     writer.writeU32(result.projectileSequence) &&
-    writer.writeU8(static_cast<std::uint8_t>(result.weapon)));
+    writer.writeU8(static_cast<std::uint8_t>(result.weapon));
 }
 
 bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
   std::int32_t ownerDamageApplied = 0;
   std::int32_t opponentDamageApplied = 0;
   std::uint8_t weapon = 0;
-  if (!reader.readBool(result.active)) {
-    return false;
-  }
-  if (!result.active) {
-    return true;
-  }
+  result.active = true;
   if (
     !readVec3(reader, result.position) ||
     !reader.readFloat(result.radius) ||
@@ -1296,68 +1292,64 @@ bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
 }
 
 bool writeFootstepAudioEvent(Writer& writer, const FootstepAudioEvent& event) {
-  return writer.writeBool(event.active) && (!event.active || (
+  return event.active &&
     writer.writeBool(event.jumping) &&
     writer.writeBool(event.landing) &&
     writer.writeU32(event.sequence) &&
-    writeVec3(writer, event.position)));
+    writeVec3(writer, event.position);
 }
 
 bool readFootstepAudioEvent(Reader& reader, FootstepAudioEvent& event) {
-  return reader.readBool(event.active) && (!event.active || (
-    reader.readBool(event.jumping) &&
+  event.active = true;
+  return reader.readBool(event.jumping) &&
     reader.readBool(event.landing) &&
     reader.readU32(event.sequence) &&
-    readVec3(reader, event.position)));
+    readVec3(reader, event.position);
 }
 
 bool writeGrenadeBounceAudioEvent(
   Writer& writer,
   const GrenadeBounceAudioEvent& event
 ) {
-  return writer.writeBool(event.active) && (!event.active || (
-    writer.writeU32(event.sequence) &&
-    writeVec3(writer, event.position)));
+  return event.active && writer.writeU32(event.sequence) &&
+    writeVec3(writer, event.position);
 }
 
 bool readGrenadeBounceAudioEvent(
   Reader& reader,
   GrenadeBounceAudioEvent& event
 ) {
-  return reader.readBool(event.active) && (!event.active || (
-    reader.readU32(event.sequence) &&
-    readVec3(reader, event.position)));
+  event.active = true;
+  return reader.readU32(event.sequence) && readVec3(reader, event.position);
 }
 
 bool writeFragEvent(Writer& writer, const FragEvent& event) {
   if (
-    (event.active && event.targetPlayerIndex >= kDuelPlayerCount) ||
+    !event.active || event.targetPlayerIndex >= kDuelPlayerCount ||
     event.weapon > kLastWeapon
   ) {
     return false;
   }
-  return writer.writeBool(event.active) && (!event.active || (
-    writer.writeU32(event.sequence) &&
+  return writer.writeU32(event.sequence) &&
     writer.writeU8(event.targetPlayerIndex) &&
-    writer.writeU8(static_cast<std::uint8_t>(event.weapon))));
+    writer.writeU8(static_cast<std::uint8_t>(event.weapon));
 }
 
 bool readFragEvent(Reader& reader, FragEvent& event) {
   std::uint8_t weapon = 0;
   if (
-    !reader.readBool(event.active) ||
-    (!event.active ? false :
     !reader.readU32(event.sequence) ||
     !reader.readU8(event.targetPlayerIndex) ||
-    !reader.readU8(weapon))
+    !reader.readU8(weapon)
   ) {
     return false;
   }
   if (weapon > static_cast<std::uint8_t>(kLastWeapon)) {
     return false;
   }
+  event.active = true;
   event.weapon = static_cast<Weapon>(weapon);
-  return !event.active || event.targetPlayerIndex < kDuelPlayerCount;
+  return event.targetPlayerIndex < kDuelPlayerCount;
 }
 
 bool writeLocalHitFeedbackEvent(
@@ -1365,18 +1357,17 @@ bool writeLocalHitFeedbackEvent(
   const LocalHitFeedbackEvent& event
 ) {
   if (
-    (event.active && event.targetPlayerIndex >= kDuelPlayerCount) ||
+    !event.active || event.targetPlayerIndex >= kDuelPlayerCount ||
     event.damageApplied < 0 ||
     event.weapon > kLastWeapon
   ) {
     return false;
   }
-  return writer.writeBool(event.active) && (!event.active || (
-    writer.writeU32(event.sequence) &&
+  return writer.writeU32(event.sequence) &&
     writer.writeU8(event.targetPlayerIndex) &&
     writer.writeI32(event.damageApplied) &&
     writer.writeBool(event.headshot) &&
-    writer.writeU8(static_cast<std::uint8_t>(event.weapon))));
+    writer.writeU8(static_cast<std::uint8_t>(event.weapon));
 }
 
 bool readLocalHitFeedbackEvent(
@@ -1386,48 +1377,98 @@ bool readLocalHitFeedbackEvent(
   std::uint8_t weapon = 0;
   std::int32_t damageApplied = 0;
   if (
-    !reader.readBool(event.active) ||
-    (!event.active ? false :
     !reader.readU32(event.sequence) ||
     !reader.readU8(event.targetPlayerIndex) ||
     !reader.readI32(damageApplied) ||
     !reader.readBool(event.headshot) ||
-    !reader.readU8(weapon))
+    !reader.readU8(weapon)
   ) {
     return false;
   }
   if (
-    (event.active && event.targetPlayerIndex >= kDuelPlayerCount) ||
+    event.targetPlayerIndex >= kDuelPlayerCount ||
     damageApplied < 0 ||
     weapon > static_cast<std::uint8_t>(kLastWeapon)
   ) {
     return false;
   }
+  event.active = true;
   event.damageApplied = damageApplied;
   event.weapon = static_cast<Weapon>(weapon);
   return true;
 }
 
+bool validDamageTakenEvent(
+  const DamageTakenEvent& event,
+  std::size_t victimIndex
+) {
+  const std::uint8_t flags = event.metadata & 0x0FU;
+  const std::uint8_t attacker = damageTakenAttackerIndex(event);
+  const bool attackerValid = (flags & kDamageTakenAttackerValid) != 0U;
+  const bool selfDamage = (flags & kDamageTakenSelfDamage) != 0U;
+  return victimIndex < kDuelPlayerCount &&
+    event.sequence != 0U && event.presentationDamage != 0U &&
+    event.weapon <= kLastWeapon &&
+    (flags & ~kDamageTakenMetadataFlags) == 0U &&
+    (((flags & kDamageTakenDirectionValid) != 0U) || event.direction256 == 0U) &&
+    (attackerValid || attacker == 0U) &&
+    (!attackerValid || attacker < kDuelPlayerCount) &&
+    selfDamage == (attackerValid && attacker == victimIndex);
+}
+
+bool writeDamageTakenEvent(
+  Writer& writer,
+  const DamageTakenEvent& event,
+  std::size_t victimIndex
+) {
+  if (!validDamageTakenEvent(event, victimIndex)) {
+    return false;
+  }
+  return writer.writeU32(event.sequence) &&
+    writer.writeU8(event.direction256) &&
+    writer.writeU8(event.presentationDamage) &&
+    writer.writeU8(event.metadata) &&
+    writer.writeU8(static_cast<std::uint8_t>(event.weapon));
+}
+
+bool readDamageTakenEvent(
+  Reader& reader,
+  DamageTakenEvent& event,
+  std::size_t victimIndex
+) {
+  std::uint8_t weapon = 0;
+  if (!reader.readU32(event.sequence) ||
+      !reader.readU8(event.direction256) ||
+      !reader.readU8(event.presentationDamage) ||
+      !reader.readU8(event.metadata) ||
+      !reader.readU8(weapon)) {
+    return false;
+  }
+  if (weapon > static_cast<std::uint8_t>(kLastWeapon)) {
+    return false;
+  }
+  event.weapon = static_cast<Weapon>(weapon);
+  return validDamageTakenEvent(event, victimIndex);
+}
+
 bool writeIcePool(Writer& writer, const IcePool& pool) {
-  return writer.writeBool(pool.active) && (!pool.active || (
-    writeVec3(writer, pool.center) &&
+  return pool.active && writeVec3(writer, pool.center) &&
     writeVec3(writer, pool.normal) &&
     writer.writeFloat(pool.radius) &&
-    writer.writeFloat(pool.lifetimeSeconds)));
+    writer.writeFloat(pool.lifetimeSeconds);
 }
 
 bool readIcePool(Reader& reader, IcePool& pool) {
   if (
-    !reader.readBool(pool.active) ||
-    (!pool.active ? false :
     !readVec3(reader, pool.center) ||
     !readVec3(reader, pool.normal) ||
     !reader.readFloat(pool.radius) ||
-    !reader.readFloat(pool.lifetimeSeconds))
+    !reader.readFloat(pool.lifetimeSeconds)
   ) {
     return false;
   }
-  return !pool.active || (
+  pool.active = true;
+  return (
     pool.radius >= 0.0F &&
     pool.radius <= 100.0F &&
     pool.lifetimeSeconds >= 0.0F &&
@@ -1528,6 +1569,68 @@ bool readSparseArray(Reader& reader, Array& values, ReadValue readValue) {
         !readValue(reader, values[index])) {
       return false;
     }
+  }
+  return true;
+}
+
+template <std::size_t Count>
+bool writeBoolArrayMask(
+  Writer& writer,
+  const std::array<bool, Count>& values
+) {
+  if constexpr (Count <= 16U) {
+    std::uint16_t mask = 0;
+    for (std::size_t index = 0; index < Count; ++index) {
+      if (values[index]) {
+        mask |= static_cast<std::uint16_t>(std::uint16_t{1} << index);
+      }
+    }
+    return writer.writeU16(mask);
+  }
+
+  constexpr std::size_t wordCount = (Count + 31U) / 32U;
+  std::array<std::uint32_t, wordCount> masks = {};
+  for (std::size_t index = 0; index < Count; ++index) {
+    if (values[index]) {
+      masks[index / 32U] |= std::uint32_t{1} << (index % 32U);
+    }
+  }
+  for (const std::uint32_t mask : masks) {
+    if (!writer.writeU32(mask)) return false;
+  }
+  return true;
+}
+
+template <std::size_t Count>
+bool readBoolArrayMask(Reader& reader, std::array<bool, Count>& values) {
+  if constexpr (Count <= 16U) {
+    std::uint16_t mask = 0;
+    if (!reader.readU16(mask)) return false;
+    if constexpr (Count < 16U) {
+      constexpr std::uint16_t validMask =
+        static_cast<std::uint16_t>((std::uint16_t{1} << Count) - 1U);
+      if ((mask & static_cast<std::uint16_t>(~validMask)) != 0U) return false;
+    }
+    for (std::size_t index = 0; index < Count; ++index) {
+      values[index] = (mask & (std::uint16_t{1} << index)) != 0U;
+    }
+    return true;
+  }
+
+  constexpr std::size_t wordCount = (Count + 31U) / 32U;
+  std::array<std::uint32_t, wordCount> masks = {};
+  for (std::uint32_t& mask : masks) {
+    if (!reader.readU32(mask)) return false;
+  }
+  constexpr std::size_t lastWordBits = Count % 32U;
+  if constexpr (lastWordBits != 0U) {
+    constexpr std::uint32_t validLastMask =
+      (std::uint32_t{1} << lastWordBits) - 1U;
+    if ((masks.back() & ~validLastMask) != 0U) return false;
+  }
+  for (std::size_t index = 0; index < Count; ++index) {
+    values[index] = (masks[index / 32U] &
+      (std::uint32_t{1} << (index % 32U))) != 0U;
   }
   return true;
 }
@@ -1734,7 +1837,9 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     !isValidMapName(snapshot.map.mapName) ||
     snapshot.map.contentHash == 0 ||
     snapshot.mapRevision == 0U ||
+    snapshot.damageFeedbackRevision == 0U ||
     snapshot.projectileRevision == 0U ||
+    snapshot.playerNameRevision == 0U ||
     !isValidWeaponSwitchingMode(snapshot.weaponSwitchingMode) ||
     !isValidBotAttackMode(snapshot.botAttackMode) ||
     !isValidWeapon(snapshot.botWeapon) ||
@@ -1786,6 +1891,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     !writer.writeU32(snapshot.acknowledgedCommandDatagramSequence) ||
     !writer.writeU32(snapshot.commandDatagramAckBits) ||
     !writer.writeU32(snapshot.mapRevision) ||
+    !writer.writeU32(snapshot.damageFeedbackRevision) ||
     !writer.writeU32(snapshot.projectileRevision) ||
     !writer.writeString(snapshot.map.mapName, kMaxMapNameBytes) ||
     !writer.writeU32(snapshot.map.contentHash)
@@ -1799,12 +1905,12 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   }
 
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-    if (
-      !writer.writeU32(snapshot.acknowledgedCommand[index]) ||
-      !writer.writeBool(snapshot.hasAcknowledgedCommand[index])
-    ) {
+    if (!writer.writeU32(snapshot.acknowledgedCommand[index])) {
       return false;
     }
+  }
+  if (!writeBoolArrayMask(writer, snapshot.hasAcknowledgedCommand)) {
+    return false;
   }
   for (const PlayerState& player : snapshot.players) {
     if (!writePlayer(writer, player)) {
@@ -1823,7 +1929,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   }
   for (const WeaponAmmoArray& ammo : snapshot.playerAmmo) {
     for (std::int32_t value : ammo) {
-      if (!writer.writeI32(value)) {
+      if (!writeAmmoValue(writer, value)) {
         return false;
       }
     }
@@ -1871,14 +1977,42 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       }
     }
   }
+  constexpr std::size_t damageTakenBitCount =
+    kDuelPlayerCount * kDamageTakenEventWindow;
+  constexpr std::size_t damageTakenWordCount =
+    (damageTakenBitCount + 31U) / 32U;
+  std::array<std::uint32_t, damageTakenWordCount> damageTakenMasks = {};
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    for (std::size_t eventIndex = 0; eventIndex < kDamageTakenEventWindow; ++eventIndex) {
+      const std::size_t bit = playerIndex * kDamageTakenEventWindow + eventIndex;
+      if (damageTakenEventActive(snapshot.damageTakenEvents[playerIndex], eventIndex)) {
+        damageTakenMasks[bit / 32U] |= std::uint32_t{1} << (bit % 32U);
+      }
+    }
+  }
+  for (const std::uint32_t mask : damageTakenMasks) {
+    if (!writer.writeU32(mask)) return false;
+  }
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    for (std::size_t eventIndex = 0; eventIndex < kDamageTakenEventWindow; ++eventIndex) {
+      const std::size_t bit = playerIndex * kDamageTakenEventWindow + eventIndex;
+      if ((damageTakenMasks[bit / 32U] &
+           (std::uint32_t{1} << (bit % 32U))) != 0U &&
+          !writeDamageTakenEvent(
+            writer,
+            snapshot.damageTakenEvents[playerIndex].events[eventIndex],
+            playerIndex
+          )) {
+        return false;
+      }
+    }
+  }
   if (!writeSparseArray(writer, snapshot.icePools,
         [](const auto& value) { return value.active; }, writeIcePool)) {
     return false;
   }
-  for (bool available : snapshot.healthPickupAvailable) {
-    if (!writer.writeBool(available)) {
-      return false;
-    }
+  if (!writeBoolArrayMask(writer, snapshot.healthPickupAvailable)) {
+    return false;
   }
   for (std::uint32_t ticks : snapshot.respawnTicksRemaining) {
     if (!writer.writeU32(ticks)) {
@@ -1935,25 +2069,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   ) {
     return false;
   }
-  for (bool connected : snapshot.connectedPlayers) {
-    if (!writer.writeBool(connected)) {
-      return false;
-    }
-  }
-  for (bool bot : snapshot.botPlayers) {
-    if (!writer.writeBool(bot)) {
-      return false;
-    }
-  }
-  for (bool participating : snapshot.participatingPlayers) {
-    if (!writer.writeBool(participating)) {
-      return false;
-    }
-  }
-  for (bool ready : snapshot.readyPlayers) {
-    if (!writer.writeBool(ready)) {
-      return false;
-    }
+  if (!writeBoolArrayMask(writer, snapshot.connectedPlayers) ||
+      !writeBoolArrayMask(writer, snapshot.botPlayers) ||
+      !writeBoolArrayMask(writer, snapshot.participatingPlayers) ||
+      !writeBoolArrayMask(writer, snapshot.readyPlayers)) {
+    return false;
   }
   if (!writer.writeBool(snapshot.hasCombatStats)) {
     return false;
@@ -1970,9 +2090,15 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       }
     }
   }
-  for (const std::string& playerName : snapshot.playerNames) {
-    if (!writer.writeString(playerName, kMaxPlayerNameBytes)) {
-      return false;
+  if (!writer.writeU32(snapshot.playerNameRevision) ||
+      !writer.writeBool(snapshot.hasPlayerNames)) {
+    return false;
+  }
+  if (snapshot.hasPlayerNames) {
+    for (const std::string& playerName : snapshot.playerNames) {
+      if (!writer.writeString(playerName, kMaxPlayerNameBytes)) {
+        return false;
+      }
     }
   }
   if (!writer.writeU8(static_cast<std::uint8_t>(snapshot.matchPhase)) ||
@@ -2034,15 +2160,15 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.projectilePresentation.grenadeBounceDamping) &&
     writer.writeFloat(snapshot.projectilePresentation.grenadeRestSpeed) &&
     writer.writeBool(snapshot.weaponAmmo.infiniteAmmo) &&
-    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) &&
-    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) &&
-    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)]) &&
-    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::MachineGun)]) &&
-    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) &&
-    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) &&
-    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) &&
-    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) &&
-    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) &&
+    writeAmmoValue(writer, snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) &&
+    writeAmmoValue(writer, snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) &&
+    writeAmmoValue(writer, snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)]) &&
+    writeAmmoValue(writer, snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::MachineGun)]) &&
+    writeAmmoValue(writer, snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) &&
+    writeAmmoValue(writer, snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) &&
+    writeAmmoValue(writer, snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) &&
+    writeAmmoValue(writer, snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) &&
+    writeAmmoValue(writer, snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) &&
     writer.writeFloat(snapshot.vampirism) &&
     writer.writeU8(snapshot.selfDamagePercent) &&
     writer.writeI32(snapshot.healthAmount) &&
@@ -2102,23 +2228,7 @@ bool encodeBoundedGameplaySnapshot(
   bounded.grenadeBounceAudioEvents.fill({});
   if (encodeServerSnapshot(bounded, wire)) return true;
 
-  // Hit feedback is recipient-specific only when the transport tags its
-  // recipient. Loopback and simulated snapshots have no such tag, so preserve
-  // every window there and move to the next fallback tier.
-  if (bounded.hasLocalClientState) {
-    for (std::size_t player = 0; player < kDuelPlayerCount; ++player) {
-      if (
-        bounded.localSpectator ||
-        player != bounded.localPlayerIndex
-      ) {
-        bounded.localHitFeedbackEvents[player].fill({});
-      }
-    }
-    if (encodeServerSnapshot(bounded, wire)) return true;
-  }
-
-  // Recurring beams cost less to lose than one-shot feedback. Keep hit
-  // confirmations and frag events until lower-priority visuals are gone.
+  // Recurring beams cost less to lose than one-shot feedback.
   bounded.lightningGuns.fill({});
   if (encodeServerSnapshot(bounded, wire)) return true;
 
@@ -2130,6 +2240,9 @@ bool encodeBoundedGameplaySnapshot(
 
   bounded.fragEvents.fill({});
   for (auto& events : bounded.localHitFeedbackEvents) events.fill({});
+  if (encodeServerSnapshot(bounded, wire)) return true;
+
+  for (DamageTakenEventRing& events : bounded.damageTakenEvents) events.clear();
   return encodeServerSnapshot(bounded, wire);
 }
 
@@ -2149,12 +2262,14 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readU32(decoded.acknowledgedCommandDatagramSequence) ||
     !reader.readU32(decoded.commandDatagramAckBits) ||
     !reader.readU32(decoded.mapRevision) ||
+    !reader.readU32(decoded.damageFeedbackRevision) ||
     !reader.readU32(decoded.projectileRevision) ||
     !reader.readString(decoded.map.mapName, kMaxMapNameBytes) ||
     !reader.readU32(decoded.map.contentHash) ||
     !isValidMapName(decoded.map.mapName) ||
     decoded.map.contentHash == 0 ||
     decoded.mapRevision == 0U ||
+    decoded.damageFeedbackRevision == 0U ||
     decoded.projectileRevision == 0U ||
     (decoded.hasLocalClientState && !decoded.localSpectator &&
      decoded.localPlayerIndex >= kDuelPlayerCount) ||
@@ -2164,12 +2279,12 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
 
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-    if (
-      !reader.readU32(decoded.acknowledgedCommand[index]) ||
-      !reader.readBool(decoded.hasAcknowledgedCommand[index])
-    ) {
+    if (!reader.readU32(decoded.acknowledgedCommand[index])) {
       return false;
     }
+  }
+  if (!readBoolArrayMask(reader, decoded.hasAcknowledgedCommand)) {
+    return false;
   }
   for (PlayerState& player : decoded.players) {
     if (!readPlayer(reader, player)) {
@@ -2193,7 +2308,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   for (WeaponAmmoArray& ammo : decoded.playerAmmo) {
     for (std::int32_t& value : ammo) {
-      if (!reader.readI32(value) || value < 0 || value > 999) {
+      if (!readAmmoValue(reader, value)) {
         return false;
       }
     }
@@ -2233,13 +2348,37 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       }
     }
   }
+  constexpr std::size_t damageTakenBitCount =
+    kDuelPlayerCount * kDamageTakenEventWindow;
+  constexpr std::size_t damageTakenWordCount =
+    (damageTakenBitCount + 31U) / 32U;
+  std::array<std::uint32_t, damageTakenWordCount> damageTakenMasks = {};
+  for (std::uint32_t& mask : damageTakenMasks) {
+    if (!reader.readU32(mask)) return false;
+  }
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    for (std::size_t eventIndex = 0; eventIndex < kDamageTakenEventWindow; ++eventIndex) {
+      const std::size_t bit = playerIndex * kDamageTakenEventWindow + eventIndex;
+      if ((damageTakenMasks[bit / 32U] &
+           (std::uint32_t{1} << (bit % 32U))) != 0U) {
+        if (!readDamageTakenEvent(
+              reader,
+              decoded.damageTakenEvents[playerIndex].events[eventIndex],
+              playerIndex
+            ) ||
+            !setDamageTakenEventActive(
+              decoded.damageTakenEvents[playerIndex], eventIndex
+            )) {
+          return false;
+        }
+      }
+    }
+  }
   if (!readSparseArray(reader, decoded.icePools, readIcePool)) {
     return false;
   }
-  for (bool& available : decoded.healthPickupAvailable) {
-    if (!reader.readBool(available)) {
-      return false;
-    }
+  if (!readBoolArrayMask(reader, decoded.healthPickupAvailable)) {
+    return false;
   }
   for (std::uint32_t& ticks : decoded.respawnTicksRemaining) {
     if (!reader.readU32(ticks)) {
@@ -2332,25 +2471,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   ) {
     return false;
   }
-  for (bool& connected : decoded.connectedPlayers) {
-    if (!reader.readBool(connected)) {
-      return false;
-    }
-  }
-  for (bool& bot : decoded.botPlayers) {
-    if (!reader.readBool(bot)) {
-      return false;
-    }
-  }
-  for (bool& participating : decoded.participatingPlayers) {
-    if (!reader.readBool(participating)) {
-      return false;
-    }
-  }
-  for (bool& ready : decoded.readyPlayers) {
-    if (!reader.readBool(ready)) {
-      return false;
-    }
+  if (!readBoolArrayMask(reader, decoded.connectedPlayers) ||
+      !readBoolArrayMask(reader, decoded.botPlayers) ||
+      !readBoolArrayMask(reader, decoded.participatingPlayers) ||
+      !readBoolArrayMask(reader, decoded.readyPlayers)) {
+    return false;
   }
   if (!reader.readBool(decoded.hasCombatStats)) {
     return false;
@@ -2367,9 +2492,16 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       }
     }
   }
-  for (std::string& playerName : decoded.playerNames) {
-    if (!reader.readString(playerName, kMaxPlayerNameBytes)) {
-      return false;
+  if (!reader.readU32(decoded.playerNameRevision) ||
+      decoded.playerNameRevision == 0U ||
+      !reader.readBool(decoded.hasPlayerNames)) {
+    return false;
+  }
+  if (decoded.hasPlayerNames) {
+    for (std::string& playerName : decoded.playerNames) {
+      if (!reader.readString(playerName, kMaxPlayerNameBytes)) {
+        return false;
+      }
     }
   }
   std::uint8_t matchPhase = 0;
@@ -2436,15 +2568,15 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.projectilePresentation.grenadeBounceDamping) ||
     !reader.readFloat(decoded.projectilePresentation.grenadeRestSpeed) ||
     !reader.readBool(decoded.weaponAmmo.infiniteAmmo) ||
-    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) ||
-    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) ||
-    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)]) ||
-    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::MachineGun)]) ||
-    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) ||
-    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) ||
-    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) ||
-    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) ||
-    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) ||
+    !readAmmoValue(reader, decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) ||
+    !readAmmoValue(reader, decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) ||
+    !readAmmoValue(reader, decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)]) ||
+    !readAmmoValue(reader, decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::MachineGun)]) ||
+    !readAmmoValue(reader, decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) ||
+    !readAmmoValue(reader, decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) ||
+    !readAmmoValue(reader, decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) ||
+    !readAmmoValue(reader, decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) ||
+    !readAmmoValue(reader, decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) ||
     !reader.readFloat(decoded.vampirism) ||
     !reader.readU8(decoded.selfDamagePercent) ||
     !reader.readI32(decoded.healthAmount) ||
