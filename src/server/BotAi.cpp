@@ -1405,6 +1405,52 @@ BotNavigationMap buildBotNavigationMap(
       }
     }
   }
+  // Open maps with no one-way movement can exhaust the full bulk budget long
+  // after every gameplay anchor already has a proved route. Keep a fair base
+  // flood, then stop only when one required anchor reaches every other one in
+  // both directions. Maps with pads or teleports retain the full directed
+  // build because their useful coverage cannot be reduced to one strong
+  // component.
+  constexpr std::size_t kMinimumConnectedRegionWork = 512U;
+  const bool mayStopAtConnectedAnchors = arena.jumpPadCount == 0U &&
+    arena.teleportCount == 0U;
+  const auto requiredAnchorsStronglyConnected = [&] {
+    const std::size_t anchorCount = std::min(map.requiredAnchorCount,
+      map.requiredAnchors.size());
+    std::size_t root = BotNavigationMap::kMaxNodes;
+    for (std::size_t index = 0; index < anchorCount; ++index) {
+      const std::size_t node = map.requiredAnchors[index].node;
+      if (node >= map.nodeCount) return false;
+      if (root == BotNavigationMap::kMaxNodes) root = node;
+    }
+    if (root == BotNavigationMap::kMaxNodes) return false;
+    const auto reachesAllAnchors = [&](bool reverse) {
+      std::array<bool, BotNavigationMap::kMaxNodes> reached = {};
+      std::array<std::size_t, BotNavigationMap::kMaxNodes> queue = {};
+      std::size_t head = 0;
+      std::size_t tail = 0;
+      reached[root] = true;
+      queue[tail++] = root;
+      while (head < tail) {
+        const std::size_t current = queue[head++];
+        for (std::size_t link = 0; link < map.linkCount; ++link) {
+          const BotNavLink& edge = map.links[link];
+          const std::size_t from = reverse ? edge.to : edge.from;
+          const std::size_t to = reverse ? edge.from : edge.to;
+          if (from == current && !reached[to]) {
+            reached[to] = true;
+            queue[tail++] = to;
+          }
+        }
+      }
+      for (std::size_t index = 0; index < anchorCount; ++index) {
+        if (!reached[map.requiredAnchors[index].node]) return false;
+      }
+      return true;
+    };
+    return reachesAllAnchors(false) && reachesAllAnchors(true);
+  };
+  bool stoppedAtConnectedAnchors = false;
   const auto runFlood = [&] {
     while (map.regionExpansionWork < kRegionExpansionWorkLimit && map.linkCount < map.links.size()) {
       bool progressed = false;
@@ -1455,10 +1501,16 @@ BotNavigationMap buildBotNavigationMap(
       if (createdNode) ++map.regionNodeCount;
       }
       if (!progressed) break;
+      if (mayStopAtConnectedAnchors &&
+          map.regionExpansionWork >= kMinimumConnectedRegionWork &&
+          requiredAnchorsStronglyConnected()) {
+        stoppedAtConnectedAnchors = true;
+        break;
+      }
     }
   };
   runFlood();
-  if (map.regionExpansionWork < kRegionExpansionWorkLimit &&
+  if (!stoppedAtConnectedAnchors && map.regionExpansionWork < kRegionExpansionWorkLimit &&
       activeSeedCount < totalSeedCount) {
     activeSeedCount = totalSeedCount;
     floodNodeLimit = kBulkNodeLimit;
