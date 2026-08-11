@@ -2,6 +2,8 @@
 
 #include "net/NetProtocol.hpp"
 #include "net/NetTransport.hpp"
+#include "replay/ReplayRecorder.hpp"
+#include "replay/ReplayRollingBuffer.hpp"
 #include "scenario/ScenarioState.hpp"
 #include "sim/Arena.hpp"
 #include "sim/BalanceConfig.hpp"
@@ -12,6 +14,7 @@
 #include <array>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -100,6 +103,39 @@ public:
   [[nodiscard]] const std::string& mapDirectory() const;
   [[nodiscard]] const std::string& spawnDebugString() const;
   [[nodiscard]] const MatchRules& matchRules() const;
+
+  [[nodiscard]] bool beginReplayRecording(
+    replay::ReplayRecordingConfig config = {},
+    std::string* error = nullptr
+  );
+  [[nodiscard]] std::optional<replay::ReplayDemo> finishReplayRecording();
+  [[nodiscard]] bool replayRecordingActive() const;
+  [[nodiscard]] replay::ReplayRecorderStats replayRecorderStats() const;
+  [[nodiscard]] replay::ReplayCheckpointCaptureStats replayCheckpointCaptureStats() const;
+  [[nodiscard]] bool beginRollingReplay(
+    replay::ReplayRollingBufferConfig config = {},
+    std::string* error = nullptr
+  );
+  void endRollingReplay();
+  [[nodiscard]] replay::ReplayRollingBufferStats rollingReplayStats() const;
+  [[nodiscard]] std::optional<replay::ReplayDemo> extractRollingReplaySegment(
+    const replay::ReplayLethalEvent& event,
+    std::uint32_t beforeTicks,
+    std::uint32_t afterTicks,
+    std::string* error = nullptr
+  ) const;
+  [[nodiscard]] std::optional<replay::ReplayLethalEvent> latestReplayLethal() const;
+  [[nodiscard]] replay::ReplayCheckpoint captureReplayCheckpoint() const;
+  [[nodiscard]] bool restoreReplayCheckpoint(
+    const replay::ReplayCheckpoint& checkpoint,
+    const replay::ReplayMetadata& metadata,
+    std::string* error = nullptr
+  );
+  [[nodiscard]] bool injectReplayInput(
+    const replay::ReplayTickInput& input,
+    std::string* error = nullptr
+  );
+  void endReplayPlayback();
 
 private:
   struct HistoryFrame {
@@ -204,6 +240,12 @@ private:
   void rememberTransientCombatEvents();
   void updateParticipatingPlayers();
   void updateBotCommands(float fixedDt);
+  [[nodiscard]] replay::ReplayTickInput captureResolvedReplayInput() const;
+  [[nodiscard]] replay::ReplayMetadata replayMetadata() const;
+  [[nodiscard]] std::uint64_t replayGameplayConfigHash() const;
+  void resetRollingReplay();
+  void recordReplayLethal(std::size_t attackerIndex, std::size_t targetIndex, Weapon weapon);
+  void applyReplayInput(const replay::ReplayTickInput& input);
   void handleBotCommandRequest(const CommandPacket& packet);
   void updateClanArenaBotTeams();
   void refreshWarmupRosterState();
@@ -361,6 +403,13 @@ private:
   std::array<std::uint32_t, kMaxNetworkClients> acknowledgedChatCommands_ = {};
   std::array<bool, kMaxNetworkClients> hasAcknowledgedChatCommand_ = {};
   ServerSnapshot snapshot_ = {};
+  std::unique_ptr<replay::ReplayRecorder> replayRecorder_ = {};
+  std::unique_ptr<replay::ReplayRollingBuffer> rollingReplay_ = {};
+  replay::ReplayCheckpointCaptureStats replayCheckpointCaptureStats_ = {};
+  std::optional<replay::ReplayLethalEvent> latestReplayLethal_ = {};
+  std::uint32_t replayGeneration_ = 1;
+  std::optional<replay::ReplayTickInput> pendingReplayInput_ = {};
+  bool replayPlayback_ = false;
 };
 
 } // namespace lg
