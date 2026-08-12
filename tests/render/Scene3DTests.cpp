@@ -332,6 +332,14 @@ float maxVertexX(const lg::Scene3D& scene) {
   return result;
 }
 
+float nearestTranslucentVertexDistance(const lg::Scene3D& scene, lg::Vec3 point) {
+  float result = std::numeric_limits<float>::infinity();
+  for (const lg::Vertex3D& vertex : scene.translucentVertices) {
+    result = std::min(result, lg::length(vertex.position - point));
+  }
+  return result;
+}
+
 bool hasAnyVertex(const lg::Scene3D& scene) {
   return !scene.vertices.empty() || !scene.translucentVertices.empty();
 }
@@ -2483,27 +2491,47 @@ int main() {
   }
 
   opponent.velocity = lg::yawRight(opponent.viewYawRadians) * 8.0F;
+  lg::RemotePlayerView workerRunRemote;
+  workerRunRemote.player = opponent;
+  workerRunRemote.selectedWeapon = lg::Weapon::LightningGun;
+  workerRunRemote.visible = true;
+  workerRunRemote.presentation.poseLayers[0] = {
+    "RUN", 0.25F, 1.0F, lg::PlayerPoseLayerMask::FullBody,
+  };
+  workerRunRemote.presentation.poseLayerCount = 1U;
+  workerRunRemote.hasPresentation = true;
+  lg::RemotePlayerView workerLeanRemote = workerRunRemote;
+  workerLeanRemote.presentation.poseLayers[0] = {
+    "STRAFE_LEFT", 0.25F, 1.0F, lg::PlayerPoseLayerMask::FullBody,
+  };
+  workerLeanRemote.presentation.poseLayers[1] = {
+    "LEAN_LEFT", 0.25F, 1.0F, lg::PlayerPoseLayerMask::UpperBody,
+  };
+  workerLeanRemote.presentation.poseLayerCount = 2U;
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> workerRunRemotes = {};
+  workerRunRemotes[0] = workerRunRemote;
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> workerLeanRemotes = {};
+  workerLeanRemotes[0] = workerLeanRemote;
   lg::RenderSettings leanSettings = settings;
   leanSettings.enemyLeanScale = 3.0F;
-  const lg::Scene3D leanScene = lg::buildPerspectiveScene(
+  leanSettings.enemyLeanEnabled = false;
+  const lg::Scene3D leanDisabledScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
     player,
-    opponent,
-    inactiveBeam,
+    workerRunRemotes,
     inactiveBeam,
     weaponFires,
     rocketExplosions,
     rockets,
     leanSettings
   );
-  leanSettings.enemyLeanEnabled = false;
-  const lg::Scene3D leanDisabledScene = lg::buildPerspectiveScene(
+  leanSettings.enemyLeanEnabled = true;
+  const lg::Scene3D leanScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
     player,
-    opponent,
-    inactiveBeam,
+    workerLeanRemotes,
     inactiveBeam,
     weaponFires,
     rocketExplosions,
@@ -2515,11 +2543,26 @@ int main() {
       leanDisabledScene.gltfPlayerModelInstances.size() == 1U,
     "disabled enemy lean should keep the camera upright and avoid velocity roll"
   );
+  constexpr std::array<std::size_t, 8> workerLegJoints = {{
+    65U, 66U, 67U, 68U, 69U, 70U, 71U, 72U,
+  }};
+  constexpr std::array<std::size_t, 14> workerUpperBodyJoints = {{
+    3U, 4U, 5U, 6U, 7U, 8U, 9U, 10U, 11U, 12U, 37U, 38U, 39U, 40U,
+  }};
   failures += expect(
     leanScene.gltfPlayerModelInstances.size() == 1U &&
       leanScene.gltfBonePalette.size() == leanDisabledScene.gltfBonePalette.size() &&
-      maxPaletteDelta(leanScene.gltfBonePalette, leanDisabledScene.gltfBonePalette) <= 0.0001F,
-    "Worker should keep its authored body pose when no legacy Duelist lean clip is selected"
+      maxPaletteDeltaAtIndices(
+        leanScene.gltfBonePalette,
+        leanDisabledScene.gltfBonePalette,
+        workerLegJoints
+      ) <= 0.0001F &&
+      maxPaletteDeltaAtIndices(
+        leanScene.gltfBonePalette,
+        leanDisabledScene.gltfBonePalette,
+        workerUpperBodyJoints
+      ) > 0.001F,
+    "Worker horizontal movement should keep RUN legs while leaning above the waist"
   );
   opponent.velocity = {};
 
@@ -2590,7 +2633,7 @@ int main() {
       strafeRunSettings
     );
     constexpr std::array<std::size_t, 6> legJoints = {{
-      14U, 15U, 16U, 17U, 18U, 19U,
+      65U, 66U, 67U, 69U, 70U, 71U,
     }};
     const float fullStrafeLegDelta = maxPaletteDeltaAtIndices(
       strafeRunStartScene.gltfBonePalette,
@@ -4570,19 +4613,50 @@ int main() {
     localRevolverTracerSettings,
     localRevolverCameraStep
   );
-  const lg::Vec3 expectedLocalRevolverMuzzle =
-    lg::firstPersonRevolverMuzzlePosition(player, localRevolverTracerSettings) +
-    lg::Vec3{0.0F, 0.0F, localRevolverCameraStep};
-  float nearestLocalRevolverTracerVertex = std::numeric_limits<float>::infinity();
-  for (const lg::Vertex3D& vertex : localRevolverTracerScene.translucentVertices) {
-    nearestLocalRevolverTracerVertex = std::min(
-      nearestLocalRevolverTracerVertex,
-      lg::length(vertex.position - expectedLocalRevolverMuzzle)
+  const lg::Vec3 expectedLocalRevolverFireStart = localRevolverFires[0].start;
+  const float nearestLocalRevolverTracerVertex =
+    nearestTranslucentVertexDistance(
+      localRevolverTracerScene,
+      expectedLocalRevolverFireStart
     );
-  }
   failures += expect(
     nearestLocalRevolverTracerVertex < 0.05F,
-    "local revolver beam should start at the rendered muzzle, not its world fire origin"
+    "local revolver beam should start at its captured world fire origin"
+  );
+  lg::PlayerState movedRevolverPlayer = player;
+  movedRevolverPlayer.position += {2.5F, -1.5F, 0.0F};
+  movedRevolverPlayer.viewYawRadians = 0.85F;
+  movedRevolverPlayer.viewPitchRadians = -0.18F;
+  const lg::Scene3D movedLocalRevolverTracerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    movedRevolverPlayer,
+    noLocalRevolverRemotes,
+    inactiveBeam,
+    localRevolverFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    localRevolverTracerSettings,
+    localRevolverCameraStep
+  );
+  const lg::Vec3 movedRevolverMuzzle =
+    lg::firstPersonRevolverMuzzlePosition(
+      movedRevolverPlayer,
+      localRevolverTracerSettings
+    ) + lg::Vec3{0.0F, 0.0F, localRevolverCameraStep};
+  failures += expect(
+    nearestTranslucentVertexDistance(
+      movedLocalRevolverTracerScene,
+      expectedLocalRevolverFireStart
+    ) < 0.05F &&
+      nearestTranslucentVertexDistance(
+        movedLocalRevolverTracerScene,
+        movedRevolverMuzzle
+      ) > 0.25F,
+    "moving and turning after a revolver shot should not move its fired beam"
   );
   std::array<lg::TransientTracer, 1> revolverFlash = {{
     {
@@ -5145,10 +5219,11 @@ int main() {
     effectOnlySettings
   );
   failures += expect(
-    hasAnyVertex(remoteRailMuzzleScene) &&
-      maxVertexX(remoteRailMuzzleScene) <
-        remoteRailFires[1].start.x - 0.2F,
-    "remote railgun beam should start from the third-person weapon muzzle"
+    nearestTranslucentVertexDistance(
+      remoteRailMuzzleScene,
+      remoteRailFires[1].start
+    ) < 0.05F,
+    "remote railgun beam should start at its captured world fire origin"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> localRailSmokeFires = {};
@@ -5224,20 +5299,14 @@ int main() {
     cameraRailSmokeSettings,
     cameraStepOffset
   );
-  const lg::Vec3 expectedCameraRailMuzzle =
-    lg::firstPersonSniperRifleMuzzlePosition(player, cameraRailSmokeSettings) +
-    lg::Vec3{0.0F, 0.0F, cameraStepOffset};
-  float nearestCameraRailVertex = std::numeric_limits<float>::infinity();
-  for (const lg::Vertex3D& vertex : cameraRailSmokeScene.translucentVertices) {
-    nearestCameraRailVertex = std::min(
-      nearestCameraRailVertex,
-      lg::length(vertex.position - expectedCameraRailMuzzle)
-    );
-  }
+  const float nearestCameraRailVertex = nearestTranslucentVertexDistance(
+    cameraRailSmokeScene,
+    cameraRailSmokeFires[0].start
+  );
   failures += expect(
     cameraRailSmokeScene.transientVfxStats.activeSniperSmokeTracers == 1U &&
       nearestCameraRailVertex < 0.05F,
-    "local sniper smoke should track the rendered camera and viewmodel socket"
+    "local sniper smoke should keep its captured world fire origin"
   );
 
   lg::RenderSettings fadedRailSmokeSettings = highRailSmokeSettings;
@@ -5381,11 +5450,11 @@ int main() {
       );
   }
   failures += expect(
-    hasAnyVertex(remoteRevolverMuzzleScene) &&
-      hasWarmRevolverTracer &&
-      maxVertexX(remoteRevolverMuzzleScene) <
-        remoteRevolverFires[1].start.x - 0.2F,
-    "remote revolver beam should start from the modeled barrel socket"
+    nearestTranslucentVertexDistance(
+      remoteRevolverMuzzleScene,
+      remoteRevolverFires[1].start
+    ) < 0.05F && hasWarmRevolverTracer,
+    "remote revolver beam should start at its captured world fire origin"
   );
 
   std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> plasmaRockets = {};

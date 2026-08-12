@@ -1335,10 +1335,25 @@ void resolveGlobalMatrix(
 [[nodiscard]] bool upperBodyPoseIncludesNode(std::string_view name) {
   // Upper-body animation layers start at the spine so locomotion remains
   // authoritative for root, pelvis, and leg motion.
-  return name == "spine_01" ||
+  return name == "Abdomen" ||
+    name == "Torso" ||
+    name == "Chest" ||
+    name == "spine_01" ||
     name == "spine_02" ||
     name == "neck" ||
     name == "head" ||
+    name == "Neck" ||
+    name == "Head" ||
+    name == "Head_end" ||
+    name.starts_with("Shoulder.") ||
+    name.starts_with("UpperArm.") ||
+    name.starts_with("LowerArm.") ||
+    name.starts_with("Wrist.") ||
+    name.starts_with("Index") ||
+    name.starts_with("Middle") ||
+    name.starts_with("Ring") ||
+    name.starts_with("Pinky") ||
+    name.starts_with("Thumb") ||
     name == "upper_arm_l" ||
     name == "lower_arm_l" ||
     name == "hand_l" ||

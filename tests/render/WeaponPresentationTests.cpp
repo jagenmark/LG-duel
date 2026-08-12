@@ -125,12 +125,12 @@ int main() {
   const lg::RevolverTracerPresentation revolverExpired =
     lg::revolverTracerPresentation(0.11F);
   failures += expect(
-    revolverStart.active && revolverStart.followMuzzle &&
+    revolverStart.active &&
       nearlyEqual(revolverStart.alpha, 1.0F) &&
-      revolverFollowEnd.followMuzzle &&
-      !revolverFrozen.followMuzzle && revolverFrozen.active &&
+      revolverFollowEnd.active && revolverFollowEnd.alpha > revolverFrozen.alpha &&
+      revolverFrozen.active &&
       !revolverExpired.active && nearlyEqual(revolverExpired.alpha, 0.0F),
-    "revolver tracer should follow for 55 ms, freeze, and expire at 110 ms"
+    "revolver tracer should keep its fixed world path while fading to 110 ms"
   );
 
   const lg::SniperSmokeTracerPresentation sniperStart =
