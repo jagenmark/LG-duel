@@ -335,6 +335,35 @@ bool directionalLinesStayInBounds(
   return found;
 }
 
+float minimumDirectionalEdgeDistance(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color,
+  float width,
+  float height
+) {
+  float minimumDistance = 100000.0F;
+  bool found = false;
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    const auto* line = std::get_if<lg::Line2D>(&command);
+    if (line == nullptr || line->color.red != color.red ||
+        line->color.green != color.green || line->color.blue != color.blue ||
+        line->color.alpha != color.alpha) {
+      continue;
+    }
+    found = true;
+    for (const lg::ScreenPoint point : {line->start, line->end}) {
+      minimumDistance = std::min(
+        minimumDistance,
+        std::min(
+          std::min(point.x, width - point.x),
+          std::min(point.y, height - point.y)
+        )
+      );
+    }
+  }
+  return found ? minimumDistance : 100000.0F;
+}
+
 float directionalTangentSpan(const LineBounds& bounds, int edge) {
   return edge == 0 || edge == 2
     ? bounds.maximumX - bounds.minimumX
@@ -962,6 +991,57 @@ int main() {
         std::max(wideFrontSpan, tallFrontSpan) /
             std::min(wideFrontSpan, tallFrontSpan) < 1.25F,
       "directional crescent length should stay stable when the aspect ratio changes"
+    );
+
+    constexpr float diagonalYaw = -kHalfPi * 0.5F;
+    lg::HudRenderState wideDiagonalHud;
+    wideDiagonalHud.directionalDamage.distancePixels = 24.0F;
+    wideDiagonalHud.directionalDamage.indicators = {{
+      {true, 9, diagonalYaw, 1.0F, 1.0F, true, false},
+    }};
+    const lg::DrawList2D wideDiagonalUi = lg::buildScreenUi(
+      1280, 720, opponent, directionalSettings, wideDiagonalHud, {}
+    );
+    LineBounds wideDiagonalBounds;
+    const bool foundWideDiagonal = findExactLineBounds(
+      wideDiagonalUi, directionalColor, wideDiagonalBounds
+    );
+
+    lg::HudRenderState tallDiagonalHud = wideDiagonalHud;
+    const lg::DrawList2D tallDiagonalUi = lg::buildScreenUi(
+      720, 1280, opponent, directionalSettings, tallDiagonalHud, {}
+    );
+    LineBounds tallDiagonalBounds;
+    const bool foundTallDiagonal = findExactLineBounds(
+      tallDiagonalUi, directionalColor, tallDiagonalBounds
+    );
+    const float wideDiagonalSpan = directionalTangentSpan(
+      wideDiagonalBounds, 0
+    );
+    const float tallDiagonalSpan = directionalTangentSpan(
+      tallDiagonalBounds, 1
+    );
+    failures += expect(
+      foundWideDiagonal && foundTallDiagonal &&
+        wideDiagonalBounds.lineCount == 10U &&
+        tallDiagonalBounds.lineCount == 10U &&
+        hasLineNearEdge(wideDiagonalUi, directionalColor, 0, 1280.0F, 720.0F) &&
+        hasLineNearEdge(tallDiagonalUi, directionalColor, 1, 720.0F, 1280.0F) &&
+        minimumDirectionalEdgeDistance(
+          wideDiagonalUi, directionalColor, 1280.0F, 720.0F
+        ) <= 30.0F &&
+        minimumDirectionalEdgeDistance(
+          tallDiagonalUi, directionalColor, 720.0F, 1280.0F
+        ) <= 30.0F &&
+        directionalLinesStayInBounds(
+          wideDiagonalUi, directionalColor, 1280.0F, 720.0F
+        ) &&
+        directionalLinesStayInBounds(
+          tallDiagonalUi, directionalColor, 720.0F, 1280.0F
+        ) && wideDiagonalSpan > 100.0F && tallDiagonalSpan > 100.0F &&
+        std::max(wideDiagonalSpan, tallDiagonalSpan) /
+            std::min(wideDiagonalSpan, tallDiagonalSpan) < 1.25F,
+      "diagonal damage crescents should anchor to the inset perimeter and keep their size across wide and tall screens"
     );
 
     lg::HudRenderState directionalHud;
