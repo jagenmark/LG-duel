@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace {
 
@@ -265,6 +266,85 @@ std::size_t countLinesWithColor(
     }
   }
   return count;
+}
+
+struct LineBounds {
+  float minimumX = 100000.0F;
+  float maximumX = -100000.0F;
+  float minimumY = 100000.0F;
+  float maximumY = -100000.0F;
+  std::size_t lineCount = 0U;
+};
+
+bool findExactLineBounds(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color,
+  LineBounds& bounds
+) {
+  bool found = false;
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    const auto* line = std::get_if<lg::Line2D>(&command);
+    if (line == nullptr || line->color.red != color.red ||
+        line->color.green != color.green || line->color.blue != color.blue ||
+        line->color.alpha != color.alpha) {
+      continue;
+    }
+    found = true;
+    ++bounds.lineCount;
+    bounds.minimumX = std::min(
+      bounds.minimumX,
+      std::min(line->start.x, line->end.x)
+    );
+    bounds.maximumX = std::max(
+      bounds.maximumX,
+      std::max(line->start.x, line->end.x)
+    );
+    bounds.minimumY = std::min(
+      bounds.minimumY,
+      std::min(line->start.y, line->end.y)
+    );
+    bounds.maximumY = std::max(
+      bounds.maximumY,
+      std::max(line->start.y, line->end.y)
+    );
+  }
+  return found;
+}
+
+bool directionalLinesStayInBounds(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color,
+  float width,
+  float height
+) {
+  bool found = false;
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    const auto* line = std::get_if<lg::Line2D>(&command);
+    if (line == nullptr || line->color.red != color.red ||
+        line->color.green != color.green || line->color.blue != color.blue) {
+      continue;
+    }
+    found = true;
+    for (const lg::ScreenPoint point : {line->start, line->end}) {
+      if (point.x < -0.01F || point.x > width + 0.01F ||
+          point.y < -0.01F || point.y > height + 0.01F) {
+        return false;
+      }
+    }
+  }
+  return found;
+}
+
+float directionalTangentSpan(const LineBounds& bounds, int edge) {
+  return edge == 0 || edge == 2
+    ? bounds.maximumX - bounds.minimumX
+    : bounds.maximumY - bounds.minimumY;
+}
+
+float directionalNormalSpan(const LineBounds& bounds, int edge) {
+  return edge == 0 || edge == 2
+    ? bounds.maximumY - bounds.minimumY
+    : bounds.maximumX - bounds.minimumX;
 }
 
 } // namespace
@@ -802,29 +882,90 @@ int main() {
     constexpr float kHalfPi = kPi * 0.5F;
     lg::RenderSettings directionalSettings;
     directionalSettings.crosshairEnabled = false;
-    lg::HudRenderState directionalHud;
-    directionalHud.directionalDamage.distancePixels = 24.0F;
-    directionalHud.directionalDamage.indicators = {{
-      {true, 1, 0.0F, 1.0F, 1.0F, true, false},
-      {true, 2, -kHalfPi, 1.0F, 1.0F, true, false},
-      {true, 3, kPi, 1.0F, 1.0F, true, false},
-      {true, 4, kHalfPi, 1.0F, 1.0F, true, false},
-    }};
-    const lg::DrawList2D directionalUi = lg::buildScreenUi(
-      1280, 720, opponent, directionalSettings, directionalHud, {}
-    );
     constexpr lg::RenderColor directionalColor = {255, 76, 70, 255};
+    struct DirectionExpectation {
+      float relativeYaw;
+      int edge;
+      const char* name;
+    };
+    constexpr std::array<DirectionExpectation, 4> directions = {{
+      {0.0F, 0, "front"},
+      {-kHalfPi, 1, "right"},
+      {kPi, 2, "back"},
+      {kHalfPi, 3, "left"},
+    }};
+    for (const DirectionExpectation& direction : directions) {
+      lg::HudRenderState directionalHud;
+      directionalHud.directionalDamage.distancePixels = 24.0F;
+      directionalHud.directionalDamage.indicators = {{
+        {true, 1, direction.relativeYaw, 1.0F, 1.0F, true, false},
+      }};
+      const lg::DrawList2D directionalUi = lg::buildScreenUi(
+        1280, 720, opponent, directionalSettings, directionalHud, {}
+      );
+      LineBounds bounds;
+      failures += expect(
+        hasLineNearEdge(
+          directionalUi, directionalColor, direction.edge, 1280.0F, 720.0F
+        ) && findExactLineBounds(directionalUi, directionalColor, bounds) &&
+          bounds.lineCount == 10U &&
+          directionalLinesStayInBounds(
+            directionalUi, directionalColor, 1280.0F, 720.0F
+          ) && directionalTangentSpan(bounds, direction.edge) > 100.0F &&
+          directionalNormalSpan(bounds, direction.edge) > 1.0F &&
+          !hasLineNearCenter(
+            directionalUi, directionalColor, 640.0F, 360.0F, 180.0F
+          ),
+        (std::string("directional ") + direction.name +
+         " damage should draw one curved, bounded edge crescent").c_str()
+      );
+      for (int otherEdge = 0; otherEdge < 4; ++otherEdge) {
+        if (otherEdge == direction.edge) {
+          continue;
+        }
+        failures += expect(
+          !hasLineNearEdge(
+            directionalUi, directionalColor, otherEdge, 1280.0F, 720.0F
+          ),
+          (std::string("directional ") + direction.name +
+           " damage should not move to another edge").c_str()
+        );
+      }
+    }
+
+    lg::HudRenderState wideFrontHud;
+    wideFrontHud.directionalDamage.distancePixels = 24.0F;
+    wideFrontHud.directionalDamage.indicators = {{
+      {true, 8, 0.0F, 1.0F, 1.0F, true, false},
+    }};
+    const lg::DrawList2D wideFrontUi = lg::buildScreenUi(
+      1280, 720, opponent, directionalSettings, wideFrontHud, {}
+    );
+    LineBounds wideFrontBounds;
+    const bool foundWideFront = findExactLineBounds(
+      wideFrontUi, directionalColor, wideFrontBounds
+    );
+    lg::HudRenderState tallFrontHud = wideFrontHud;
+    const lg::DrawList2D tallFrontUi = lg::buildScreenUi(
+      720, 1280, opponent, directionalSettings, tallFrontHud, {}
+    );
+    LineBounds tallFrontBounds;
+    const bool foundTallFront = findExactLineBounds(
+      tallFrontUi, directionalColor, tallFrontBounds
+    );
+    const float wideFrontSpan = directionalTangentSpan(wideFrontBounds, 0);
+    const float tallFrontSpan = directionalTangentSpan(tallFrontBounds, 0);
     failures += expect(
-      hasLineNearEdge(directionalUi, directionalColor, 0, 1280.0F, 720.0F) &&
-        hasLineNearEdge(directionalUi, directionalColor, 1, 1280.0F, 720.0F) &&
-        hasLineNearEdge(directionalUi, directionalColor, 2, 1280.0F, 720.0F) &&
-        hasLineNearEdge(directionalUi, directionalColor, 3, 1280.0F, 720.0F) &&
-        !hasLineNearCenter(
-          directionalUi, directionalColor, 640.0F, 360.0F, 180.0F
-        ),
-      "directional damage should place large arcs on the matching screen edges"
+      foundWideFront && foundTallFront && wideFrontBounds.lineCount == 10U &&
+        tallFrontBounds.lineCount == 10U && wideFrontSpan > 100.0F &&
+        tallFrontSpan > 100.0F &&
+        std::max(wideFrontSpan, tallFrontSpan) /
+            std::min(wideFrontSpan, tallFrontSpan) < 1.25F,
+      "directional crescent length should stay stable when the aspect ratio changes"
     );
 
+    lg::HudRenderState directionalHud;
+    directionalHud.directionalDamage.distancePixels = 24.0F;
     directionalHud.directionalDamage.indicators = {{
       {true, 6, 0.0F, 1.0F, 1.0F, true, true},
     }};
