@@ -17,6 +17,22 @@ from lg_launch import LaunchError
 
 
 class LaunchTests(unittest.TestCase):
+    def test_executable_names_follow_platform(self) -> None:
+        with mock.patch.object(lg_launch.platform, "system", return_value="Linux"):
+            self.assertEqual(lg_launch._executable_name("lg_duel_client"), "lg_duel_client")
+        with mock.patch.object(lg_launch.platform, "system", return_value="Windows"):
+            self.assertEqual(lg_launch._executable_name("lg_duel_client"), "lg_duel_client.exe")
+
+    def test_executable_path_accepts_existing_cross_platform_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary)
+            fixture = build / "lg_duel_client.exe"
+            fixture.touch()
+            with mock.patch.object(lg_launch.platform, "system", return_value="Linux"):
+                self.assertEqual(
+                    lg_launch._executable_path(build, "lg_duel_client"), fixture
+                )
+
     def setUp(self) -> None:
         self.real_lifecycle_lock = lg_launch._lifecycle_lock
         lifecycle_patch = mock.patch.object(
@@ -398,6 +414,40 @@ class LaunchTests(unittest.TestCase):
                 lg_launch.Path(r"C:\verified\igvk64.json"), runner=mock.Mock(return_value=failed)
             )
 
+    def test_resolve_selection_keeps_loader_resolved_library_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "intel_icd.json"
+            manifest.write_text(
+                '{"ICD":{"library_path":"libvulkan_intel.so"}}', encoding="utf-8"
+            )
+            selection = {
+                **self.selection(),
+                "icd_path": str(manifest),
+                "icd_sha256": lg_launch._sha256(manifest),
+                "icd_library_path": "/usr/lib/x86_64-linux-gnu/libvulkan_intel.so",
+            }
+            with mock.patch.object(
+                lg_launch, "discover_vulkan_selection", return_value=selection
+            ), mock.patch.object(
+                lg_launch,
+                "_probe_vulkan",
+                return_value={
+                    "gpu_name": selection["gpu_name"],
+                    "gpu_type": selection["gpu_type"],
+                    "graphics_driver_name": selection["graphics_driver_name"],
+                    "graphics_driver_version": selection["graphics_driver_version"],
+                    "vulkan_api_version": selection["vulkan_api_version"],
+                    "software_renderer": False,
+                },
+            ):
+                resolved = lg_launch.resolve_vulkan_selection()
+
+        self.assertEqual(
+            resolved["icd_library_path"],
+            "/usr/lib/x86_64-linux-gnu/libvulkan_intel.so",
+        )
+
     def test_default_vulkan_probe_removes_overrides_and_finds_active_icd(self) -> None:
         summary = """Devices:
 ========
@@ -445,6 +495,78 @@ GPU0:
         self.assertEqual(selection["source"], "default-loader")
         self.assertEqual(selection["icd_path"], str(manifest.resolve()))
         self.assertEqual(selection["vulkan_driver_environment"], {})
+        self.assertEqual(selection["graphics_driver_version"], "101.7026")
+        self.assertEqual(selection["graphics_driver_info"], "101.7026")
+
+    def test_linux_default_probe_matches_selected_gpu_to_bare_manifest_library(self) -> None:
+        summary = """Devices:
+========
+GPU0:
+    apiVersion = 1.4.335
+    driverVersion = 26.0.3
+    deviceType = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+    deviceName = Intel(R) Graphics (LNL)
+    driverName = Intel open-source Mesa driver
+    driverInfo = Mesa 26.0.3
+GPU1:
+    apiVersion = 1.4.335
+    driverVersion = 26.0.3
+    deviceType = PHYSICAL_DEVICE_TYPE_CPU
+    deviceName = llvmpipe
+    driverName = llvmpipe
+    driverInfo = Mesa 26.0.3
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            intel_manifest = root / "intel_icd.json"
+            software_manifest = root / "lvp_icd.json"
+            intel_manifest.write_text(
+                '{"ICD":{"library_path":"libvulkan_intel.so"}}', encoding="utf-8"
+            )
+            software_manifest.write_text(
+                '{"ICD":{"library_path":"libvulkan_lvp.so"}}', encoding="utf-8"
+            )
+            loader = (
+                f"Found ICD manifest file {intel_manifest}, version 1.0.1\n"
+                f"Found ICD manifest file {software_manifest}, version 1.0.1\n"
+                'Using "Intel(R) Graphics (LNL)" with driver: '
+                '"/usr/lib/x86_64-linux-gnu/libvulkan_intel.so"\n'
+                'Using "llvmpipe" with driver: '
+                '"/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so"\n'
+            )
+            completed = subprocess.CompletedProcess(
+                ["vulkaninfo", "--summary"], 0, stdout=summary, stderr=loader
+            )
+            selection = lg_launch._probe_default_vulkan(
+                runner=mock.Mock(return_value=completed)
+            )
+
+        self.assertEqual(selection["icd_path"], str(intel_manifest.resolve()))
+        self.assertEqual(
+            selection["icd_library_path"],
+            "/usr/lib/x86_64-linux-gnu/libvulkan_intel.so",
+        )
+
+    def test_fresh_linux_worktree_uses_default_loader(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state_dir = root / "build" / "dev-control"
+            loader_selection = {
+                **self.selection(),
+                "source": "default-loader",
+                "vulkan_driver_environment": {},
+            }
+            with mock.patch.object(lg_launch.platform, "system", return_value="Linux"), \
+                 mock.patch.object(lg_launch, "LOCAL_VULKAN_CONFIGS", ()), \
+                 mock.patch.object(lg_launch, "BENCHMARK_ROOT", root / "missing"), \
+                 mock.patch.object(lg_launch, "STATE_DIR", state_dir), \
+                 mock.patch.object(lg_launch, "_probe_default_vulkan", return_value=loader_selection), \
+                 mock.patch.dict(os.environ, {}, clear=True):
+                selection = lg_launch.discover_vulkan_selection()
+
+            saved = json.loads((state_dir / "vulkan.json").read_text(encoding="utf-8"))
+        self.assertEqual(selection["source"], "default-loader")
+        self.assertEqual(saved["generated_from"], "default-loader")
 
     def test_fresh_worktree_discovers_and_records_windows_icd(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
