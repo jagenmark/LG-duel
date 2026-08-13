@@ -42,6 +42,15 @@ constexpr std::size_t kMaxRocketProjectileLights = 4U;
 constexpr Vec3 kRocketProjectileLightColor = {1.0F, 0.48F, 0.20F};
 constexpr float kRocketProjectileLightIntensity = 1.15F;
 constexpr float kRocketProjectileLightRadius = 2.2F;
+constexpr float kPlasmaProjectileNearViewDistance = 0.45F;
+constexpr float kPlasmaProjectileFullViewDistance = 1.50F;
+constexpr float kPlasmaProjectileNearScaleFactor = 0.24F;
+constexpr float kPlasmaProjectileNearGlowAlphaFactor = 0.30F;
+constexpr float kPlasmaExplosionNearViewDistance = 0.55F;
+constexpr float kPlasmaExplosionFullViewDistance = 1.70F;
+constexpr float kPlasmaExplosionNearCueScaleFactor = 0.18F;
+constexpr float kPlasmaExplosionNearCueAlphaFactor = 0.25F;
+constexpr float kPlasmaImpactMaxLifetimeSeconds = 0.25F;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 40U;
 constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 56U;
@@ -64,6 +73,19 @@ constexpr float kPlayerContactShadowTraceDistance = 1.5F;
 constexpr std::uint8_t kPlayerContactShadowAlpha = 82U;
 constexpr std::uint8_t kPlayerContactShadowWithSunAlpha = 56U;
 constexpr float kDefaultFloorZ = 0.0F;
+
+[[nodiscard]] float smoothViewDistanceFade(
+  float distance,
+  float nearDistance,
+  float fullDistance
+) {
+  const float t = std::clamp(
+    (distance - nearDistance) / (fullDistance - nearDistance),
+    0.0F,
+    1.0F
+  );
+  return t * t * (3.0F - 2.0F * t);
+}
 
 // Centered unit cube, local coordinates [-0.5, 0.5] on every axis. Player
 // cuboids use per-instance basis columns scaled to the desired full extents.
@@ -5399,9 +5421,47 @@ void addTransientEffectInstances(
         72.0F
       ));
     }
-    const float submittedScale = rocketFlash
+    const bool plasmaImpact =
+      effect.lifetimeSeconds <= kPlasmaImpactMaxLifetimeSeconds &&
+      (
+        effect.type == TransientEffectType::PlasmaExplosionFlash ||
+        effect.type == TransientEffectType::PlasmaExplosionCore ||
+        effect.type == TransientEffectType::PlasmaExplosionHalo
+      );
+    const float plasmaViewFade = plasmaImpact
+      ? smoothViewDistanceFade(
+          length(effect.position - scene.camera.position),
+          kPlasmaExplosionNearViewDistance,
+          kPlasmaExplosionFullViewDistance
+        )
+      : 1.0F;
+    if (
+      effect.type == TransientEffectType::PlasmaExplosionCore &&
+      plasmaViewFade <= 0.0F
+    ) {
+      // Near-view plasma hits keep additive direction feedback without an
+      // opaque shape over the target.
+      continue;
+    }
+    float submittedScale = rocketFlash
       ? scale * 0.54F
       : rocketHalo ? scale * 0.72F : scale;
+    if (plasmaImpact) {
+      if (coreMesh) {
+        submittedScale *= plasmaViewFade;
+      } else {
+        const float cueScaleFactor =
+          kPlasmaExplosionNearCueScaleFactor +
+          (1.0F - kPlasmaExplosionNearCueScaleFactor) * plasmaViewFade;
+        const float cueAlphaFactor =
+          kPlasmaExplosionNearCueAlphaFactor +
+          (1.0F - kPlasmaExplosionNearCueAlphaFactor) * plasmaViewFade;
+        submittedScale *= cueScaleFactor;
+        color.alpha = static_cast<std::uint8_t>(
+          static_cast<float>(color.alpha) * cueAlphaFactor
+        );
+      }
+    }
     appendSimpleInstance(
       scene,
       {
@@ -5713,15 +5773,29 @@ void addProjectileInstances(
     projectileVisualPosition(projectile, player, remotePlayers, settings);
   const float pulseSeed = static_cast<float>(projectileIndex) * 0.371F;
   const float rotation = projectileRotationRadians(projectile, projectileIndex);
+  const bool plasma = descriptor->type == ProjectileVisualType::Plasma;
   const bool rocket = descriptor->type == ProjectileVisualType::Rocket;
-  const float exhaustScale = rocket
+  const bool localProjectile = projectile.owner == settings.localPlayerIndex;
+  const float plasmaViewFade = plasma && !localProjectile
+    ? smoothViewDistanceFade(
+        length(position - scene.camera.position),
+        kPlasmaProjectileNearViewDistance,
+        kPlasmaProjectileFullViewDistance
+      )
+    : 1.0F;
+  const float plasmaScaleFactor = plasma
+    ? kPlasmaProjectileNearScaleFactor +
+      (1.0F - kPlasmaProjectileNearScaleFactor) * plasmaViewFade
+    : 1.0F;
+  const float coreScale = descriptor->coreScale * plasmaScaleFactor;
+  const float exhaustScale = (rocket
     ? descriptor->glowScale *
       (
         settings.combatEffectsQuality >= 2
           ? 1.0F
           : settings.combatEffectsQuality == 1 ? 0.87F : 0.74F
       )
-    : descriptor->glowScale;
+    : descriptor->glowScale) * plasmaScaleFactor;
   const float exhaustOffset = rocket
     ? descriptor->coreScale * 0.92F
     : 0.0F;
@@ -5732,7 +5806,7 @@ void addProjectileInstances(
     ? descriptor->coreScale * 0.82F
     : 0.0F;
   const float cullRadius = std::max({
-    descriptor->coreScale,
+    coreScale,
     exhaustOffset + exhaustScale,
     hotCoreOffset + hotCoreScale,
   });
@@ -5796,14 +5870,14 @@ void addProjectileInstances(
         BillboardHandle::Invalid,
         RenderPass::OpaqueWorld,
         position,
-        {descriptor->coreScale, descriptor->coreScale, descriptor->coreScale},
+        {coreScale, coreScale, coreScale},
         rotation,
         rocket
           ? projectileVelocityPitch(projectile.velocity)
           : 0.0F,
         descriptor->coreColor,
         pulseSeed,
-        {position, descriptor->coreScale},
+        {position, coreScale},
       }
     );
     countProjectileCoreInstance(scene.projectileStats, descriptor->type);
@@ -5816,6 +5890,13 @@ void addProjectileInstances(
     if (rocket && settings.combatEffectsQuality < 2) {
       exhaustColor.alpha = static_cast<std::uint8_t>(
         settings.combatEffectsQuality == 1 ? 144U : 130U
+      );
+    }
+    if (plasma) {
+      const float alphaFactor = kPlasmaProjectileNearGlowAlphaFactor +
+        (1.0F - kPlasmaProjectileNearGlowAlphaFactor) * plasmaViewFade;
+      exhaustColor.alpha = static_cast<std::uint8_t>(
+        static_cast<float>(exhaustColor.alpha) * alphaFactor
       );
     }
     appendSimpleInstance(
