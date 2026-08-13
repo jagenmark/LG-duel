@@ -325,6 +325,17 @@ std::uint32_t hashArena(const Arena& arena) {
     hashVec3(hash, teleport.destination);
     hashVec3(hash, teleport.exitVelocity);
   }
+  if (arena.killVolumeCount > 0) {
+    // Keep hashes stable for old maps, then bind maps that use world kill
+    // volumes to both their count and exact bounds.
+    hashU32(hash, 0x4b494c31U);
+    hashU32(hash, static_cast<std::uint32_t>(arena.killVolumeCount));
+    for (std::size_t index = 0; index < arena.killVolumeCount; ++index) {
+      const ArenaKillVolume& volume = arena.killVolumes[index];
+      hashVec3(hash, volume.min);
+      hashVec3(hash, volume.max);
+    }
+  }
   hashU32(hash, static_cast<std::uint32_t>(arena.healthPickupCount));
   for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
     const ArenaHealthPickup& pickup = arena.healthPickups[index];
