@@ -346,6 +346,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+  # This job provides PR evidence but stays optional in branch protection.
+  # Keep failures visible; do not add it to the required status checks.
   performance-smoke:
     name: performance-smoke
     runs-on: ubuntu-latest

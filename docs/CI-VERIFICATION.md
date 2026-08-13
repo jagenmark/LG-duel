@@ -21,10 +21,17 @@ In **Settings > Branches > Branch protection rules**, add or edit the rule for
    - `windows-build-and-tests`
    - `deterministic-scenarios`
    - `protocol-and-packet-budgets`
-   - `performance-smoke`
 8. **Require conversation resolution before merging**.
 9. **Do not allow bypassing the above settings**.
 10. Turn off force pushes and branch deletion.
+
+## Optional PR checks
+
+`performance-smoke` still runs on every pull request, but it is not a required
+status check. Keep it out of the required-check list so a hosted-runner timing
+result cannot block a merge. It must still fail on tool errors and hard packet
+or queue-limit failures. A `NOT_COMPARABLE` result remains useful evidence and
+does not block the pull request.
 
 `live-client-server-smoke` checks the real client, UDP server, input path, and
 snapshot path with the fallback renderer. Keep it visible at first. Make it a
