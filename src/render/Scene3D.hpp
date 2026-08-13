@@ -1130,6 +1130,7 @@ void appendCollisionDebugGeometry(
   const PlayerState& player,
   const RenderSettings& settings
 );
+[[nodiscard]] Vec3 freezeGunMuzzleSocket();
 [[nodiscard]] Vec3 plasmaGunMuzzleSocket();
 [[nodiscard]] Vec3 plasmaGunGripSocket();
 [[nodiscard]] Vec3 sniperRifleGripSocket();

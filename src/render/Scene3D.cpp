@@ -61,7 +61,7 @@ constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 64U;
 constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
 constexpr std::uint32_t kGltfBonePaletteEntryBytes = 64U;
 constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
-constexpr float kRocketLauncherViewModelScale = 0.58F;
+constexpr float kRocketLauncherViewModelScale = 0.66F;
 constexpr float kSniperRifleViewModelScale = 1.45F;
 constexpr float kSniperRifleViewModelWidthScale = 1.30F;
 constexpr float kSniperRifleViewModelHeightScale = 1.15F;
@@ -1909,6 +1909,20 @@ struct DuelistPoseRequests {
     : std::clamp(player.viewPitchRadians, -0.78539816F, 0.78539816F);
 }
 
+[[nodiscard]] float combinedSkinnedPlayerAimPitch(
+  const PlayerState& player,
+  const PlayerPresentationFrame* presentation,
+  float upperBodySwitchPitchRadians
+) {
+  // The skeleton clamps its upper-body aim. Apply that same combined limit to
+  // held-weapon and VFX socket frames so they cannot split from the arms.
+  return std::clamp(
+    skinnedPlayerAimPitch(player, presentation) + upperBodySwitchPitchRadians,
+    -0.78539816F,
+    0.78539816F
+  );
+}
+
 [[nodiscard]] WeaponModelFrame workerWeaponAttachmentFrame(
   const PlayerState& player,
   float leanScale,
@@ -1986,7 +2000,11 @@ void addGltfPlayerModelInstance(
     animationTimeSeconds,
     presentation
   );
-  const float aimPitch = skinnedPlayerAimPitch(player, presentation);
+  const float combinedAimPitch = combinedSkinnedPlayerAimPitch(
+    player,
+    presentation,
+    upperBodySwitchPitchRadians
+  );
   const float sideLean = workerModel && leanEnabled && presentation != nullptr
     ? presentation->proceduralLean * (34.0F * kDegreesToRadians)
     : 0.0F;
@@ -1994,7 +2012,7 @@ void addGltfPlayerModelInstance(
         poseRequests.span(),
         scene.gltfBonePalette,
         poseScratch,
-        aimPitch + upperBodySwitchPitchRadians,
+        combinedAimPitch,
         sideLean
       )) {
     return;
@@ -2006,7 +2024,7 @@ void addGltfPlayerModelInstance(
         workerWeaponAttachmentFrame(
           player,
           leanScale,
-          aimPitch + upperBodySwitchPitchRadians,
+          combinedAimPitch,
           socket
         )
       );
@@ -2116,6 +2134,11 @@ void addGltfPlayerModelInstance(
   }
   const PlayerPresentationFrame* presentation =
     remote.hasPresentation ? &remote.presentation : nullptr;
+  const float combinedAimPitch = combinedSkinnedPlayerAimPitch(
+    remote.player,
+    presentation,
+    remote.weaponSwitchPresentation.upperBodyPitchRadians
+  );
   const DuelistPoseRequests poseRequests = skinnedPlayerPoseRequests(
     model,
     remote.player,
@@ -2138,8 +2161,7 @@ void addGltfPlayerModelInstance(
       poseRequests.span(),
       sampleCache.bonePalette,
       sampleCache.poseScratch,
-      skinnedPlayerAimPitch(remote.player, presentation) +
-        remote.weaponSwitchPresentation.upperBodyPitchRadians,
+      combinedAimPitch,
       leanEnabled && presentation != nullptr
         ? presentation->proceduralLean * (34.0F * kDegreesToRadians)
         : 0.0F
@@ -2160,8 +2182,7 @@ void addGltfPlayerModelInstance(
   return workerWeaponAttachmentFrame(
     remote.player,
     leanScale,
-    skinnedPlayerAimPitch(remote.player, presentation) +
-      remote.weaponSwitchPresentation.upperBodyPitchRadians,
+    combinedAimPitch,
     socket
   );
 }
@@ -2272,7 +2293,7 @@ void addBakedWeaponModel(
   frame.hand =
     eyePosition +
     frame.basis.forward * 0.32F -
-    frame.basis.up * 0.34F;
+    frame.basis.up * 0.38F;
   if (weaponPosition == 1) {
     frame.hand += frame.basis.right * 0.30F;
   } else if (weaponPosition == 2) {
@@ -2768,7 +2789,7 @@ void appendPlasmaGunInstances(
   frame.basis.up = normalize(cross(aimRight, aimForward));
   // The extended emitter should read clearly without reaching farther up the
   // screen than the revolver, which is the longest standard viewmodel.
-  frame.hand -= frame.basis.up * 0.080F;
+  frame.hand -= frame.basis.up * 0.220F;
   return frame;
 }
 
@@ -3548,14 +3569,7 @@ void addWireBox(
   } else if (projectile.weapon == Weapon::GrenadeLauncher) {
     muzzle = remoteGrenadeLauncherMuzzlePosition(remote, settings);
   } else {
-    const bool leanEnabled = remote.teammate
-      ? settings.teammateLeanEnabled
-      : settings.enemyLeanEnabled;
-    const float leanScale = remote.teammate
-      ? settings.teammateLeanScale
-      : settings.enemyLeanScale;
-    WeaponModelFrame frame =
-      weaponModelFrame(remote.player, leanEnabled, leanScale);
+    WeaponModelFrame frame = remoteRenderedWeaponFrame(remote, settings);
     frame.scale *= thirdPersonWeaponVisualScale(projectile.weapon);
     frame = plasmaGunGripAlignedFrame(frame);
     muzzle = weaponLocalPoint(
@@ -4537,6 +4551,10 @@ Vec3 rocketLauncherGripSocket() {
   return kRocketLauncherGripSocket;
 }
 
+Vec3 freezeGunMuzzleSocket() {
+  return kFreezeGunMuzzleSocket;
+}
+
 Vec3 grenadeLauncherMuzzleSocket() {
   return kGrenadeLauncherMuzzleSocket;
 }
@@ -4622,7 +4640,7 @@ Vec3 firstPersonFreezeGunMuzzlePosition(
     settings.weaponPosition,
     settings.viewModelPresentation
   );
-  frame.scale *= 0.74F;
+  frame.scale *= 0.82F;
   frame.hand -= frame.basis.forward * 0.08F;
   frame = freezeGunViewModelFrame(frame, settings.weaponPosition);
   return weaponLocalPoint(
