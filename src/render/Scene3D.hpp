@@ -1081,6 +1081,15 @@ void appendCollisionDebugGeometry(
 );
 [[nodiscard]] Vec3 rocketLauncherMuzzleSocket();
 [[nodiscard]] Vec3 rocketLauncherGripSocket();
+[[nodiscard]] Vec3 grenadeLauncherMuzzleSocket();
+[[nodiscard]] Vec3 firstPersonGrenadeLauncherMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+);
+[[nodiscard]] Vec3 remoteGrenadeLauncherMuzzlePosition(
+  const RemotePlayerView& remote,
+  const RenderSettings& settings
+);
 [[nodiscard]] Vec3 firstPersonRocketLauncherMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
