@@ -45,6 +45,18 @@ lg::LocalDamageEvent worldDamageEvent(
   return event;
 }
 
+std::size_t activeDirectionalIndicatorCount(
+  const lg::DirectionalDamagePresentation& presentation
+) {
+  std::size_t count = 0;
+  for (const lg::DirectionalDamageIndicator& indicator : presentation.indicators) {
+    if (indicator.active) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 } // namespace
 
 int main() {
@@ -136,6 +148,201 @@ int main() {
     failures += expect(
       !lg::playerPresentedAsTeammate(warmupSnapshot, 0, 1),
       "teamless Clan Arena warmup players should be presented as enemies"
+    );
+  }
+
+  {
+    lg::DamageTakenEventRing ring;
+    const std::array<std::uint32_t, 8> sequences = {
+      0xFFFF'FFF8U,
+      0xFFFF'FFFAU,
+      0xFFFF'FFFBU,
+      0xFFFF'FFFCU,
+      0xFFFF'FFFDU,
+      0xFFFF'FFFEU,
+      0xFFFF'FFFFU,
+      1U,
+    };
+    for (const std::uint32_t sequence : sequences) {
+      const std::size_t slot =
+        static_cast<std::size_t>(sequence - 1U) % lg::kDamageTakenEventWindow;
+      ring.events[slot] = {
+        sequence,
+        static_cast<std::uint8_t>(sequence),
+        20U,
+        lg::kDamageTakenDirectionValid,
+        lg::Weapon::Railgun,
+      };
+      (void)lg::setDamageTakenEventActive(ring, slot);
+    }
+    lg::DirectionalDamageState directionalDamage;
+    const lg::OrderedDirectionalDamageEvents ordered =
+      lg::orderedUnseenDirectionalDamageEvents(ring, directionalDamage);
+    bool inOrder = ordered.count == sequences.size();
+    for (std::size_t index = 0; inOrder && index < sequences.size(); ++index) {
+      inOrder = ordered.events[index].sequence == sequences[index];
+    }
+    failures += expect(
+      inOrder,
+      "retained directional damage should sort unseen events oldest-to-newest across ring wrap"
+    );
+    if (ordered.count > 0U) {
+      directionalDamage.addIncomingDamageEvent(ordered.events[0], {});
+    }
+    const auto afterFirst =
+      lg::orderedUnseenDirectionalDamageEvents(ring, directionalDamage);
+    failures += expect(
+      afterFirst.count == sequences.size() - 1U &&
+        afterFirst.events[0].sequence == sequences[1],
+      "retained directional damage should filter sequences already fed to the HUD"
+    );
+  }
+
+  {
+    constexpr float kPi = 3.14159265359F;
+    constexpr float kHalfPi = kPi * 0.5F;
+    lg::DirectionalDamageState directionalDamage;
+    lg::DirectionalDamageHudConfig config;
+    config.maxOpacity = 1.0F;
+    directionalDamage.addIncomingDamageEvent({1, 0.0F, 1.0F, true, false}, config);
+    directionalDamage.addIncomingDamageEvent({2, -kHalfPi, 1.0F, true, false}, config);
+    directionalDamage.addIncomingDamageEvent({3, kPi, 1.0F, true, false}, config);
+    directionalDamage.addIncomingDamageEvent({4, kHalfPi, 1.0F, true, false}, config);
+    const lg::DirectionalDamagePresentation presentation =
+      directionalDamage.presentation(0.0F, config);
+    failures += expect(
+      activeDirectionalIndicatorCount(presentation) == 4U &&
+        std::fabs(presentation.indicators[0].relativeYawRadians) < 0.001F &&
+        std::fabs(presentation.indicators[1].relativeYawRadians + kHalfPi) < 0.001F &&
+        std::fabs(std::fabs(presentation.indicators[2].relativeYawRadians) - kPi) < 0.001F &&
+        std::fabs(presentation.indicators[3].relativeYawRadians - kHalfPi) < 0.001F,
+      "directional damage should retain front, right, rear, and left bearings"
+    );
+  }
+
+  {
+    constexpr float kHalfPi = 1.57079632679F;
+    lg::DirectionalDamageState directionalDamage;
+    lg::DirectionalDamageHudConfig config;
+    directionalDamage.addIncomingDamageEvent({1, kHalfPi, 1.0F, true, false}, config);
+    const lg::DirectionalDamagePresentation facingSource =
+      directionalDamage.presentation(kHalfPi, config);
+    const lg::DirectionalDamagePresentation facingEast =
+      directionalDamage.presentation(0.0F, config);
+    failures += expect(
+      std::fabs(facingSource.indicators[0].relativeYawRadians) < 0.001F &&
+        std::fabs(facingEast.indicators[0].relativeYawRadians - kHalfPi) < 0.001F,
+      "directional damage should recalculate a world bearing as the camera turns"
+    );
+  }
+
+  {
+    constexpr float kPi = 3.14159265359F;
+    lg::DirectionalDamageState directionalDamage;
+    lg::DirectionalDamageHudConfig config;
+    config.mergeAngleRadians = 0.10F;
+    directionalDamage.addIncomingDamageEvent(
+      {1, -kPi + 0.02F, 1.0F, true, false}, config
+    );
+    directionalDamage.addIncomingDamageEvent(
+      {2, kPi - 0.02F, 1.0F, true, false}, config
+    );
+    const lg::DirectionalDamagePresentation presentation =
+      directionalDamage.presentation(kPi - 0.01F, config);
+    failures += expect(
+      activeDirectionalIndicatorCount(presentation) == 1U &&
+        std::fabs(presentation.indicators[0].relativeYawRadians) < 0.05F,
+      "directional damage should merge and wrap across minus pi and pi"
+    );
+  }
+
+  {
+    lg::DirectionalDamageState directionalDamage;
+    lg::DirectionalDamageHudConfig config;
+    config.durationSeconds = 1.0F;
+    config.maxOpacity = 1.0F;
+    directionalDamage.addIncomingDamageEvent({1, 0.0F, 1.0F, true, false}, config);
+    directionalDamage.update(0.5F, config);
+    const lg::DirectionalDamagePresentation faded =
+      directionalDamage.presentation(0.0F, config);
+    directionalDamage.update(0.5F, config);
+    const lg::DirectionalDamagePresentation expired =
+      directionalDamage.presentation(0.0F, config);
+    failures += expect(
+      std::fabs(faded.indicators[0].opacity - 0.5F) < 0.001F &&
+        activeDirectionalIndicatorCount(expired) == 0U,
+      "directional damage should fade and expire at its configured duration"
+    );
+  }
+
+  {
+    lg::DirectionalDamageState directionalDamage;
+    lg::DirectionalDamageHudConfig config;
+    config.durationSeconds = 1.0F;
+    config.maxOpacity = 1.0F;
+    const lg::IncomingDirectionalDamageEvent event = {17, 0.0F, 1.0F, true, false};
+    directionalDamage.addIncomingDamageEvent(event, config);
+    directionalDamage.update(0.4F, config);
+    const float opacityBefore =
+      directionalDamage.presentation(0.0F, config).indicators[0].opacity;
+    directionalDamage.addIncomingDamageEvent(event, config);
+    const float opacityAfter =
+      directionalDamage.presentation(0.0F, config).indicators[0].opacity;
+    failures += expect(
+      std::fabs(opacityBefore - opacityAfter) < 0.001F,
+      "a duplicate directional-damage sequence should not restart its fade"
+    );
+  }
+
+  {
+    lg::DirectionalDamageState directionalDamage;
+    lg::DirectionalDamageHudConfig config;
+    config.mergeAngleRadians = 0.20F;
+    directionalDamage.addIncomingDamageEvent({1, 0.05F, 0.6F, true, false}, config);
+    directionalDamage.update(0.3F, config);
+    directionalDamage.addIncomingDamageEvent({2, 0.15F, 0.9F, true, false}, config);
+    const lg::DirectionalDamagePresentation merged =
+      directionalDamage.presentation(0.0F, config);
+    directionalDamage.addIncomingDamageEvent({3, 2.0F, 1.0F, true, false}, config);
+    const lg::DirectionalDamagePresentation distinct =
+      directionalDamage.presentation(0.0F, config);
+    failures += expect(
+      activeDirectionalIndicatorCount(merged) == 1U &&
+        merged.indicators[0].opacity > 0.80F &&
+        activeDirectionalIndicatorCount(distinct) == 2U,
+      "similar directions should merge while distinct directions stay separate"
+    );
+  }
+
+  {
+    lg::DirectionalDamageState directionalDamage;
+    lg::DirectionalDamageHudConfig config;
+    directionalDamage.addIncomingDamageEvent(
+      {1, 0.0F, 5.0F / 255.0F, true, false}, config
+    );
+    const lg::DirectionalDamagePresentation lowDamage =
+      directionalDamage.presentation(0.0F, config);
+    failures += expect(
+      lowDamage.indicators[0].active && lowDamage.indicators[0].opacity >= 0.25F,
+      "minimum machine-gun damage should remain visible at default opacity"
+    );
+  }
+
+  {
+    lg::DirectionalDamageState directionalDamage;
+    lg::DirectionalDamageHudConfig config;
+    directionalDamage.addIncomingDamageEvent({1, 0.0F, 1.0F, false, false}, config);
+    directionalDamage.addIncomingDamageEvent({2, 0.0F, 1.0F, false, true}, config);
+    const lg::DirectionalDamagePresentation presentation =
+      directionalDamage.presentation(0.0F, config, false);
+    failures += expect(
+      activeDirectionalIndicatorCount(presentation) == 2U &&
+        !presentation.enabled &&
+        !presentation.indicators[0].directionValid &&
+        !presentation.indicators[0].selfDamage &&
+        !presentation.indicators[1].directionValid &&
+        presentation.indicators[1].selfDamage,
+      "unknown and self damage should use neutral directionless HUD cues"
     );
   }
 

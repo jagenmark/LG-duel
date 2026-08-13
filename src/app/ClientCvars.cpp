@@ -190,6 +190,11 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_damage_numbers_damage_color", "Blend damage numbers from the configured color toward red as damage increases.", false, archivedClient, {}, {}});
   console.registerCvar({"r_damage_numbers_offset_x", "Damage number horizontal screen offset from the projected world anchor.", 0.0F, archivedClient, -400.0F, 400.0F});
   console.registerCvar({"r_damage_numbers_offset_y", "Damage number vertical screen offset from the projected world anchor.", -46.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_damage_indicator", "Draw directional damage indicators.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_damage_indicator_duration", "Directional damage indicator lifetime in seconds.", 0.8F, archivedClient, 0.05F, 3.0F});
+  console.registerCvar({"r_damage_indicator_opacity", "Directional damage indicator maximum opacity.", 0.85F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_damage_indicator_distance", "Directional damage indicator distance from the crosshair in pixels.", 112.0F, archivedClient, 24.0F, 800.0F});
+  console.registerCvar({"r_damage_indicator_scale", "Directional damage indicator scale.", 1.0F, archivedClient, 0.25F, 4.0F});
   console.registerCvar({"r_enemy_r", "Enemy model red channel.", 224, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});

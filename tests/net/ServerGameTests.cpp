@@ -8,6 +8,7 @@
 #include "sim/UserCommand.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -165,6 +166,66 @@ bool hasAnyLocalHitFeedback(
     }
   }
   return false;
+}
+
+const lg::DamageTakenEvent* damageTakenEventFor(
+  const lg::ServerSnapshot& snapshot,
+  std::size_t victimIndex,
+  lg::Weapon weapon
+) {
+  if (victimIndex >= lg::kDuelPlayerCount) {
+    return nullptr;
+  }
+  const lg::DamageTakenEventRing& ring =
+    snapshot.damageTakenEvents[victimIndex];
+  for (std::size_t slot = 0; slot < lg::kDamageTakenEventWindow; ++slot) {
+    if (lg::damageTakenEventActive(ring, slot) &&
+        ring.events[slot].weapon == weapon) {
+      return &ring.events[slot];
+    }
+  }
+  return nullptr;
+}
+
+std::uint8_t quantizedDamageBearing(lg::Vec3 victim, lg::Vec3 source) {
+  const float x = source.x - victim.x;
+  const float y = source.y - victim.y;
+  if (!std::isfinite(x) || !std::isfinite(y) ||
+      x * x + y * y <= 0.00000001F) {
+    return 0U;
+  }
+  constexpr float kTwoPi = 6.28318530718F;
+  const float bearing = std::atan2(y, x);
+  const float wrapped = bearing < 0.0F ? bearing + kTwoPi : bearing;
+  return static_cast<std::uint8_t>(
+    std::lround(wrapped * (256.0F / kTwoPi)) & 0xFFL
+  );
+}
+
+bool hasVictimDamage(
+  const lg::ServerSnapshot& snapshot,
+  std::size_t victimIndex,
+  std::size_t attackerIndex,
+  lg::Weapon weapon,
+  int expectedDamage,
+  lg::Vec3 source
+) {
+  const lg::DamageTakenEvent* event =
+    damageTakenEventFor(snapshot, victimIndex, weapon);
+  const lg::Vec3 offset = source - snapshot.players[victimIndex].position;
+  const bool expectedDirectionValid =
+    offset.x * offset.x + offset.y * offset.y > 0.00000001F;
+  return event != nullptr && event->sequence != 0U &&
+    event->presentationDamage == std::min(expectedDamage, 255) &&
+    lg::damageTakenHasAttacker(*event) &&
+    lg::damageTakenAttackerIndex(*event) == attackerIndex &&
+    (expectedDirectionValid
+      ? lg::damageTakenDirectionValid(*event) &&
+        event->direction256 == quantizedDamageBearing(
+          snapshot.players[victimIndex].position,
+          source
+        )
+      : !lg::damageTakenDirectionValid(*event) && event->direction256 == 0U);
 }
 
 std::size_t activeIcePoolCount(const lg::ServerSnapshot& snapshot) {
@@ -1945,6 +2006,23 @@ int main() {
         ) > compensated.players[1].bounds.radius,
       "LG should replicate the exact current and historical bounds used by the trace"
     );
+    const lg::DamageTakenEvent* compensatedDamage =
+      damageTakenEventFor(compensated, 1, lg::Weapon::LightningGun);
+    const std::uint8_t rewoundBearing = quantizedDamageBearing(
+      compensated.lightningGuns[0].rewoundTargetPosition,
+      compensated.lightningGuns[0].start
+    );
+    const std::uint8_t currentBearing = quantizedDamageBearing(
+      compensated.lightningGuns[0].currentTargetPosition,
+      compensated.lightningGuns[0].start
+    );
+    failures += expect(
+      compensatedDamage != nullptr &&
+        rewoundBearing != currentBearing &&
+        lg::damageTakenDirectionValid(*compensatedDamage) &&
+        compensatedDamage->direction256 == rewoundBearing,
+      "lag-compensated damage feedback should encode the rewound hit bearing"
+    );
 
     attack.sequence = 1;
     transport.sendCommand(lg::CommandPacket{0, attack, false, 0});
@@ -2826,6 +2904,19 @@ int main() {
         snapshot.players[1].velocity.z
       ) > 0.1F,
       "grenade explosion should apply knockback"
+    );
+    const lg::DamageTakenEvent* grenadeDamage =
+      damageTakenEventFor(snapshot, 1, lg::Weapon::GrenadeLauncher);
+    failures += expect(
+      grenadeDamage != nullptr && hasVictimDamage(
+        snapshot,
+        1,
+        0,
+        lg::Weapon::GrenadeLauncher,
+        grenadeDamage->presentationDamage,
+        snapshot.rocketExplosions[0].position
+      ),
+      "grenade splash should record the authoritative explosion origin"
     );
   }
 
@@ -3832,6 +3923,219 @@ int main() {
     failures += expect(
       snapshot.sniperChargePercent[0] == 0,
       "a Sniper Rifle shot should spend its full charge"
+    );
+  }
+
+  {
+    constexpr std::array<lg::Weapon, 6> kHitscanWeapons = {
+      lg::Weapon::LightningGun,
+      lg::Weapon::FreezeGun,
+      lg::Weapon::MachineGun,
+      lg::Weapon::Shotgun,
+      lg::Weapon::Railgun,
+      lg::Weapon::Revolver,
+    };
+    for (const lg::Weapon weapon : kHitscanWeapons) {
+      lg::LoopbackTransport transport;
+      lg::ServerGame server(transport);
+      lg::ServerSnapshot snapshot = latestSnapshot(transport);
+      lg::UserCommand command;
+      command.sequence = 1;
+      command.attack = true;
+      command.weapon = weapon;
+      aimAtPlayerBody(command, snapshot, 0, 1);
+      transport.sendCommand(lg::CommandPacket{0, command, false});
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+
+      const bool beam =
+        weapon == lg::Weapon::LightningGun || weapon == lg::Weapon::FreezeGun;
+      const lg::Vec3 source = beam
+        ? snapshot.lightningGuns[0].start
+        : snapshot.weaponFires[0].start;
+      const int damage = beam
+        ? snapshot.lightningGuns[0].damageApplied
+        : snapshot.weaponFires[0].damageApplied;
+      failures += expect(
+        damage > 0 && hasVictimDamage(
+          snapshot, 1, 0, weapon, damage, source
+        ),
+        "every hitscan and beam weapon should record a victim event from its authoritative shot origin"
+      );
+    }
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::WeaponDamageTuning damage;
+    damage.lightningGunDamage = 125;
+    server.setRuntimeGameplayTuning(
+      {}, 1.0F, 1.0F, 1000.0F, 125.0F, 1000.0F, 100,
+      damage, 0.0F, 100, 100, true, false, 250, 750,
+      lg::WeaponSwitchingMode::Crazy
+    );
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    lg::UserCommand command;
+    command.attack = true;
+    command.weapon = lg::Weapon::LightningGun;
+    aimAtPlayerBody(command, snapshot, 0, 1);
+    for (std::uint32_t sequence = 1U; sequence <= 9U; ++sequence) {
+      command.sequence = sequence;
+      transport.sendCommand(lg::CommandPacket{0, command, false});
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    const lg::DamageTakenEventRing& ring = snapshot.damageTakenEvents[1];
+    const std::size_t activeCount = std::count_if(
+      ring.events.begin(), ring.events.end(),
+      [&ring, slot = std::size_t{0}](const lg::DamageTakenEvent&) mutable {
+        return lg::damageTakenEventActive(ring, slot++);
+      }
+    );
+    const bool stillHasFirst = std::any_of(
+      ring.events.begin(), ring.events.end(),
+      [&ring, slot = std::size_t{0}](const lg::DamageTakenEvent& event) mutable {
+        return lg::damageTakenEventActive(ring, slot++) && event.sequence == 1U;
+      }
+    );
+    failures += expect(
+      activeCount == lg::kDamageTakenEventWindow && !stillHasFirst &&
+        ring.events[0].sequence == 9U,
+      "the ninth retained damage event should deterministically replace sequence one"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    lg::UserCommand command;
+    command.sequence = 1U;
+    command.attack = true;
+    command.weapon = lg::Weapon::Railgun;
+    aimAtPlayerBody(command, snapshot, 0, 1);
+    transport.sendCommand(lg::CommandPacket{0, command, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    const lg::DamageTakenEvent* initial =
+      damageTakenEventFor(snapshot, 1, lg::Weapon::Railgun);
+    const std::uint32_t sequence = initial == nullptr ? 0U : initial->sequence;
+    command.sequence = 2U;
+    command.attack = false;
+    transport.sendCommand(lg::CommandPacket{0, command, false});
+    // The authoritative hit snapshot is tick one of the 32-tick window.
+    for (int tick = 0; tick < 31; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    const lg::DamageTakenEvent* retained =
+      damageTakenEventFor(snapshot, 1, lg::Weapon::Railgun);
+    const bool retainedSameSequence =
+      retained != nullptr && retained->sequence == sequence;
+    server.tick(lg::kFixedTickSeconds);
+    // Retention uses the source tick plus a 32-tick grace interval.
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      initial != nullptr && retainedSameSequence,
+      "a damage event should survive its full 32-snapshot retention window"
+    );
+    failures += expect(
+      damageTakenEventFor(snapshot, 1, lg::Weapon::Railgun) == nullptr,
+      "a damage event should expire after its 32-tick grace interval"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    lg::UserCommand command;
+    command.sequence = 1U;
+    command.attack = true;
+    command.weapon = lg::Weapon::Railgun;
+    aimAtPlayerBody(command, snapshot, 0, 1);
+    transport.sendCommand(lg::CommandPacket{0, command, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    const bool hadDamageEvent =
+      damageTakenEventFor(snapshot, 1, lg::Weapon::Railgun) != nullptr;
+    server.resetMatch();
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      hadDamageEvent &&
+        damageTakenEventFor(snapshot, 1, lg::Weapon::Railgun) == nullptr,
+      "a match reset should not restore victim feedback from its old timeline"
+    );
+  }
+
+  {
+    constexpr std::array<lg::Weapon, 2> kProjectileWeapons = {
+      lg::Weapon::RocketLauncher,
+      lg::Weapon::PlasmaGun,
+    };
+    for (const lg::Weapon weapon : kProjectileWeapons) {
+      lg::LoopbackTransport transport;
+      lg::ServerGame server(transport);
+      lg::ServerSnapshot snapshot = latestSnapshot(transport);
+      lg::UserCommand command;
+      command.sequence = 1;
+      command.attack = true;
+      command.weapon = weapon;
+      aimAtPlayerBody(command, snapshot, 0, 1);
+      transport.sendCommand(lg::CommandPacket{0, command, false});
+      bool observedDamage = false;
+      for (int tick = 0; tick < 300; ++tick) {
+        server.tick(lg::kFixedTickSeconds);
+        snapshot = latestSnapshot(transport);
+        const lg::DamageTakenEvent* event =
+          damageTakenEventFor(snapshot, 1, weapon);
+        if (snapshot.rocketExplosions[0].active && event != nullptr) {
+          observedDamage = hasVictimDamage(
+            snapshot,
+            1,
+            0,
+            weapon,
+            event->presentationDamage,
+            snapshot.rocketExplosions[0].position
+          );
+          break;
+        }
+      }
+      failures += expect(
+        observedDamage,
+        "every projectile weapon should record victim damage from its impact or explosion origin"
+      );
+    }
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    lg::UserCommand command;
+    command.sequence = 1;
+    command.attack = true;
+    command.weapon = lg::Weapon::RocketLauncher;
+    command.planarAim = false;
+    command.viewPitchRadians = -kPi * 0.5F;
+    transport.sendCommand(lg::CommandPacket{0, command, false});
+    const lg::DamageTakenEvent* selfEvent = nullptr;
+    for (int tick = 0; tick < 300; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      selfEvent = damageTakenEventFor(snapshot, 0, lg::Weapon::RocketLauncher);
+      if (selfEvent != nullptr) {
+        break;
+      }
+    }
+    failures += expect(
+      selfEvent != nullptr && lg::damageTakenIsSelfDamage(*selfEvent) &&
+        lg::damageTakenHasAttacker(*selfEvent) &&
+        lg::damageTakenAttackerIndex(*selfEvent) == 0U,
+      "self-inflicted explosions should retain the self and attacker metadata"
     );
   }
 

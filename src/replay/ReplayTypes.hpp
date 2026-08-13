@@ -14,7 +14,7 @@ namespace lg::replay {
 // bots ordinary recorded actors and keeps their private planning state out of
 // both hashes and checkpoints.
 inline constexpr std::uint16_t kReplayFormatVersionV1 = 1;
-inline constexpr std::uint16_t kReplayFormatVersion = 2;
+inline constexpr std::uint16_t kReplayFormatVersion = 3;
 inline constexpr std::uint16_t kReplayTickRate = 125;
 // Saved demos may cover a full high-player match. Killcam transfer has its own
 // much smaller cap in ReplayTransfer.hpp.
@@ -206,6 +206,7 @@ struct ReplayCheckpoint {
   std::array<std::uint32_t, kDuelPlayerCount> rocketExplosionSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> fragEventSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> localHitFeedbackSequences = {};
+  std::array<std::uint32_t, kDuelPlayerCount> damageTakenSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> footstepSequences = {};
   std::array<ReplayFootstepState, kDuelPlayerCount> footstepStates = {};
   std::array<std::uint32_t, kDuelPlayerCount> grenadeBounceEventSequences = {};

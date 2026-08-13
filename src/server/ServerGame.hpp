@@ -186,6 +186,13 @@ private:
     bool replayedOnce = false;
   };
 
+  struct DamageContext {
+    bool hasSourcePosition = false;
+    Vec3 sourcePosition = {};
+    bool hasVictimPosition = false;
+    Vec3 victimPosition = {};
+  };
+
   void receiveCommands();
   void ingestGameplayCommand(
     std::size_t playerIndex,
@@ -290,7 +297,8 @@ private:
     int damageApplied,
     Vec3 knockbackImpulse,
     Weapon weapon,
-    bool headshot
+    bool headshot,
+    DamageContext context
   );
   void clearProjectiles();
   void publishSnapshot();
@@ -301,6 +309,7 @@ private:
   MapDescriptor mapDescriptor_ = {};
   std::string mapDirectory_ = "maps";
   std::uint32_t mapRevision_ = 1;
+  std::uint32_t damageFeedbackRevision_ = 0;
   std::uint64_t emergencyPlayerCollisionRepairCount_ = 0;
   std::uint64_t unresolvedPlayerCollisionInvariantCount_ = 0;
   MovementTuning movementTuning_ = {};
@@ -376,8 +385,15 @@ private:
     std::array<std::uint32_t, kLocalHitFeedbackEventWindow>,
     kDuelPlayerCount
   > recentLocalHitFeedbackEventTicks_ = {};
+  std::array<DamageTakenEventRing, kDuelPlayerCount>
+    recentDamageTakenEvents_ = {};
+  std::array<
+    std::array<std::uint32_t, kDamageTakenEventWindow>,
+    kDuelPlayerCount
+  > recentDamageTakenEventTicks_ = {};
   std::array<FootstepState, kDuelPlayerCount> footstepStates_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> localHitFeedbackSequences_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> damageTakenSequences_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> footstepSequences_ = {};
   std::array<RocketProjectile, kMaxRocketProjectiles> rockets_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> projectileSequences_ = {};

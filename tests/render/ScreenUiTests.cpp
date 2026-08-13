@@ -196,6 +196,47 @@ std::size_t centerLineCount(const lg::DrawList2D& drawList) {
   return count;
 }
 
+bool hasLineEndingAt(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color,
+  float x,
+  float y
+) {
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    if (const auto* line = std::get_if<lg::Line2D>(&command)) {
+      if (
+        line->color.red == color.red &&
+        line->color.green == color.green &&
+        line->color.blue == color.blue &&
+        std::fabs(line->end.x - x) < 0.01F &&
+        std::fabs(line->end.y - y) < 0.01F
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+std::size_t countLinesWithColor(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color
+) {
+  std::size_t count = 0;
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    if (const auto* line = std::get_if<lg::Line2D>(&command)) {
+      if (
+        line->color.red == color.red &&
+        line->color.green == color.green &&
+        line->color.blue == color.blue
+      ) {
+        ++count;
+      }
+    }
+  }
+  return count;
+}
+
 } // namespace
 
 int main() {
@@ -723,6 +764,54 @@ int main() {
     failures += expect(
       centerLineCount(ringUi) >= 30U,
       "crosshair_style 3 should draw a ring using center line segments"
+    );
+  }
+
+  {
+    constexpr float kPi = 3.14159265359F;
+    constexpr float kHalfPi = kPi * 0.5F;
+    lg::RenderSettings directionalSettings;
+    directionalSettings.crosshairEnabled = false;
+    lg::HudRenderState directionalHud;
+    directionalHud.directionalDamage.distancePixels = 100.0F;
+    directionalHud.directionalDamage.indicators = {{
+      {true, 1, 0.0F, 1.0F, 1.0F, true, false},
+      {true, 2, -kHalfPi, 1.0F, 1.0F, true, false},
+      {true, 3, kPi, 1.0F, 1.0F, true, false},
+      {true, 4, kHalfPi, 1.0F, 1.0F, true, false},
+    }};
+    const lg::DrawList2D directionalUi = lg::buildScreenUi(
+      1280, 720, opponent, directionalSettings, directionalHud, {}
+    );
+    constexpr lg::RenderColor directionalColor = {255, 76, 70, 255};
+    failures += expect(
+      hasLineEndingAt(directionalUi, directionalColor, 640.0F, 260.0F) &&
+        hasLineEndingAt(directionalUi, directionalColor, 740.0F, 360.0F) &&
+        hasLineEndingAt(directionalUi, directionalColor, 640.0F, 460.0F) &&
+        hasLineEndingAt(directionalUi, directionalColor, 540.0F, 360.0F),
+      "directional damage should place cardinal chevrons around the crosshair"
+    );
+
+    directionalHud.directionalDamage.indicators = {{
+      {true, 6, 0.0F, 1.0F, 1.0F, true, true},
+    }};
+    const lg::DrawList2D selfDamageUi = lg::buildScreenUi(
+      1280, 720, opponent, directionalSettings, directionalHud, {}
+    );
+    constexpr lg::RenderColor selfDamageColor = {255, 186, 66, 255};
+    failures += expect(
+      countLinesWithColor(selfDamageUi, selfDamageColor) == 1U &&
+        countLinesWithColor(selfDamageUi, directionalColor) == 0U,
+      "self damage should use a distinct short-bar HUD style"
+    );
+
+    directionalHud.directionalDamage.enabled = false;
+    const lg::DrawList2D disabledDirectionalUi = lg::buildScreenUi(
+      1280, 720, opponent, directionalSettings, directionalHud, {}
+    );
+    failures += expect(
+      countLinesWithColor(disabledDirectionalUi, selfDamageColor) == 0U,
+      "directional damage should render nothing without a local player body"
     );
   }
 

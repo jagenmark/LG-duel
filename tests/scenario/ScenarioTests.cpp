@@ -547,6 +547,13 @@ int testServerSetupAndHashes() {
   failures += expect(
     lg::scenario::scenarioStateHash(changed) != hashA,
     "state hash should change when authoritative health changes");
+  const std::uint32_t firstDamageFeedbackRevision =
+    gameA.snapshot().damageFeedbackRevision;
+  failures += expect(
+    gameA.applyScenarioSetup(setup, &errorA) &&
+      gameA.snapshot().damageFeedbackRevision != firstDamageFeedbackRevision,
+    "a scenario setup should start a new damage-feedback timeline"
+  );
   return failures;
 }
 
