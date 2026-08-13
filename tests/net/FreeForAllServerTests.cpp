@@ -118,6 +118,17 @@ bool applySetup(lg::ServerGame& server, const lg::ScenarioSetup& setup) {
   return false;
 }
 
+bool hasPlayerProjectile(const lg::ServerGame& server, std::size_t playerIndex) {
+  const std::size_t firstSlot = playerIndex * lg::kProjectileSlotsPerPlayer;
+  const std::size_t endSlot = firstSlot + lg::kProjectileSlotsPerPlayer;
+  for (std::size_t slot = firstSlot; slot < endSlot; ++slot) {
+    if (server.projectiles()[slot].active) {
+      return true;
+    }
+  }
+  return false;
+}
+
 lg::ServerSnapshot fireSelfRocket(
   lg::LoopbackTransport& transport,
   lg::ServerGame& server,
@@ -346,6 +357,53 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    lg::Arena arena = testArena();
+    arena.killVolumeCount = 1;
+    arena.killVolumes[0] = {{-1.0F, -6.5F, 0.0F}, {1.0F, -5.5F, 2.0F}};
+    server.setArena(arena);
+    lg::MatchRules rules;
+    rules.deathRespawnTicks = 2;
+    server.setMatchRules(rules);
+    lg::ScenarioSetup setup = liveSetup(99, 0);
+    setup.players[2].connected = true;
+    setup.players[2].ready = true;
+    setup.players[2].alive = true;
+    setup.players[2].health = 100;
+    setup.players[2].position = {0.0F, -6.0F, 0.9F};
+    setup.players[2].onGround = true;
+    failures += expect(
+      applySetup(server, setup),
+      "FFA match-end respawn setup should load"
+    );
+
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[2].health == 0 &&
+        snapshot.respawnTicksRemaining[2] == 2 &&
+        snapshot.matchPhase == lg::MatchPhase::Live,
+      "an earlier FFA world death should start its respawn timer"
+    );
+    snapshot = sendAndTick(transport, server, aimedRail(snapshot, 0, 1, 1));
+    failures += expect(
+      snapshot.scores[0] == 100 &&
+        snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
+        snapshot.respawnTicksRemaining[2] == 1,
+      "a later cap kill should end FFA with the earlier timer pending"
+    );
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
+        snapshot.players[2].health == 0 &&
+        snapshot.respawnTicksRemaining[2] == 1,
+      "FFA death timers should stop after match end"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
     server.setArena(testArena());
     lg::ScenarioSetup setup = liveSetup(5, 2, 100);
     setup.match.liveTicksElapsed = 10U * 60U * 125U - 1U;
@@ -386,11 +444,14 @@ int main() {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     server.setArena(testArena());
+    lg::MatchRules rules;
+    rules.deathRespawnTicks = 20;
+    server.setMatchRules(rules);
     lg::ScenarioSetup setup = liveSetup(5, 2);
     setup.players[2].connected = true;
     setup.players[2].ready = true;
     setup.players[2].alive = true;
-    setup.players[2].health = 100;
+    setup.players[2].health = 1;
     setup.players[2].position = {0.0F, -6.0F, 0.9F};
     setup.players[2].onGround = true;
     setup.match.scores[2] = 1;
@@ -398,21 +459,45 @@ int main() {
       applySetup(server, setup),
       "FFA roster-change setup should load"
     );
+    lg::CommandPacket rocket;
+    rocket.playerIndex = 2;
+    rocket.command.sequence = 1;
+    rocket.command.attack = true;
+    rocket.command.weapon = lg::Weapon::RocketLauncher;
+    rocket.command.planarAim = false;
+    rocket.command.viewYawRadians = -1.57079632679F;
+    lg::ServerSnapshot snapshot = sendAndTick(transport, server, rocket);
+    failures += expect(
+      hasPlayerProjectile(server, 2),
+      "the old FFA slot owner should have a live projectile before leaving"
+    );
+    snapshot = sendAndTick(transport, server, aimedRail(snapshot, 0, 2, 1));
+    failures += expect(
+      snapshot.players[2].health == 0 &&
+        snapshot.respawnTicksRemaining[2] == 20,
+      "the old FFA slot owner should have a pending death timer"
+    );
     server.setConnectedPlayers({true, true});
     failures += expect(
       server.snapshot().matchPhase == lg::MatchPhase::Live &&
-        server.snapshot().scores[0] == 5 &&
+        server.snapshot().scores[0] == 6 &&
         server.snapshot().scores[2] == 0 &&
+        server.snapshot().players[2].health == 0 &&
+        server.snapshot().respawnTicksRemaining[2] == 0 &&
+        !hasPlayerProjectile(server, 2) &&
         !server.snapshot().participatingPlayers[2],
-      "FFA should keep the live match but clear a departed player's score"
+      "FFA should clear a departed player's score, life, timer, and shots"
     );
     server.setConnectedPlayers({true, true, true});
     failures += expect(
       server.snapshot().matchPhase == lg::MatchPhase::Live &&
-        server.snapshot().scores[0] == 5 &&
+        server.snapshot().scores[0] == 6 &&
         server.snapshot().scores[2] == 0 &&
+        server.snapshot().players[2].health == 100 &&
+        server.snapshot().respawnTicksRemaining[2] == 0 &&
+        !hasPlayerProjectile(server, 2) &&
         server.snapshot().participatingPlayers[2],
-      "a new human should not inherit the prior FFA slot owner's score"
+      "a new human should receive a fresh FFA slot life"
     );
   }
 

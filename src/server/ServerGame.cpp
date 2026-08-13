@@ -2372,6 +2372,9 @@ void ServerGame::respawnRound() {
 }
 
 void ServerGame::updateDeathRespawns() {
+  if (snapshot_.matchPhase != MatchPhase::Live) {
+    return;
+  }
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     if (snapshot_.respawnTicksRemaining[index] == 0) {
       continue;
@@ -2419,6 +2422,9 @@ void ServerGame::setConnectedPlayers(
       snapshot_.teams[index] = Team::None;
       snapshot_.playerNames[index] = "PLAYER " + std::to_string(index + 1U);
       resetPlayerInputState(index);
+      if (snapshot_.gameMode == GameMode::FreeForAll) {
+        respawnPlayer(index);
+      }
       botDodgeSwitchSeconds_[index] = 0.0F;
       botMotors_[index] = {};
       botBrains_[index].reset(0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U));
@@ -2479,6 +2485,9 @@ void ServerGame::setConnectedPlayers(
       snapshot_.readyPlayers[index] = false;
       snapshot_.playerNames[index] = "PLAYER " + std::to_string(index + 1U);
       resetPlayerInputState(index);
+      if (snapshot_.gameMode == GameMode::FreeForAll) {
+        respawnPlayer(index);
+      }
       botDodgeSwitchSeconds_[index] = 0.0F;
     }
     playerSessions_[index] = playerSessions[index];
@@ -2492,6 +2501,43 @@ void ServerGame::clearPlayerIdentityMatchState(std::size_t playerIndex) {
   snapshot_.scores[playerIndex] = 0;
   snapshot_.roundCombatStats[playerIndex] = {};
   snapshot_.matchCombatStats[playerIndex] = {};
+  if (snapshot_.gameMode != GameMode::FreeForAll) {
+    return;
+  }
+  snapshot_.respawnTicksRemaining[playerIndex] = 0;
+  snapshot_.players[playerIndex].health = 0;
+  clearPlayerProjectiles(playerIndex);
+}
+
+void ServerGame::clearPlayerProjectiles(std::size_t playerIndex) {
+  if (playerIndex >= kDuelPlayerCount) {
+    return;
+  }
+  const std::size_t firstSlot = playerIndex * kProjectileSlotsPerPlayer;
+  const std::size_t endSlot = firstSlot + kProjectileSlotsPerPlayer;
+  for (std::size_t slot = firstSlot; slot < endSlot; ++slot) {
+    RocketProjectile& projectile = rockets_[slot];
+    if (!projectile.active) {
+      continue;
+    }
+    projectile.active = false;
+    ProjectileUpdate removed;
+    removed.kind = ProjectileUpdateKind::Remove;
+    removed.slot = static_cast<std::uint16_t>(slot);
+    removed.sequence = projectile.sequence;
+    removed.weapon = projectile.weapon;
+    removed.position = projectile.position;
+    removed.velocity = projectile.velocity;
+    removed.radius = projectile.projectileRadius;
+    removed.ageTicks = projectile.ageTicks;
+    removed.resting = projectile.resting;
+    recentProjectileRemovals_.push_back({
+      removed,
+      snapshot_.serverTick + 1U,
+      false,
+      false,
+    });
+  }
 }
 
 void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
