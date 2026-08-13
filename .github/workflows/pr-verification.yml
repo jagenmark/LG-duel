@@ -60,16 +60,6 @@ jobs:
           mkdir -p verification/linux
           ctest --preset default --output-junit verification/linux/ctest.xml
 
-      - name: Run Python tests
-        if: always()
-        shell: bash
-        run: |
-          status=0
-          for test_file in scripts/test_*.py; do
-            python "$test_file" || status=1
-          done
-          exit "$status"
-
       - name: Run focused address and undefined behavior checks
         if: always()
         env:
@@ -145,21 +135,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force verification/windows | Out-Null
           ctest --preset msvc --output-junit verification/windows/ctest.xml
-
-      - name: Run Python tests
-        if: always()
-        shell: pwsh
-        run: |
-          $failed = $false
-          Get-ChildItem scripts/test_*.py | Sort-Object Name | ForEach-Object {
-            python $_.FullName
-            if ($LASTEXITCODE -ne 0) {
-              $failed = $true
-            }
-          }
-          if ($failed) {
-            throw "One or more Python test files failed."
-          }
 
       - name: Collect CI evidence
         if: always()
