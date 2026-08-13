@@ -391,6 +391,25 @@ struct ConsoleRenderState {
 };
 
 struct HudRenderState {
+  struct FreeForAllScoreboardRow {
+    std::size_t rank = 0;
+    std::uint8_t playerIndex = 0;
+    std::string name;
+    PlayerScore score = 0;
+    Weapon accuracyWeapon = Weapon::LightningGun;
+    std::uint32_t accuracyPercent = 0;
+    std::uint32_t totalDamage = 0;
+    bool localPlayer = false;
+  };
+
+  struct FreeForAllStandingRow {
+    std::size_t rank = 0;
+    std::uint8_t playerIndex = 0;
+    std::string name;
+    PlayerScore score = 0;
+    bool localPlayer = false;
+  };
+
   struct SettingsMenuItem {
     std::string label;
     std::string value;
@@ -469,6 +488,9 @@ struct HudRenderState {
   bool chatHistoryExpanded = false;
   std::size_t chatScrollRows = 0;
   bool scoreboardOpen = false;
+  bool freeForAllScoreboard = false;
+  std::vector<FreeForAllScoreboardRow> freeForAllScoreboardRows;
+  std::vector<FreeForAllStandingRow> freeForAllStandingRows;
   std::vector<std::string> scoreboardLines;
   std::vector<Team> scoreboardLineTeams;
   std::vector<Weapon> scoreboardLineAccuracyWeapons;

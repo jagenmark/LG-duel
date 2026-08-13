@@ -162,5 +162,103 @@ int main() {
     "McGuffin scoreboard should show team score and team styling"
   );
 
+  {
+    lg::ServerSnapshot ffa;
+    ffa.gameMode = lg::GameMode::FreeForAll;
+    ffa.participatingPlayers = {true, true, true, true, false};
+    ffa.playerNames = {
+      "LEADER",
+      "TIED A",
+      "TIED B",
+      "1234567890123\xC3\xA5",
+      "NOT PLAYING",
+    };
+    ffa.scores = {10, 8, 8, -2, 100};
+    setWeaponStats(
+      ffa.matchCombatStats[2],
+      lg::Weapon::RocketLauncher,
+      90,
+      5,
+      3
+    );
+    lg::HudRenderState ffaHud;
+    lg::populateScoreboard(ffaHud, ffa, 2);
+    failures += expect(
+      ffaHud.scoreboardOpen && ffaHud.freeForAllScoreboard &&
+        ffaHud.scoreboardLines.empty() &&
+        ffaHud.freeForAllScoreboardRows.size() == 4,
+      "FFA should use sorted structured scoreboard rows for participants only"
+    );
+    failures += expect(
+      ffaHud.freeForAllScoreboardRows[0].playerIndex == 0 &&
+        ffaHud.freeForAllScoreboardRows[0].rank == 1 &&
+        ffaHud.freeForAllScoreboardRows[1].playerIndex == 1 &&
+        ffaHud.freeForAllScoreboardRows[1].rank == 2 &&
+        ffaHud.freeForAllScoreboardRows[2].playerIndex == 2 &&
+        ffaHud.freeForAllScoreboardRows[2].rank == 2 &&
+        ffaHud.freeForAllScoreboardRows[3].playerIndex == 3 &&
+        ffaHud.freeForAllScoreboardRows[3].rank == 4,
+      "FFA should sort by score then slot and use competition ranks"
+    );
+    failures += expect(
+      ffaHud.freeForAllScoreboardRows[2].localPlayer &&
+        ffaHud.freeForAllScoreboardRows[2].score == 8 &&
+        ffaHud.freeForAllScoreboardRows[2].accuracyWeapon ==
+          lg::Weapon::RocketLauncher &&
+        ffaHud.freeForAllScoreboardRows[2].accuracyPercent == 60 &&
+        ffaHud.freeForAllScoreboardRows[2].totalDamage == 90 &&
+        ffaHud.freeForAllScoreboardRows[3].score == -2,
+      "FFA rows should carry the local mark, signed score, accuracy, and damage"
+    );
+    failures += expect(
+      ffaHud.freeForAllScoreboardRows[3].name == "1234567890123",
+      "scoreboard clipping should not split a UTF-8 name"
+    );
+
+    lg::HudRenderState standing;
+    lg::populateFreeForAllStanding(standing, ffa, 0);
+    failures += expect(
+      standing.freeForAllStandingRows.size() == 1 &&
+        standing.freeForAllStandingRows[0].playerIndex == 0 &&
+        standing.freeForAllStandingRows[0].localPlayer,
+      "a local FFA leader should appear once in the persistent standing"
+    );
+    standing = {};
+    lg::populateFreeForAllStanding(standing, ffa, 3);
+    failures += expect(
+      standing.freeForAllStandingRows.size() == 2 &&
+        standing.freeForAllStandingRows[0].playerIndex == 0 &&
+        standing.freeForAllStandingRows[1].playerIndex == 3 &&
+        standing.freeForAllStandingRows[1].rank == 4 &&
+        standing.freeForAllStandingRows[1].localPlayer,
+      "the persistent FFA standing should show the leader and local player"
+    );
+    standing = {};
+    ffa.scores[2] = 10;
+    lg::populateFreeForAllStanding(standing, ffa, 2);
+    failures += expect(
+      standing.freeForAllStandingRows.size() == 2 &&
+        standing.freeForAllStandingRows[0].playerIndex == 0 &&
+        standing.freeForAllStandingRows[1].playerIndex == 2 &&
+        standing.freeForAllStandingRows[0].rank == 1 &&
+        standing.freeForAllStandingRows[1].rank == 1,
+      "a later-slot local player tied for first should appear beside the chosen leader"
+    );
+    standing = {};
+    lg::populateFreeForAllStanding(standing, ffa, lg::kDuelPlayerCount);
+    failures += expect(
+      standing.freeForAllStandingRows.size() == 1 &&
+        standing.freeForAllStandingRows[0].playerIndex == 0,
+      "a spectator should see only the chosen FFA leader"
+    );
+    standing = {};
+    ffa.participatingPlayers = {};
+    lg::populateFreeForAllStanding(standing, ffa, 0);
+    failures += expect(
+      standing.freeForAllStandingRows.empty(),
+      "an empty FFA roster should have no persistent standing rows"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }

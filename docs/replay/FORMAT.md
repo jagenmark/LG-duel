@@ -2,28 +2,31 @@
 
 ## Versioning contract
 
-`.lgdemo` is the saved-demo container. Format version 3 is the only
-accepted format in `lg::replay`. Versions 1 and 2 are historical only and the
-decoder rejects them. The v3 wire contract is fixed by `ReplayCodec`:
+`.lgdemo` is the saved-demo container. Format version 4 is the only
+accepted format in `lg::replay`. Versions 1 through 3 are historical only and the
+decoder rejects them. The v4 wire contract is fixed by `ReplayCodec`:
 
 - magic bytes: `LGDM`;
-- format version: `3` (`kReplayFormatVersion`);
+- format version: `4` (`kReplayFormatVersion`);
 - fixed tick rate: `125` (`kReplayTickRate`);
 - byte order: little endian for every fixed-width value;
 - saved-file cap: 512 MiB; chunk cap: 8 MiB; tick cap: 4,194,304; checkpoint cap:
   4,096; and lag-history cap: 256 frames; and
 - chunk checksum: CRC-32 of the payload.
 
-Version 3 uses explicit field order, fixed-width values, and a declared byte
+Version 4 uses explicit field order, fixed-width values, and a declared byte
 order. It never writes C++ struct memory to disk. Padding, host endianness, ABI
 layout, pointer size, and enum size must not affect a file.
 
+Version 4 stores each player score as a signed 16-bit value. This keeps negative
+Free For All scores and their exact two-byte form across checkpoints.
+
 An old file need not play on a newer build. The current reader does not decode
-v1 or v2. It fails before restoring any state and says why.
+versions 1 through 3. It fails before restoring any state and says why.
 
 ## Preamble and metadata
 
-The 16-byte preamble contains these fields in v3 order:
+The 16-byte preamble contains these fields in v4 order:
 
 1. `LGDM` magic;
 2. 16-bit format version;
@@ -37,16 +40,16 @@ initial server tick, map revision, map name, map content hash, game mode, match
 rules, visibility policy, and fixed-slot player metadata. Player metadata holds
 slot, occupied marker, bot marker, team, and bounded name.
 
-Strings and metadata lists carry a length and a stated maximum. The current v3
+Strings and metadata lists carry a length and a stated maximum. The current v4
 stores a gameplay configuration hash, not a complete configuration payload.
 Playback requires the caller to configure an equivalent server and rejects a
 mismatched hash.
 
 ## Chunks
 
-After metadata, the file contains length-delimited chunks. Each v3 chunk holds a
+After metadata, the file contains length-delimited chunks. Each v4 chunk holds a
 one-byte type, a 32-bit payload length, a 32-bit CRC-32, and the payload. It has
-no v3 chunk flags, compression, expansion length, index, or completion record.
+no v4 chunk flags, compression, expansion length, index, or completion record.
 The four chunk types are:
 
 - `TickInputs`, one resolved input frame at a tick;
@@ -56,7 +59,7 @@ The four chunk types are:
 
 ### Sparse tick inputs
 
-A v3 `TickInputs` payload starts with its 32-bit tick and a 16-bit present-slot
+A v4 `TickInputs` payload starts with its 32-bit tick and a 16-bit present-slot
 mask. It then encodes a `ReplaySlotInput` only for each set bit, in ascending
 slot order. A clear bit has no input payload; decoding leaves that slot at its
 default state with `present == false`.
@@ -66,13 +69,13 @@ default-only: validation rejects non-default command, edge, or timing data for
 an absent slot instead of silently treating it as an actor. This keeps an empty
 slot from carrying stale input across a disconnect or restore.
 
-V3 has no distinct dynamic roster, name, team, ready, phase, rule, map, or
+V4 has no distinct dynamic roster, name, team, ready, phase, rule, map, or
 configuration-change chunk. The core recorder also does not yet supply lethal
 events. Those parts of the planned recording contract remain pending.
 
 The writer emits records by type. Tick inputs, checkpoints, hashes, and lethal
 events each keep their own valid tick order. A checkpoint’s tick and every input
-tick must not precede the initial tick. V3 does not compress records.
+tick must not precede the initial tick. V4 does not compress records.
 
 ## Strict reader rules
 
@@ -136,7 +139,7 @@ does not continue with an unverified state.
 
 ## Required format coverage
 
-`lg_duel_replay_codec_tests` covers v3 round trips, truncation with no partial
+`lg_duel_replay_codec_tests` covers v4 round trips, truncation with no partial
 apply, checksum corruption, wrong magic, non-finite command data, invalid
 projectile owner, missing lag history, out-of-range spawn cursor, out-of-order
 tick input, and trailing data. Version, sparse absent-slot, length, count, enum,

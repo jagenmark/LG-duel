@@ -30,6 +30,7 @@ public:
     return append(static_cast<std::uint8_t>(value & 0xffU)) &&
       append(static_cast<std::uint8_t>((value >> 8U) & 0xffU));
   }
+  bool i16(std::int16_t value) { return u16(std::bit_cast<std::uint16_t>(value)); }
   bool u32(std::uint32_t value) {
     for (unsigned shift = 0; shift < 32; shift += 8) {
       if (!append(static_cast<std::uint8_t>((value >> shift) & 0xffU))) return false;
@@ -107,6 +108,12 @@ public:
     if (!u8(low) || !u8(high)) return false;
     value = static_cast<std::uint16_t>(low) |
       (static_cast<std::uint16_t>(high) << 8U);
+    return true;
+  }
+  bool i16(std::int16_t& value) {
+    std::uint16_t encoded = 0;
+    if (!u16(encoded)) return false;
+    value = std::bit_cast<std::int16_t>(encoded);
     return true;
   }
   bool u32(std::uint32_t& value) {
@@ -497,7 +504,7 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
       (match.matchWinner != kNoReplayPlayer && match.matchWinner >= kDuelPlayerCount)) return false;
   if (!writer.u8(static_cast<std::uint8_t>(match.gameMode)) || !writer.u8(static_cast<std::uint8_t>(match.phase)) ||
       !writer.u32(match.phaseTicksRemaining) || !writer.u32(match.liveTicksElapsed) || !writer.boolean(match.overtime)) return false;
-  for (const std::uint16_t value : match.scores) if (!writer.u16(value)) return false;
+  for (const PlayerScore value : match.scores) if (!writer.i16(value)) return false;
   for (const std::uint16_t value : match.teamScores) if (!writer.u16(value)) return false;
   for (const std::uint16_t value : match.mcguffinScores) if (!writer.u16(value)) return false;
   for (const std::uint8_t value : match.mcguffinRoundsWon) if (!writer.u8(value)) return false;
@@ -590,7 +597,7 @@ bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
       !reader.u32(match.liveTicksElapsed) || !reader.boolean(match.overtime)) return false;
   match.gameMode = static_cast<GameMode>(gameMode);
   match.phase = static_cast<MatchPhase>(phase);
-  for (std::uint16_t& value : match.scores) if (!reader.u16(value)) return false;
+  for (PlayerScore& value : match.scores) if (!reader.i16(value)) return false;
   for (std::uint16_t& value : match.teamScores) if (!reader.u16(value)) return false;
   for (std::uint16_t& value : match.mcguffinScores) if (!reader.u16(value)) return false;
   for (std::uint8_t& value : match.mcguffinRoundsWon) if (!reader.u8(value)) return false;

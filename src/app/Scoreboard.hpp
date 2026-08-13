@@ -13,4 +13,10 @@ void populateScoreboard(
   std::size_t localPlayerIndex
 );
 
+void populateFreeForAllStanding(
+  HudRenderState& hud,
+  const ServerSnapshot& snapshot,
+  std::size_t localPlayerIndex
+);
+
 } // namespace lg
