@@ -5702,17 +5702,11 @@ void finalizeGltfPlayerModelBatches(
     }
     ++primitiveCount;
   }
-  const std::uint32_t shadowCasterInstances = static_cast<std::uint32_t>(
-    std::count_if(
-      scene.gltfPlayerModelInstances.begin(),
-      scene.gltfPlayerModelInstances.end(),
-      [](const GltfPlayerModelInstance& instance) {
-        return instance.castsSunShadow;
-      }
-    )
-  );
   const GltfShadowCasterPlan shadowPlan = gltfShadowCasterPlan(
-    shadowCasterInstances,
+    std::span<const GltfPlayerModelInstance>(
+      scene.gltfPlayerModelInstances.data(),
+      scene.gltfPlayerModelInstances.size()
+    ),
     scene.gltfPlayerModelStats.bodyDrawCalls,
     scene.lights.shadow.mapSize
   );

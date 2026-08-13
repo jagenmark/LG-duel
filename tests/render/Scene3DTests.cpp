@@ -777,11 +777,33 @@ int main() {
         energyTraits.emissive,
     "material quality should gate specular but keep readable emissive tags"
   );
+  std::array<lg::GltfPlayerModelInstance, 3> zeroShadowInstances = {};
+  for (lg::GltfPlayerModelInstance& instance : zeroShadowInstances) {
+    instance.castsSunShadow = false;
+  }
+  std::array<lg::GltfPlayerModelInstance, 3> mixedShadowInstances = {};
+  mixedShadowInstances[1].castsSunShadow = false;
+  const lg::GltfShadowCasterPlan zeroShadowPlan = lg::gltfShadowCasterPlan(
+    std::span<const lg::GltfPlayerModelInstance>(zeroShadowInstances),
+    5U,
+    2048U
+  );
+  const lg::GltfShadowCasterPlan mixedShadowPlan = lg::gltfShadowCasterPlan(
+    std::span<const lg::GltfPlayerModelInstance>(mixedShadowInstances),
+    5U,
+    2048U
+  );
   failures += expect(
-    lg::gltfShadowCasterPlan(3U, 5U, 0U).drawCalls == 0U &&
-      lg::gltfShadowCasterPlan(3U, 5U, 2048U).instances == 3U &&
-      lg::gltfShadowCasterPlan(3U, 5U, 2048U).drawCalls == 5U,
-    "skinned shadow plan should reuse body instances only when shadows run"
+    zeroShadowPlan.instances == 0U &&
+      zeroShadowPlan.drawCalls == 0U &&
+      mixedShadowPlan.instances == 2U &&
+      mixedShadowPlan.drawCalls == 10U &&
+      lg::gltfShadowCasterPlan(
+        std::span<const lg::GltfPlayerModelInstance>(mixedShadowInstances),
+        5U,
+        0U
+      ).drawCalls == 0U,
+    "skinned shadow plan should match zero and mixed filtered caster runs"
   );
   const lg::PostProcessPlan bloomPlan =
     lg::buildPostProcessPlan(1921U, 1081U, true);
@@ -1675,6 +1697,7 @@ int main() {
   failures += expect(
     !gltfShadowFadeScene.gltfPlayerModelInstances.empty() &&
       gltfShadowFadeScene.gltfPlayerModelStats.shadowCasterInstances == 0U &&
+      gltfShadowFadeScene.gltfPlayerModelStats.shadowCasterDrawCalls == 0U &&
       std::all_of(
         gltfShadowFadeScene.gltfPlayerModelInstances.begin(),
         gltfShadowFadeScene.gltfPlayerModelInstances.end(),
