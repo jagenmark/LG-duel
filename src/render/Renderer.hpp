@@ -514,6 +514,31 @@ struct HudRenderState {
   NetGraphState netGraph;
 };
 
+inline constexpr float kDeadBodyFadeDurationSeconds = 1.5F;
+inline constexpr float kDeadBodyOutlineFadeDurationSeconds = 0.20F;
+
+struct RemoteBodyFade {
+  float modelAlpha = 1.0F;
+  float outlineAlpha = 1.0F;
+  bool visible = true;
+};
+
+[[nodiscard]] inline RemoteBodyFade remoteBodyFadeAtAge(float ageSeconds) {
+  if (!std::isfinite(ageSeconds) || ageSeconds <= 0.0F) {
+    return {};
+  }
+  if (ageSeconds >= kDeadBodyFadeDurationSeconds) {
+    return {0.0F, 0.0F, false};
+  }
+  return {
+    1.0F - ageSeconds / kDeadBodyFadeDurationSeconds,
+    ageSeconds >= kDeadBodyOutlineFadeDurationSeconds
+      ? 0.0F
+      : 1.0F - ageSeconds / kDeadBodyOutlineFadeDurationSeconds,
+    true,
+  };
+}
+
 struct RemotePlayerView {
   PlayerState player = {};
   LightningGunResult lightningGun = {};
@@ -533,6 +558,7 @@ struct RemotePlayerView {
   float plasmaGunContainmentAmount = 0.0F;
   PlayerPresentationFrame presentation = {};
   bool hasPresentation = false;
+  RemoteBodyFade bodyFade = {};
 };
 
 enum class TracerStyle : std::uint8_t {

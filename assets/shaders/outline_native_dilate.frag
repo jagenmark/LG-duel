@@ -33,11 +33,19 @@ int groupAt(ivec2 pixel) {
   return 0;
 }
 
+float alphaAt(ivec2 pixel) {
+  if (!insideWorkRect(pixel)) {
+    return 0.0;
+  }
+  return texelFetch(outlineMask, pixel, 0).a;
+}
+
 void main() {
   ivec2 center = ivec2(texCoord * vec2(textureSize(outlineMask, 0)));
   int selectedGroup = 0;
   float selectedDistanceSquared = 999999.0;
   float selectedCoverage = 0.0;
+  float selectedAlpha = 0.0;
   float maxActiveDistance = max(
     outline.texelSizeAndWidths.z,
     outline.texelSizeAndWidths.w
@@ -59,14 +67,15 @@ void main() {
         selectedGroup = group;
         selectedDistanceSquared = distanceSquared;
         selectedCoverage = coverage;
+        selectedAlpha = alphaAt(center + ivec2(x, y));
       }
     }
   }
 
   if (selectedGroup == 1) {
-    outColor = vec4(1.0, selectedCoverage, 0.0, 1.0);
+    outColor = vec4(1.0, selectedCoverage, 0.0, selectedAlpha);
   } else if (selectedGroup == 2) {
-    outColor = vec4(0.5, selectedCoverage, 0.0, 1.0);
+    outColor = vec4(0.5, selectedCoverage, 0.0, selectedAlpha);
   } else {
     outColor = vec4(0.0);
   }

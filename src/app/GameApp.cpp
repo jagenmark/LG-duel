@@ -6376,6 +6376,7 @@ int GameApp::run() const {
   LocalHitFeedbackDedupeState localHitFeedbackDedupe;
   std::array<int, kDuelPlayerCount> lastRemoteHealth = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteHealth = {};
+  std::array<float, kDuelPlayerCount> remoteDeathFadeAgeSeconds = {};
   std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
@@ -8454,6 +8455,9 @@ int GameApp::run() const {
     if (currentPresentationGame == nullptr) {
       presentationView = {};
       presentationViewGame = nullptr;
+      lastRemoteHealth = {};
+      hasLastRemoteHealth = {};
+      remoteDeathFadeAgeSeconds = {};
       pendingLateViewModelMouseDeltaX = 0.0F;
       pendingLateViewModelMouseDeltaY = 0.0F;
       previousFrameUsedPresentationView = usePresentationView;
@@ -8463,6 +8467,9 @@ int GameApp::run() const {
       // reset.
       presentationView = {};
       playerPresentationStates = {};
+      lastRemoteHealth = {};
+      hasLastRemoteHealth = {};
+      remoteDeathFadeAgeSeconds = {};
       viewModelPresentation.reset();
       pendingLateViewModelMouseDeltaX = 0.0F;
       pendingLateViewModelMouseDeltaY = 0.0F;
@@ -9892,6 +9899,31 @@ int GameApp::run() const {
         renderPlayer = visualPlayer;
       }
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+        const int currentRemoteHealth =
+          renderSnapshot.players[playerIndex].health;
+        const bool hadLastRemoteHealth = hasLastRemoteHealth[playerIndex];
+        const int previousRemoteHealth = lastRemoteHealth[playerIndex];
+        if (!renderSnapshot.participatingPlayers[playerIndex]) {
+          remoteDeathFadeAgeSeconds[playerIndex] = 0.0F;
+          hasLastRemoteHealth[playerIndex] = false;
+        } else if (currentRemoteHealth > 0) {
+          remoteDeathFadeAgeSeconds[playerIndex] = 0.0F;
+        } else if (
+          !hasLastRemoteHealth[playerIndex] ||
+          lastRemoteHealth[playerIndex] > 0
+        ) {
+          remoteDeathFadeAgeSeconds[playerIndex] = 0.0F;
+        } else {
+          remoteDeathFadeAgeSeconds[playerIndex] = std::min(
+            kDeadBodyFadeDurationSeconds,
+            remoteDeathFadeAgeSeconds[playerIndex] +
+              std::max(0.0F, elapsed.count())
+          );
+        }
+        lastRemoteHealth[playerIndex] = currentRemoteHealth;
+        hasLastRemoteHealth[playerIndex] =
+          renderSnapshot.participatingPlayers[playerIndex];
+
         if (playerIndex == cameraPlayerIndex ||
             (!session.spectator() && playerIndex == localPlayerIndex)) {
           playerPresentationStates[playerIndex] = {};
@@ -9917,6 +9949,16 @@ int GameApp::run() const {
           renderSnapshot.playerNames[playerIndex],
           renderAnimationTimeSeconds,
         };
+        renderRemotePlayers[playerIndex].bodyFade =
+          currentRemoteHealth <= 0
+            ? remoteBodyFadeAtAge(remoteDeathFadeAgeSeconds[playerIndex])
+            : RemoteBodyFade{};
+        renderRemotePlayers[playerIndex].visible =
+          renderRemotePlayers[playerIndex].bodyFade.visible;
+        if (!renderRemotePlayers[playerIndex].visible) {
+          playerPresentationStates[playerIndex] = {};
+          continue;
+        }
         PlayerPresentationConfig presentationConfig;
         presentationConfig.leanScale = teammate
           ? console.getFloat("r_teammate_lean_scale")
@@ -9934,11 +9976,8 @@ int GameApp::run() const {
           );
         }
         renderRemotePlayers[playerIndex].hasPresentation = true;
-        const int currentRemoteHealth =
-          renderSnapshot.players[playerIndex].health;
         if (
-          hasLastRemoteHealth[playerIndex] &&
-          currentRemoteHealth < lastRemoteHealth[playerIndex]
+          hadLastRemoteHealth && currentRemoteHealth < previousRemoteHealth
         ) {
           lastRemoteDamageTime[playerIndex] = now;
           hasLastRemoteDamageTime[playerIndex] = true;

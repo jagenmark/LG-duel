@@ -405,6 +405,28 @@ UvBounds texturedWallUvBounds(
 
 int main() {
   int failures = 0;
+  const lg::RemoteBodyFade freshBodyFade = lg::remoteBodyFadeAtAge(0.0F);
+  const lg::RemoteBodyFade halfwayBodyFade =
+    lg::remoteBodyFadeAtAge(lg::kDeadBodyFadeDurationSeconds * 0.5F);
+  const lg::RemoteBodyFade outlineGoneBodyFade =
+    lg::remoteBodyFadeAtAge(lg::kDeadBodyOutlineFadeDurationSeconds);
+  const lg::RemoteBodyFade fullyGoneBodyFade =
+    lg::remoteBodyFadeAtAge(lg::kDeadBodyFadeDurationSeconds);
+  failures += expect(
+    freshBodyFade.visible &&
+      nearlyEqual(freshBodyFade.modelAlpha, 1.0F) &&
+      nearlyEqual(freshBodyFade.outlineAlpha, 1.0F) &&
+      halfwayBodyFade.visible &&
+      nearlyEqual(halfwayBodyFade.modelAlpha, 0.5F) &&
+      nearlyEqual(halfwayBodyFade.outlineAlpha, 0.0F) &&
+      outlineGoneBodyFade.visible &&
+      outlineGoneBodyFade.modelAlpha > 0.0F &&
+      nearlyEqual(outlineGoneBodyFade.outlineAlpha, 0.0F) &&
+      !fullyGoneBodyFade.visible &&
+      nearlyEqual(fullyGoneBodyFade.modelAlpha, 0.0F) &&
+      nearlyEqual(fullyGoneBodyFade.outlineAlpha, 0.0F),
+    "dead-body fade should clear the outline quickly and remove the model at 1.5 seconds"
+  );
   failures += expect(
     lg::antiAliasingSampleCount(-1) == 1U &&
       lg::antiAliasingSampleCount(0) == 1U &&
@@ -1223,6 +1245,73 @@ int main() {
     rocketExplosions,
     rockets,
     settings
+  );
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> fadingRemotePlayers = {};
+  fadingRemotePlayers[0].player = opponent;
+  fadingRemotePlayers[0].visible = true;
+  fadingRemotePlayers[0].bodyFade = lg::remoteBodyFadeAtAge(
+    lg::kDeadBodyFadeDurationSeconds * 0.5F
+  );
+  lg::RenderSettings fadingSettings = settings;
+  fadingSettings.playerModel = 0;
+  fadingSettings.drawRemoteWeapons = false;
+  const std::array<bool, lg::Arena::kHealthPickupCount> fadingPickups = [] {
+    std::array<bool, lg::Arena::kHealthPickupCount> available = {};
+    available.fill(true);
+    return available;
+  }();
+  const lg::Scene3D fadingScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    fadingRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    fadingPickups,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    fadingSettings
+  );
+  const auto fadingBody = std::find_if(
+    fadingScene.staticMeshInstances.begin(),
+    fadingScene.staticMeshInstances.end(),
+    [](const lg::StaticMeshInstance& instance) { return instance.playerBoxBody; }
+  );
+  failures += expect(
+    fadingScene.visibleRemotePlayers == 1U &&
+      fadingScene.remoteBodyModelsBuilt == 1U &&
+      fadingScene.playerOutlinesBuilt == 0U &&
+      fadingScene.outlineMaskDraws.empty() &&
+      fadingBody != fadingScene.staticMeshInstances.end() &&
+      fadingBody->color.alpha > 100U && fadingBody->color.alpha < 200U,
+    "a dead body should keep its model while its alpha fades and its outline is already gone"
+  );
+  fadingRemotePlayers[0].bodyFade = fullyGoneBodyFade;
+  const lg::Scene3D fullyGoneScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    fadingRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    fadingPickups,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    fadingSettings
+  );
+  failures += expect(
+    fullyGoneScene.visibleRemotePlayers == 0U &&
+      fullyGoneScene.remoteBodyModelsBuilt == 0U &&
+      fullyGoneScene.remoteWeaponModelsBuilt == 0U &&
+      fullyGoneScene.contactShadowVertices.empty() &&
+      fullyGoneScene.outlineMaskDraws.empty(),
+    "a fully faded dead body should leave no render or shadow instances"
   );
   const lg::Scene3D defaultNativeScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,

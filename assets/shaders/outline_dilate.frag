@@ -35,6 +35,15 @@ int groupAt(vec2 uv) {
   return 0;
 }
 
+float alphaAt(vec2 uv) {
+  vec2 textureSizePixels = 1.0 / outline.texelSizeAndWidths.xy;
+  vec2 pixel = uv * textureSizePixels;
+  if (!insideWorkRect(pixel)) {
+    return 0.0;
+  }
+  return texture(outlineMask, uv).a;
+}
+
 void main() {
   vec2 texelSize = outline.texelSizeAndWidths.xy;
   float enemyRadius = outline.texelSizeAndWidths.z;
@@ -43,6 +52,7 @@ void main() {
   int selectedGroup = 0;
   float selectedDistanceSquared = 999999.0;
   float selectedCoverage = 0.0;
+  float selectedAlpha = 0.0;
   for (int y = -kFixedRadius; y <= kFixedRadius; ++y) {
     for (int x = -kFixedRadius; x <= kFixedRadius; ++x) {
       float distanceSquared = float(x * x + y * y);
@@ -55,14 +65,17 @@ void main() {
         selectedGroup = group;
         selectedDistanceSquared = distanceSquared;
         selectedCoverage = coverage;
+        selectedAlpha = alphaAt(
+          texCoord + vec2(float(x), float(y)) * texelSize
+        );
       }
     }
   }
 
   if (selectedGroup == 1) {
-    outColor = vec4(1.0, selectedCoverage, 0.0, 1.0);
+    outColor = vec4(1.0, selectedCoverage, 0.0, selectedAlpha);
   } else if (selectedGroup == 2) {
-    outColor = vec4(0.5, selectedCoverage, 0.0, 1.0);
+    outColor = vec4(0.5, selectedCoverage, 0.0, selectedAlpha);
   } else {
     outColor = vec4(0.0);
   }

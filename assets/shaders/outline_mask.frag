@@ -7,5 +7,5 @@ layout(set = 3, binding = 0, std140) uniform OutlineMaskData {
 } mask;
 
 void main() {
-  outColor = vec4(mask.group.x, 0.0, 0.0, 1.0);
+  outColor = vec4(mask.group.x, 0.0, 0.0, mask.group.a);
 }
