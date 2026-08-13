@@ -6249,7 +6249,8 @@ void drawStaticMeshBatches(
   const Scene3D& scene,
   RenderPass passFilter,
   bool bindMaterialEnvironment = true,
-  const SDL_GPUTextureSamplerBinding* simplePointShadowBinding = nullptr
+  const SDL_GPUTextureSamplerBinding* simplePointShadowBinding = nullptr,
+  bool shadowCastersOnly = false
 ) {
   if (
     resources == nullptr ||
@@ -6267,33 +6268,66 @@ void drawStaticMeshBatches(
     if (mesh == nullptr || mesh->vertexBuffer == nullptr || mesh->vertexCount == 0U) {
       continue;
     }
-    SDL_BindGPUGraphicsPipeline(
-      pass,
-      mesh->materialLit ? materialPipeline : pipeline
-    );
-    if (mesh->materialLit && bindMaterialEnvironment) {
-      const SDL_GPUTextureSamplerBinding environmentBinding = {
-        resources->weaponEnvironment,
-        resources->weaponEnvironmentSampler,
-      };
-      SDL_BindGPUFragmentSamplers(pass, 0, &environmentBinding, 1);
-    } else if (!mesh->materialLit && simplePointShadowBinding != nullptr) {
-      SDL_BindGPUFragmentSamplers(
+    const auto drawRange = [&](std::uint32_t firstInstance,
+                               std::uint32_t instanceCount) {
+      if (instanceCount == 0U) {
+        return;
+      }
+      SDL_BindGPUGraphicsPipeline(
+        pass,
+        mesh->materialLit ? materialPipeline : pipeline
+      );
+      if (mesh->materialLit && bindMaterialEnvironment) {
+        const SDL_GPUTextureSamplerBinding environmentBinding = {
+          resources->weaponEnvironment,
+          resources->weaponEnvironmentSampler,
+        };
+        SDL_BindGPUFragmentSamplers(pass, 0, &environmentBinding, 1);
+      } else if (!mesh->materialLit && simplePointShadowBinding != nullptr) {
+        SDL_BindGPUFragmentSamplers(
+          pass,
+          0,
+          simplePointShadowBinding,
+          1
+        );
+      }
+      const std::array<SDL_GPUBufferBinding, 2> bindings = {{
+        {mesh->vertexBuffer, 0},
+        {
+          resources->staticInstances.buffer,
+          firstInstance * static_cast<Uint32>(sizeof(GpuStaticInstance)),
+        },
+      }};
+      SDL_BindGPUVertexBuffers(
         pass,
         0,
-        simplePointShadowBinding,
-        1
+        bindings.data(),
+        static_cast<Uint32>(bindings.size())
       );
+      SDL_DrawGPUPrimitives(pass, mesh->vertexCount, instanceCount, 0, 0);
+    };
+    if (!shadowCastersOnly) {
+      drawRange(batch.firstInstance, batch.instanceCount);
+      continue;
     }
-    const std::array<SDL_GPUBufferBinding, 2> bindings = {{
-      {mesh->vertexBuffer, 0},
-      {
-        resources->staticInstances.buffer,
-        batch.firstInstance * static_cast<Uint32>(sizeof(GpuStaticInstance)),
-      },
-    }};
-    SDL_BindGPUVertexBuffers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
-    SDL_DrawGPUPrimitives(pass, mesh->vertexCount, batch.instanceCount, 0, 0);
+    std::uint32_t runFirst = batch.firstInstance;
+    std::uint32_t runCount = 0U;
+    for (
+      std::uint32_t index = batch.firstInstance;
+      index < batch.firstInstance + batch.instanceCount;
+      ++index
+    ) {
+      if (scene.staticMeshInstances[index].castsSunShadow) {
+        if (runCount == 0U) {
+          runFirst = index;
+        }
+        ++runCount;
+      } else {
+        drawRange(runFirst, runCount);
+        runCount = 0U;
+      }
+    }
+    drawRange(runFirst, runCount);
   }
 }
 
@@ -6339,7 +6373,8 @@ void drawGltfPlayerModelBatches(
   SDL_GPUGraphicsPipeline* pipeline,
   GpuGltfPlayerResources* resources,
   const Scene3D& scene,
-  bool bindAuthoredMaterialTextures = false
+  bool bindAuthoredMaterialTextures = false,
+  bool shadowCastersOnly = false
 ) {
   if (
     pass == nullptr ||
@@ -6388,29 +6423,57 @@ void drawGltfPlayerModelBatches(
     ) {
       continue;
     }
-    const std::array<SDL_GPUBufferBinding, 2> vertexBindings = {{
-      {primitive.vertexBuffer, 0},
-      {
-        resources->instanceBuffer,
-        batch.firstInstance * static_cast<Uint32>(sizeof(GpuGltfPlayerInstance)),
-      },
-    }};
-    const SDL_GPUBufferBinding indexBinding = {primitive.indexBuffer, 0};
-    SDL_BindGPUVertexBuffers(
-      pass,
-      0,
-      vertexBindings.data(),
-      static_cast<Uint32>(vertexBindings.size())
-    );
-    SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-    SDL_DrawGPUIndexedPrimitives(
-      pass,
-      primitive.indexCount,
-      batch.instanceCount,
-      0,
-      0,
-      0
-    );
+    const auto drawRange = [&](std::uint32_t firstInstance,
+                               std::uint32_t instanceCount) {
+      if (instanceCount == 0U) {
+        return;
+      }
+      const std::array<SDL_GPUBufferBinding, 2> vertexBindings = {{
+        {primitive.vertexBuffer, 0},
+        {
+          resources->instanceBuffer,
+          firstInstance * static_cast<Uint32>(sizeof(GpuGltfPlayerInstance)),
+        },
+      }};
+      const SDL_GPUBufferBinding indexBinding = {primitive.indexBuffer, 0};
+      SDL_BindGPUVertexBuffers(
+        pass,
+        0,
+        vertexBindings.data(),
+        static_cast<Uint32>(vertexBindings.size())
+      );
+      SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+      SDL_DrawGPUIndexedPrimitives(
+        pass,
+        primitive.indexCount,
+        instanceCount,
+        0,
+        0,
+        0
+      );
+    };
+    if (!shadowCastersOnly) {
+      drawRange(batch.firstInstance, batch.instanceCount);
+      continue;
+    }
+    std::uint32_t runFirst = batch.firstInstance;
+    std::uint32_t runCount = 0U;
+    for (
+      std::uint32_t index = batch.firstInstance;
+      index < batch.firstInstance + batch.instanceCount;
+      ++index
+    ) {
+      if (scene.gltfPlayerModelInstances[index].castsSunShadow) {
+        if (runCount == 0U) {
+          runFirst = index;
+        }
+        ++runCount;
+      } else {
+        drawRange(runFirst, runCount);
+        runCount = 0U;
+      }
+    }
+    drawRange(runFirst, runCount);
   }
 }
 
@@ -8890,15 +8953,19 @@ void appendCommandBatches(
         simpleResources,
         perspectiveScene,
         RenderPass::OpaqueWorld,
-        false
+        false,
+        nullptr,
+        true
       );
-      // Shadow draws reuse the uploaded body instances and bone rows. The
-      // draw helper only binds ranges; it does not skin or stage CPU data.
+      // Shadow depth has no alpha output, so skip any remote visual that has
+      // started fading instead of letting it cast a full-strength shadow.
       drawGltfPlayerModelBatches(
         shadowPass,
         sunShadowGltfPipeline,
         gltfPlayerResources,
-        perspectiveScene
+        perspectiveScene,
+        false,
+        true
       );
       SDL_EndGPURenderPass(shadowPass);
       gpuTiming.endPass(commandBuffer, GpuTimedPass::SunShadow);
@@ -10176,7 +10243,7 @@ void appendCommandBatches(
             : draw.state.group == OutlineGroup::Teammate ? 0.5F : 0.0F,
           0.0F,
           0.0F,
-          std::clamp(draw.state.alpha, 0.0F, 1.0F),
+          std::clamp(draw.state.fadeAlpha, 0.0F, 1.0F),
         }};
         SDL_PushGPUFragmentUniformData(
           commandBuffer,

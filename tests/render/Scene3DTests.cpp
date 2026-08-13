@@ -1606,6 +1606,7 @@ int main() {
     sunAndContactShadowScene.lights.shadow.mapSize == 2048U &&
       sunAndContactShadowScene.gltfPlayerModelStats.shadowCasterInstances == 1U &&
       sunAndContactShadowScene.gltfPlayerModelStats.shadowCasterDrawCalls > 0U &&
+      sunAndContactShadowScene.remoteWeaponStats.shadowCasterInstances > 0U &&
       sunAndContactShadowScene.contactShadowVertices.size() == 48U &&
       sunAndContactShadowScene.contactShadowVertices.front().color.alpha <
         baseScene.contactShadowVertices.front().color.alpha &&
@@ -1614,6 +1615,74 @@ int main() {
         contactShadowMaxRadius(baseScene)
       ),
     "true glTF sun shadows should remain active while the fixed-size contact oval uses lower alpha"
+  );
+
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> shadowFadePlayers = {};
+  shadowFadePlayers[0].player = opponent;
+  shadowFadePlayers[0].visible = true;
+  shadowFadePlayers[0].bodyFade = lg::remoteBodyFadeAtAge(
+    lg::kDeadBodyFadeDurationSeconds * 0.5F
+  );
+  lg::RenderSettings shadowFadeSettings = sunShadowSettings;
+  shadowFadeSettings.playerModel = 0;
+  shadowFadeSettings.drawRemoteWeapons = true;
+  shadowFadeSettings.drawPlayerOutlines = false;
+  const lg::Scene3D shadowFadeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    sunShadowArena,
+    player,
+    shadowFadePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    shadowFadeSettings
+  );
+  failures += expect(
+    shadowFadeScene.playerBoxStats.shadowCasterInstances == 0U &&
+      shadowFadeScene.remoteWeaponStats.shadowCasterInstances == 0U &&
+      !shadowFadeScene.staticMeshInstances.empty() &&
+      std::any_of(
+        shadowFadeScene.staticMeshInstances.begin(),
+        shadowFadeScene.staticMeshInstances.end(),
+        [](const lg::StaticMeshInstance& instance) {
+          return instance.playerBoxBody && !instance.castsSunShadow;
+        }
+      ) &&
+      std::any_of(
+        shadowFadeScene.staticMeshInstances.begin(),
+        shadowFadeScene.staticMeshInstances.end(),
+        [](const lg::StaticMeshInstance& instance) {
+          return instance.remotePlayerWeapon && !instance.castsSunShadow;
+        }
+      ),
+    "fading procedural bodies and weapons should leave the sun-shadow pass"
+  );
+
+  lg::RenderSettings gltfShadowFadeSettings = sunShadowSettings;
+  gltfShadowFadeSettings.drawRemoteWeapons = false;
+  const lg::Scene3D gltfShadowFadeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    sunShadowArena,
+    player,
+    shadowFadePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    gltfShadowFadeSettings
+  );
+  failures += expect(
+    !gltfShadowFadeScene.gltfPlayerModelInstances.empty() &&
+      gltfShadowFadeScene.gltfPlayerModelStats.shadowCasterInstances == 0U &&
+      std::all_of(
+        gltfShadowFadeScene.gltfPlayerModelInstances.begin(),
+        gltfShadowFadeScene.gltfPlayerModelInstances.end(),
+        [](const lg::GltfPlayerModelInstance& instance) {
+          return !instance.castsSunShadow;
+        }
+      ),
+    "fading glTF bodies should leave the sun-shadow pass"
   );
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> cappedShadowPlayers = {};
@@ -2939,12 +3008,40 @@ int main() {
       enemyMaskDraw.state.visibility == lg::OutlineVisibility::VisibleOnly &&
       nearlyEqual(enemyMaskDraw.state.widthPixels, settings.enemyOutlineWidth) &&
       nearlyEqual(enemyMaskDraw.state.alpha, settings.enemyOutlineAlpha) &&
+      nearlyEqual(enemyMaskDraw.state.fadeAlpha, 1.0F) &&
       enemyMaskDraw.gltfPlayerModel &&
       enemyMaskDraw.gltfFirstInstance == 0U &&
       enemyMaskDraw.gltfInstanceCount == baseScene.gltfPlayerModelInstances.size() &&
       enemyMaskDraw.vertexCount == 0U &&
       enemyMaskDraw.instanceCount == 0U,
     "enabled enemy outline should reuse the GPU player model instance range as mask input"
+  );
+
+  lg::RenderSettings nonUnitOutlineSettings = settings;
+  nonUnitOutlineSettings.enemyOutlineAlpha = 0.4F;
+  const lg::Scene3D nonUnitOutlineScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    nonUnitOutlineSettings
+  );
+  failures += expect(
+    nonUnitOutlineScene.outlineMaskDraws.size() == 1U &&
+      nearlyEqual(
+        nonUnitOutlineScene.outlineMaskDraws.front().state.alpha,
+        0.4F
+      ) &&
+      nearlyEqual(
+        nonUnitOutlineScene.outlineMaskDraws.front().state.fadeAlpha,
+        1.0F
+      ),
+    "live outline opacity should stay single-applied when configured below one"
   );
 
   lg::RenderSettings outlineDisabledSettings = settings;

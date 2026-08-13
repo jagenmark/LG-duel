@@ -138,6 +138,7 @@ struct OutlineState {
   OutlineVisibility visibility = OutlineVisibility::None;
   float widthPixels = 0.0F;
   float alpha = 1.0F;
+  float fadeAlpha = 1.0F;
   float pulse = 0.0F;
 };
 

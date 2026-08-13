@@ -409,6 +409,8 @@ struct StaticMeshInstance {
   bool playerBoxBody = false;
   bool playerBoxOutlined = false;
   bool playerSilhouetteOutlined = false;
+  bool castsSunShadow = true;
+  bool remotePlayerWeapon = false;
 };
 
 struct StaticMeshBatch {
@@ -442,6 +444,7 @@ struct RemoteWeaponRenderStats {
   std::uint32_t instanceUploadBytes = 0;
   std::uint32_t batches = 0;
   std::uint32_t drawCalls = 0;
+  std::uint32_t shadowCasterInstances = 0;
   std::uint32_t legacyDynamicVertices = 0;
 };
 
@@ -453,6 +456,7 @@ struct PlayerBoxRenderStats {
   std::uint32_t sharedCubeStaticGpuBytes = 0;
   std::uint32_t opaqueBatches = 0;
   std::uint32_t opaqueDrawCalls = 0;
+  std::uint32_t shadowCasterInstances = 0;
   std::uint32_t outlineMaskBatches = 0;
   std::uint32_t outlineMaskDrawCalls = 0;
   std::uint32_t legacyCpuGeneratedVertices = 0;
@@ -522,6 +526,7 @@ struct GltfPlayerModelInstance {
   OutlineState outlineState = {};
   bool skinned = false;
   bool outlined = false;
+  bool castsSunShadow = true;
 };
 
 struct GltfPlayerModelBasisColumns {

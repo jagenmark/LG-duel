@@ -5531,6 +5531,22 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
     static_cast<std::uint32_t>(
       kPlayerBoxCubeMeshVertices.size() * kStaticMeshVertexUploadBytes
     );
+  scene.playerBoxStats.shadowCasterInstances = 0U;
+  scene.remoteWeaponStats.shadowCasterInstances = 0U;
+  for (const StaticMeshInstance& instance : scene.staticMeshInstances) {
+    if (
+      instance.pass != RenderPass::OpaqueWorld ||
+      !instance.castsSunShadow
+    ) {
+      continue;
+    }
+    if (instance.playerBoxBody) {
+      ++scene.playerBoxStats.shadowCasterInstances;
+    }
+    if (instance.remotePlayerWeapon) {
+      ++scene.remoteWeaponStats.shadowCasterInstances;
+    }
+  }
   for (const StaticMeshBatch& batch : scene.staticMeshBatches) {
     if (batch.instanceCount == 0U) {
       continue;
@@ -5614,6 +5630,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
         instance.outlineState.visibility == runState.visibility &&
         instance.outlineState.widthPixels == runState.widthPixels &&
         instance.outlineState.alpha == runState.alpha &&
+        instance.outlineState.fadeAlpha == runState.fadeAlpha &&
         instance.outlineState.pulse == runState.pulse
       )
     ) {
@@ -5685,8 +5702,17 @@ void finalizeGltfPlayerModelBatches(
     }
     ++primitiveCount;
   }
+  const std::uint32_t shadowCasterInstances = static_cast<std::uint32_t>(
+    std::count_if(
+      scene.gltfPlayerModelInstances.begin(),
+      scene.gltfPlayerModelInstances.end(),
+      [](const GltfPlayerModelInstance& instance) {
+        return instance.castsSunShadow;
+      }
+    )
+  );
   const GltfShadowCasterPlan shadowPlan = gltfShadowCasterPlan(
-    static_cast<std::uint32_t>(scene.gltfPlayerModelInstances.size()),
+    shadowCasterInstances,
     scene.gltfPlayerModelStats.bodyDrawCalls,
     scene.lights.shadow.mapSize
   );
@@ -5738,6 +5764,7 @@ void finalizeGltfPlayerModelBatches(
         instance.outlineState.visibility == runState.visibility &&
         instance.outlineState.widthPixels == runState.widthPixels &&
         instance.outlineState.alpha == runState.alpha &&
+        instance.outlineState.fadeAlpha == runState.fadeAlpha &&
         instance.outlineState.pulse == runState.pulse
       )
     ) {
@@ -6334,18 +6361,21 @@ Scene3D buildPerspectiveScene(
     const float outlineAlpha = remote.teammate
       ? settings.teammateOutlineAlpha
       : settings.enemyOutlineAlpha;
-    const float effectiveOutlineAlpha = std::clamp(
+    const float configuredOutlineAlpha = std::clamp(
       outlineAlpha,
       0.0F,
       1.0F
-    ) * outlineFadeAlpha;
+    );
+    const float effectiveOutlineAlpha =
+      configuredOutlineAlpha * outlineFadeAlpha;
     const OutlineState outlineState = {
       remote.teammate ? OutlineGroup::Teammate : OutlineGroup::Enemy,
       outlineEnabled ? OutlineVisibility::VisibleOnly : OutlineVisibility::None,
       settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
         ? settings.playerOutlineWidth
         : outlineWidth,
-      effectiveOutlineAlpha,
+      configuredOutlineAlpha,
+      outlineFadeAlpha,
       hitAmount,
     };
     const bool wantsOutline =
@@ -6355,7 +6385,8 @@ Scene3D buildPerspectiveScene(
       outlineState.group != OutlineGroup::None &&
       outlineState.visibility != OutlineVisibility::None &&
       outlineState.widthPixels > 0.0F &&
-      outlineState.alpha > 0.0F;
+      outlineState.alpha > 0.0F &&
+      outlineState.fadeAlpha > 0.0F;
     if (settings.drawRemotePlayers && settings.contactShadowsEnabled) {
       addPlayerContactShadow(scene, arena, remote.player, modelFadeAlpha);
     }
@@ -6404,6 +6435,7 @@ Scene3D buildPerspectiveScene(
       ++scene.remoteBodyModelsBuilt;
       if (usePlayerBoxModel) {
         ++scene.playerBoxStats.visiblePlayers;
+        const std::size_t firstBodyInstance = scene.staticMeshInstances.size();
         addPlayerBoxInstances(
           scene,
           remote.player,
@@ -6419,7 +6451,17 @@ Scene3D buildPerspectiveScene(
             settings.playerOutlineStyle
           )
         );
+        for (
+          std::size_t index = firstBodyInstance;
+          index < scene.staticMeshInstances.size();
+          ++index
+        ) {
+          scene.staticMeshInstances[index].castsSunShadow =
+            modelFadeAlpha >= 1.0F;
+        }
       } else {
+        const std::size_t firstGltfInstance =
+          scene.gltfPlayerModelInstances.size();
         addGltfPlayerModelInstance(
           scene,
           *gltfPlayerModel,
@@ -6440,6 +6482,14 @@ Scene3D buildPerspectiveScene(
           gltfPoseScratch,
           gltfPlayerModel == &workerPlayerModel() ? &weaponAttachment : nullptr
         );
+        for (
+          std::size_t index = firstGltfInstance;
+          index < scene.gltfPlayerModelInstances.size();
+          ++index
+        ) {
+          scene.gltfPlayerModelInstances[index].castsSunShadow =
+            modelFadeAlpha >= 1.0F;
+        }
       }
     }
     if (settings.drawRemoteWeapons) {
@@ -6461,13 +6511,15 @@ Scene3D buildPerspectiveScene(
         remote.plasmaGunContainmentAmount,
         weaponAttachment ? &*weaponAttachment : nullptr
       );
-      if (modelFadeAlpha < 1.0F) {
-        for (
-          std::size_t index = firstWeaponInstance;
-          index < scene.staticMeshInstances.size();
-          ++index
-        ) {
-          StaticMeshInstance& instance = scene.staticMeshInstances[index];
+      for (
+        std::size_t index = firstWeaponInstance;
+        index < scene.staticMeshInstances.size();
+        ++index
+      ) {
+        StaticMeshInstance& instance = scene.staticMeshInstances[index];
+        instance.remotePlayerWeapon = true;
+        instance.castsSunShadow = modelFadeAlpha >= 1.0F;
+        if (modelFadeAlpha < 1.0F) {
           instance.color.alpha = static_cast<std::uint8_t>(
             std::lround(
               static_cast<float>(instance.color.alpha) * modelFadeAlpha
