@@ -1489,6 +1489,54 @@ int main() {
         lastRosterPlayer->scale < 2.0F,
       "full player-capacity scoreboard should compact to a 640x480 viewport"
     );
+
+    lg::HudRenderState ffaHud;
+    ffaHud.scoreboardOpen = true;
+    ffaHud.freeForAllScoreboard = true;
+    for (std::size_t player = 0; player < lg::kDuelPlayerCount; ++player) {
+      ffaHud.freeForAllScoreboardRows.push_back({
+        player + 1U,
+        static_cast<std::uint8_t>(player),
+        player == 0U ? "LEADER" : "PLAYER " + std::to_string(player + 1U),
+        static_cast<lg::PlayerScore>(12 - static_cast<int>(player)),
+        lg::Weapon::Railgun,
+        75,
+        84,
+        player == 3U,
+      });
+    }
+    ffaHud.freeForAllStandingRows = {
+      {1, 0, "LEADER", 12, false},
+      {4, 3, "PLAYER 4", -3, true},
+    };
+    const lg::DrawList2D ffaSmallUi = lg::buildScreenUi(
+      640,
+      480,
+      opponent,
+      settings,
+      ffaHud,
+      console
+    );
+    const lg::Text2D* ffaTitle = findText(ffaSmallUi, "FREE FOR ALL");
+    const lg::Text2D* ffaRank = findText(ffaSmallUi, "RANK");
+    const lg::Text2D* ffaLocal = findText(ffaSmallUi, "> PLAYER 4");
+    const lg::Text2D* ffaNegative = findText(ffaSmallUi, "-3");
+    const lg::Text2D* ffaWeapon = findText(ffaSmallUi, "SR");
+    const lg::Text2D* ffaDamage = findText(ffaSmallUi, "84");
+    lg::ScreenRect standingBounds;
+    failures += expect(
+      ffaTitle != nullptr && ffaRank != nullptr && ffaLocal != nullptr &&
+        ffaNegative != nullptr && ffaWeapon != nullptr && ffaDamage != nullptr &&
+        hasFilledQuadColor(ffaSmallUi, {34, 91, 126, 150}),
+      "FFA scoreboard should draw rank, local mark, signed score, weapon, and damage"
+    );
+    failures += expect(
+      findFilledQuadBounds(ffaSmallUi, {7, 11, 17, 220}, standingBounds) &&
+        ffaTitle != nullptr && ffaTitle->position.y >=
+          standingBounds.y + standingBounds.height &&
+        ffaLocal != nullptr && ffaLocal->position.y < 480.0F,
+      "FFA standing and full Tab rows should fit together at 640x480"
+    );
   }
 
   {

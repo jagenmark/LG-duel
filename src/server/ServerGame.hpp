@@ -204,6 +204,7 @@ private:
   void applyAttackEdges();
   void setArena(const Arena& arena, MapDescriptor descriptor);
   void resetPlayerInputState(std::size_t playerIndex);
+  void clearPlayerIdentityMatchState(std::size_t playerIndex);
   void respawnPlayer(std::size_t playerIndex);
   [[nodiscard]] ArenaSpawnGroup spawnGroupForTeam(Team team) const;
   [[nodiscard]] std::optional<std::size_t> selectTeamSpawn(
@@ -212,6 +213,8 @@ private:
   );
   [[nodiscard]] std::uint32_t nextSpawnRandomU32();
   void respawnRound();
+  void updateDeathRespawns();
+  void updateEffectiveMatchRules();
   void updateMatchState();
   void beginCountdown();
   void beginRoundEnd(std::size_t winnerIndex);

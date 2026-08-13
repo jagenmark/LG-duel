@@ -4,9 +4,11 @@
 #include "render/ConsoleLayout.hpp"
 #include "render/OptionMenuLayout.hpp"
 #include "sim/Combat.hpp"
+#include "sim/WeaponCatalog.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -436,6 +438,12 @@ constexpr CatSprite kCatProfileCrouch = {{
     value.remove_suffix(1U);
   }
   return std::string(value);
+}
+
+[[nodiscard]] std::string signedScore(PlayerScore score) {
+  return score >= 0
+    ? "+" + std::to_string(score)
+    : std::to_string(score);
 }
 
 [[nodiscard]] std::vector<std::string>
@@ -2921,12 +2929,26 @@ void addHud(
   if (hud.scoreboardOpen) {
     const float panelWidth =
       std::min(720.0F, std::max(160.0F, static_cast<float>(width) - 32.0F));
+    const float standingHeight = hud.freeForAllStandingRows.empty()
+      ? 0.0F
+      : 8.0F + static_cast<float>(hud.freeForAllStandingRows.size()) * 20.0F;
+    const float minimumPanelY = standingHeight == 0.0F
+      ? 12.0F
+      : standingHeight + 20.0F;
     const float lineCount = static_cast<float>(
-      std::max<std::size_t>(1U, hud.scoreboardLines.size())
+      std::max<std::size_t>(
+        1U,
+        hud.freeForAllScoreboard
+          ? hud.freeForAllScoreboardRows.size() + 2U
+          : hud.scoreboardLines.size()
+      )
     );
     const float panelHeight = std::min(
       40.0F + lineCount * 28.0F,
-      std::max(120.0F, static_cast<float>(height) - 24.0F)
+      std::max(
+        120.0F,
+        static_cast<float>(height) - minimumPanelY - 12.0F
+      )
     );
     const float rowHeight = std::min(28.0F, (panelHeight - 32.0F) / lineCount);
     // A full 16-player roster must remain readable on the minimum supported
@@ -2941,7 +2963,10 @@ void addHud(
     const float panelX =
       (static_cast<float>(width) - panelWidth) * 0.5F;
     const float panelY =
-      std::max(12.0F, (static_cast<float>(height) - panelHeight) * 0.35F);
+      std::max(
+        minimumPanelY,
+        (static_cast<float>(height) - panelHeight) * 0.35F
+      );
     addRect(
       drawList,
       panelX,
@@ -2978,6 +3003,103 @@ void addHud(
       kScoreboardAccuracyColumnChars + 8U;
 
     float scoreboardY = panelY + std::max(8.0F, 20.0F * scoreboardScale);
+    if (hud.freeForAllScoreboard) {
+      const float rankX = scoreboardX;
+      const float ffaNameX = scoreboardX + 72.0F * scoreboardScale;
+      const float ffaScoreX = scoreboardX + 320.0F * scoreboardScale;
+      const float ffaAccuracyX = scoreboardX + 400.0F * scoreboardScale;
+      const float ffaDamageX = scoreboardX + 540.0F * scoreboardScale;
+      addText(
+        drawList,
+        scoreboardX,
+        scoreboardY,
+        "FREE FOR ALL",
+        {255, 220, 120, 255},
+        scoreboardTextScale
+      );
+      scoreboardY += rowHeight;
+      const RenderColor headerColor = {180, 200, 220, 255};
+      addText(drawList, rankX, scoreboardY, "RANK", headerColor, scoreboardTextScale);
+      addText(drawList, ffaNameX, scoreboardY, "NAME", headerColor, scoreboardTextScale);
+      addText(drawList, ffaScoreX, scoreboardY, "SCORE", headerColor, scoreboardTextScale);
+      addText(drawList, ffaAccuracyX, scoreboardY, "ACC", headerColor, scoreboardTextScale);
+      addText(drawList, ffaDamageX, scoreboardY, "DAMAGE", headerColor, scoreboardTextScale);
+      scoreboardY += rowHeight;
+      for (const HudRenderState::FreeForAllScoreboardRow& row :
+           hud.freeForAllScoreboardRows) {
+        if (row.localPlayer) {
+          addRect(
+            drawList,
+            panelX + 8.0F,
+            scoreboardY - 4.0F * scoreboardScale,
+            panelWidth - 16.0F,
+            rowHeight,
+            {34, 91, 126, 150}
+          );
+        }
+        const RenderColor rowColor = row.localPlayer
+          ? RenderColor{255, 232, 145, 255}
+          : RenderColor{225, 235, 245, 255};
+        addText(
+          drawList,
+          rankX,
+          scoreboardY,
+          std::to_string(row.rank),
+          rowColor,
+          scoreboardTextScale
+        );
+        addText(
+          drawList,
+          ffaNameX,
+          scoreboardY,
+          (row.localPlayer ? "> " : "  ") + row.name,
+          rowColor,
+          scoreboardTextScale
+        );
+        addText(
+          drawList,
+          ffaScoreX,
+          scoreboardY,
+          signedScore(row.score),
+          rowColor,
+          scoreboardTextScale
+        );
+        std::string weapon(weaponShortName(row.accuracyWeapon));
+        std::transform(
+          weapon.begin(),
+          weapon.end(),
+          weapon.begin(),
+          [](unsigned char character) {
+            return static_cast<char>(std::toupper(character));
+          }
+        );
+        addText(
+          drawList,
+          ffaAccuracyX,
+          scoreboardY,
+          weapon,
+          quakeLiveWeaponColor(row.accuracyWeapon),
+          scoreboardTextScale
+        );
+        addText(
+          drawList,
+          ffaAccuracyX + textWidth(weapon + " ", scoreboardTextScale),
+          scoreboardY,
+          std::to_string(row.accuracyPercent) + "%",
+          rowColor,
+          scoreboardTextScale
+        );
+        addText(
+          drawList,
+          ffaDamageX,
+          scoreboardY,
+          std::to_string(row.totalDamage),
+          rowColor,
+          scoreboardTextScale
+        );
+        scoreboardY += rowHeight;
+      }
+    } else {
     for (std::size_t index = 0; index < hud.scoreboardLines.size(); ++index) {
       const std::string& line = hud.scoreboardLines[index];
       const Team team = index < hud.scoreboardLineTeams.size()
@@ -3073,6 +3195,61 @@ void addHud(
         }
       }
       scoreboardY += rowHeight;
+    }
+    }
+  }
+
+  if (!hud.freeForAllStandingRows.empty()) {
+    const float cardWidth = std::min(
+      360.0F,
+      std::max(180.0F, static_cast<float>(width) - 24.0F)
+    );
+    const float cardHeight =
+      8.0F + static_cast<float>(hud.freeForAllStandingRows.size()) * 20.0F;
+    const float cardX = (static_cast<float>(width) - cardWidth) * 0.5F;
+    constexpr float cardY = 6.0F;
+    constexpr float standingScale = 1.5F;
+    addRect(drawList, cardX, cardY, cardWidth, cardHeight, {7, 11, 17, 220});
+    addOutline(
+      drawList,
+      cardX,
+      cardY,
+      cardWidth,
+      cardHeight,
+      {78, 168, 235, 245}
+    );
+    float standingY = cardY + 5.0F;
+    for (const HudRenderState::FreeForAllStandingRow& row :
+         hud.freeForAllStandingRows) {
+      const RenderColor color = row.localPlayer
+        ? RenderColor{255, 232, 145, 255}
+        : RenderColor{235, 242, 250, 255};
+      addText(
+        drawList,
+        cardX + 8.0F,
+        standingY,
+        "#" + std::to_string(row.rank),
+        color,
+        standingScale
+      );
+      addText(
+        drawList,
+        cardX + 52.0F,
+        standingY,
+        (row.localPlayer ? "> " : "  ") + row.name,
+        color,
+        standingScale
+      );
+      addText(
+        drawList,
+        cardX + cardWidth - 8.0F,
+        standingY,
+        signedScore(row.score),
+        color,
+        standingScale,
+        TextHorizontalAlignment::Right
+      );
+      standingY += 20.0F;
     }
   }
 

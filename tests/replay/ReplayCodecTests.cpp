@@ -28,8 +28,8 @@ lg::replay::ReplayDemo validDemo() {
   demo.metadata.mapRevision = 7U;
   demo.metadata.mapName = "replay_test";
   demo.metadata.mapContentHash = 0x12345678U;
-  demo.metadata.gameMode = lg::GameMode::Duel;
-  demo.metadata.visibility = lg::replay::ReplayVisibility::DuelOnly;
+  demo.metadata.gameMode = lg::GameMode::FreeForAll;
+  demo.metadata.visibility = lg::replay::ReplayVisibility::DeveloperFull;
   demo.metadata.players[0] = {0U, true, false, lg::Team::None, "ALPHA"};
   demo.metadata.players[1] = {1U, true, true, lg::Team::None, "BOT"};
   for (std::size_t index = 2U; index < demo.metadata.players.size(); ++index) {
@@ -87,9 +87,11 @@ lg::replay::ReplayDemo validDemo() {
   checkpoint.projectiles[0].previousPosition = {0.8F, 2.0F, 3.0F};
   checkpoint.projectiles[0].velocity = {20.0F, 0.0F, 0.0F};
   checkpoint.projectiles[0].projectileRadius = 3.0F;
-  checkpoint.match.gameMode = lg::GameMode::Duel;
+  checkpoint.match.gameMode = lg::GameMode::FreeForAll;
   checkpoint.match.phase = lg::MatchPhase::Live;
-  checkpoint.match.scores[0] = 2U;
+  checkpoint.match.scores[0] = -2;
+  checkpoint.match.scores[1] = std::numeric_limits<lg::PlayerScore>::min();
+  checkpoint.match.scores[2] = std::numeric_limits<lg::PlayerScore>::max();
   checkpoint.history.push_back({100U, {}});
   checkpoint.history[0].players[0] = checkpoint.players[0].player;
   demo.checkpoints.push_back(checkpoint);
@@ -127,6 +129,16 @@ int main() {
   failures += expect(decoded.checkpoints.size() == 1U && decoded.checkpoints[0].projectiles[0].sequence == 14U,
     "checkpoint projectile should round trip");
   failures += expect(
+      decoded.metadata.gameMode == lg::GameMode::FreeForAll &&
+      decoded.checkpoints[0].match.gameMode == lg::GameMode::FreeForAll &&
+      decoded.checkpoints[0].match.scores[0] == -2 &&
+      decoded.checkpoints[0].match.scores[1] ==
+        std::numeric_limits<lg::PlayerScore>::min() &&
+      decoded.checkpoints[0].match.scores[2] ==
+        std::numeric_limits<lg::PlayerScore>::max(),
+    "FFA mode and signed score bounds should round trip through replay data"
+  );
+  failures += expect(
     decoded.checkpoints.size() == 1U &&
       decoded.checkpoints[0].damageTakenSequences == source.checkpoints[0].damageTakenSequences,
     "damage-event sequences should round trip in replay checkpoints"
@@ -153,6 +165,14 @@ int main() {
     std::vector<std::uint8_t> wrongMagic = validWire;
     wrongMagic[0] = 'X';
     failures += expect(!lg::replay::decodeDemo(wrongMagic, decoded, &error), "invalid magic should fail");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.metadata.gameMode = static_cast<lg::GameMode>(255);
+    failures += expect(
+      !lg::replay::encodeDemo(invalid, wire, &error),
+      "a replay game mode outside the enum range should not encode"
+    );
   }
   {
     lg::replay::ReplayDemo invalid = source;

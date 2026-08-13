@@ -476,7 +476,7 @@ std::size_t opponentPlayerIndex(
       index != localPlayerIndex &&
       (snapshot.connectedPlayers[index] || snapshot.botPlayers[index]) &&
       (
-        snapshot.gameMode == GameMode::Duel ||
+        isIndividualGameMode(snapshot.gameMode) ||
         warmupPhase(snapshot.matchPhase) ||
         snapshot.teams[index] != snapshot.teams[localPlayerIndex]
       )
@@ -490,7 +490,7 @@ std::size_t opponentPlayerIndex(
       snapshot.participatingPlayers[index] &&
       snapshot.players[index].health > 0 &&
       (
-        snapshot.gameMode == GameMode::Duel ||
+        isIndividualGameMode(snapshot.gameMode) ||
         warmupPhase(snapshot.matchPhase) ||
         snapshot.teams[index] != snapshot.teams[localPlayerIndex]
       )
@@ -506,7 +506,7 @@ bool playerPresentedAsTeammate(
   std::size_t localPlayerIndex,
   std::size_t remotePlayerIndex
 ) {
-  return snapshot.gameMode != GameMode::Duel &&
+  return isTeamGameMode(snapshot.gameMode) &&
     !warmupPhase(snapshot.matchPhase) &&
     localPlayerIndex < kDuelPlayerCount &&
     remotePlayerIndex < kDuelPlayerCount &&
@@ -537,6 +537,15 @@ std::string hudScoreLine(
       std::to_string(snapshot.mcguffinConfig.scoreLimit) + "  ROUNDS " +
       std::to_string(snapshot.mcguffinRoundsWon[localTeamIndex]) + '-' +
       std::to_string(snapshot.mcguffinRoundsWon[opposingTeamIndex]);
+  }
+
+  if (snapshot.gameMode == GameMode::FreeForAll) {
+    const PlayerScore score = localPlayerIndex < kDuelPlayerCount
+      ? snapshot.scores[localPlayerIndex]
+      : 0;
+    return std::string("SCORE ") + (score >= 0 ? "+" : "") +
+      std::to_string(score) + " / " +
+      std::to_string(kFreeForAllScoreLimit);
   }
 
   return "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) +
@@ -652,7 +661,7 @@ bool localPlayerWonResult(
   std::size_t localPlayerIndex,
   bool matchResult
 ) {
-  if (snapshot.gameMode != GameMode::Duel) {
+  if (isTeamGameMode(snapshot.gameMode)) {
     const Team winningTeam =
       matchResult ? snapshot.matchWinningTeam : snapshot.roundWinningTeam;
     return isPlayableTeam(winningTeam) &&

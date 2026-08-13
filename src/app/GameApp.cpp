@@ -5,6 +5,7 @@
 #include "app/ClientCvars.hpp"
 #include "app/ConsoleInput.hpp"
 #include "app/DeathCamera.hpp"
+#include "app/GameModeConsole.hpp"
 #include "app/GraphicsProfiles.hpp"
 #include "app/HudPresentation.hpp"
 #include "app/MiscMenu.hpp"
@@ -4648,6 +4649,8 @@ std::string gameModeName(GameMode gameMode) {
     return "CLAN ARENA";
   case GameMode::McGuffin:
     return "MCGUFFIN";
+  case GameMode::FreeForAll:
+    return "FREE FOR ALL";
   }
   return "UNKNOWN";
 }
@@ -4714,6 +4717,13 @@ HudRenderState buildHud(
 
   const ClientGame& client = *session.game();
   const ServerSnapshot& snapshot = client.snapshot();
+  populateFreeForAllStanding(
+    hud,
+    snapshot,
+    !session.spectator() && session.playerIndex() < kDuelPlayerCount
+      ? session.playerIndex()
+      : kDuelPlayerCount
+  );
   if (subjectPlayerIndex.has_value() &&
       *subjectPlayerIndex >= kDuelPlayerCount) {
     subjectPlayerIndex.reset();
@@ -4785,7 +4795,7 @@ HudRenderState buildHud(
   }
   if (snapshot.matchPhase != MatchPhase::Live) {
     hud.topLeftLines.push_back("MODE " + gameModeName(snapshot.gameMode));
-    if (snapshot.gameMode != GameMode::Duel) {
+    if (isTeamGameMode(snapshot.gameMode)) {
       hud.topLeftLines.push_back(
         "TEAM " + teamName(snapshot.teams[localPlayerIndex])
       );
@@ -4794,7 +4804,9 @@ HudRenderState buildHud(
   if (showAliveCounts && snapshot.gameMode == GameMode::ClanArena) {
     hud.topRightLines.push_back(aliveCountLine(snapshot));
   }
-  hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
+  if (snapshot.gameMode != GameMode::FreeForAll) {
+    hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
+  }
   if (snapshot.gameMode == GameMode::McGuffin) {
     hud.mcguffinNavigation = selectMcGuffinNavigationTarget(
       snapshot,
@@ -5657,24 +5669,20 @@ int GameApp::run() const {
   );
   console.registerCommand(
     "gamemode",
-    "Select the active gamemode: gamemode <duel|ca|mcguffin>.",
+    "Select the active gamemode: " + std::string(kGameModeConsoleUsage) + ".",
     [&requestGameModePending, &requestedGameMode](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
-        return std::string("usage: gamemode <duel|ca|mcguffin>");
+        return std::string("usage: ") + std::string(kGameModeConsoleUsage);
       }
       std::string value = arguments[1];
       std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
       });
-      if (value == "duel") {
-        requestedGameMode = GameMode::Duel;
-      } else if (value == "ca" || value == "clanarena" || value == "clan_arena") {
-        requestedGameMode = GameMode::ClanArena;
-      } else if (value == "mcg" || value == "mcguffin") {
-        requestedGameMode = GameMode::McGuffin;
-      } else {
-        return std::string("usage: gamemode <duel|ca|mcguffin>");
+      const std::optional<GameMode> parsed = gameModeForConsoleToken(value);
+      if (!parsed.has_value()) {
+        return std::string("usage: ") + std::string(kGameModeConsoleUsage);
       }
+      requestedGameMode = *parsed;
       requestGameModePending = true;
       return std::string("gamemode = ") + gameModeName(requestedGameMode);
     }
@@ -10975,7 +10983,9 @@ int GameApp::run() const {
       populateScoreboard(
         hud,
         session.game()->snapshot(),
-        hudSubjectPlayerIndex.value_or(kDuelPlayerCount)
+        !session.spectator() && session.playerIndex() < kDuelPlayerCount
+          ? session.playerIndex()
+          : kDuelPlayerCount
       );
     }
     if (

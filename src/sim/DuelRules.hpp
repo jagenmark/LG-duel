@@ -1,6 +1,7 @@
 #pragma once
 
 #include "shared/Constants.hpp"
+#include "sim/GameMode.hpp"
 
 #include <array>
 #include <cstddef>
@@ -31,18 +32,18 @@ inline constexpr std::size_t kRequiredDuelPlayers = 2;
 );
 
 void awardDuelRound(
-  std::array<std::uint16_t, kMaxPlayers>& scores,
+  std::array<PlayerScore, kMaxPlayers>& scores,
   std::size_t winnerIndex
 );
 
 [[nodiscard]] bool hasWonDuel(
-  const std::array<std::uint16_t, kMaxPlayers>& scores,
+  const std::array<PlayerScore, kMaxPlayers>& scores,
   std::size_t playerIndex,
   std::uint16_t roundLimit
 );
 
 [[nodiscard]] std::optional<std::size_t> duelScoreLeader(
-  const std::array<std::uint16_t, kMaxPlayers>& scores,
+  const std::array<PlayerScore, kMaxPlayers>& scores,
   const std::array<bool, kMaxPlayers>& connectedPlayers
 );
 

@@ -19,7 +19,7 @@ LG Duel currently includes:
 * Shared client/server movement, collision, combat, and map structures.
 * UDP protocol with versioned command packets, command bundles, snapshots, ping/pong, connect, and disconnect packets.
 * Local movement prediction, authoritative reconciliation, and buffered remote interpolation.
-* Hitscan and projectile weapons, duel and clan-arena rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
+* Hitscan and projectile weapons, Duel, Clan Arena, Free For All, and McGuffin rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
 * First-person 3D SDL rendering with an SDL_GPU path for cached static world rendering, dynamic effects, player/weapon/projectile presentation, and a 2D HUD/UI overlay.
 * Restricted Quake/TrenchBroom `.map` arena loading.
 

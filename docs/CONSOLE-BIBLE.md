@@ -512,7 +512,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `player <name>` | string, `1..20` bytes/tecken i nuvarande ASCII-användning | Sätter, arkiverar och replikerar spelarnamn via `cl_player_name`. Flera ord tillåts. Returnerar `name = ...`. |
 | `ready` | inga argument | Togglar ready under väntfasen. Defaultbindning `F3`. |
 | `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. Alla spelare får använda kommandot. |
-| `gamemode <mode>` | `duel`, `ca`, `clanarena`, `mcg`, or `mcguffin` | Selects the mode during warmup. McGuffin requires a compatible active map. |
+| `gamemode <mode>` | `duel`, `ca`, `clanarena`, `mcg`, `mcguffin`, or `ffa` | Selects the mode during warmup. Free For All has a fixed ten-minute limit and ends at 100 points; enemy kills give `+1`, while self-kills give `-1`. McGuffin requires a compatible active map. |
 | `team <team>` | `red`, `blue`, `none`, `unassigned`, `spectator`, or `spec` | Selects a team during warmup. `spectator` releases the authoritative player body while retaining the connection; during warmup a spectator can claim a free body with `team red`, `team blue`, or `team none`. Clan Arena and McGuffin players must choose Red or Blue before `ready`. |
 | `bot_weapon [mg\|sg\|gl\|rl\|lg\|sr\|pg\|fg\|re\|1..9]` | Optional weapon token | Shows or changes the server-authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). `rg` remains an alias for `sr`. Normal weapon-switch and pullout rules still apply. |
 | `connect <host> [port]` | host string; port `1..65535` | Ansluter till server. |
@@ -684,7 +684,7 @@ automatiskt.
 | `sv_playerlimit` | int | `2` | `1..16` | No direct equivalent | Number of connected players required for match flow to begin. |
 | `sv_countdown` | float | `5` | `0..60` sekunder | Ingen exakt standard | Countdown före live round. Movement är aktiv; weapons är låsta under countdown. |
 | `sv_roundend` | float | `5` | `0..30` sekunder | Ingen direkt | Delay efter round innan respawn/nästa countdown. |
-| `sv_respawn_delay` | float | `2` | `0..30` seconds | General server rule | Death-respawn delay used by modes with live respawning, including McGuffin. Zero respawns immediately. Elimination modes ignore it. |
+| `sv_respawn_delay` | float | `2` | `0..30` seconds | General server rule | Death-respawn delay used by modes with live respawning, including Free For All and McGuffin. Zero respawns immediately. Elimination modes ignore it. |
 | `sv_mcg_scorelimit` | int | `100` | `1..1000` points | Diabotical: 100 | Points required to win a McGuffin round. |
 | `sv_mcg_points_per_second` | int | `1` | `1..20` points/s | Provisional | Installed-objective scoring rate. |
 | `sv_mcg_carry_points_per_second` | int | `1` | `1..20` points/s | Provisional | Unbanked carry-credit accumulation rate. |
@@ -785,6 +785,15 @@ ready
 Under warmup visas valt spelläge och eget lag på HUD:en. I Clan Arena färgas
 spelarnamnen på scoreboarden efter rött eller blått lag. Ojämna lag är tillåtna,
 alla anslutna spelare måste ha valt lag och vara redo, med minst en spelare i vardera laget.
+
+Free For All:
+
+```text
+gamemode ffa
+ready
+```
+
+Free For All använder inga lag. Varje annan levande deltagare är en fiende.
 
 Server:
 
