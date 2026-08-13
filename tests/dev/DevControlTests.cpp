@@ -285,6 +285,20 @@ int main() {
     "developer control should be disabled until explicitly started"
   );
 
+  lg::dev::DevControlServer activeServer;
+  std::string controlError;
+  failures += expect(
+    activeServer.start(0, controlError),
+    "developer control should start on an ephemeral port"
+  );
+  if (activeServer.running()) {
+    activeServer.stop();
+    failures += expect(
+      !activeServer.running() && activeServer.port() == 0,
+      "developer control should stop without waiting on accept"
+    );
+  }
+
   const std::filesystem::path pngPath =
     std::filesystem::temp_directory_path() / "lg-duel-dev-control-test.png";
   const std::array<std::uint8_t, 16> pixels = {
