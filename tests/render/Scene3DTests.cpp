@@ -132,6 +132,20 @@ const lg::SimpleRenderInstance* findSimpleMesh(
   return found == scene.simpleInstances.end() ? nullptr : &*found;
 }
 
+const lg::SimpleRenderInstance* findSimpleBillboard(
+  const lg::Scene3D& scene,
+  lg::BillboardHandle billboard
+) {
+  const auto found = std::find_if(
+    scene.simpleInstances.begin(),
+    scene.simpleInstances.end(),
+    [billboard](const lg::SimpleRenderInstance& instance) {
+      return instance.billboard == billboard;
+    }
+  );
+  return found == scene.simpleInstances.end() ? nullptr : &*found;
+}
+
 float largestBillboardScale(
   const lg::Scene3D& scene,
   lg::BillboardHandle billboard
@@ -5563,10 +5577,60 @@ int main() {
       plasmaProjectileScene.simpleBatches.size() == 2U,
     "active plasma projectile should produce one core instance, one glow instance, and no legacy vertices"
   );
+  const lg::SimpleRenderInstance* farPlasmaCore = findSimpleMesh(
+    plasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  const lg::SimpleRenderInstance* farPlasmaGlow = findSimpleBillboard(
+    plasmaProjectileScene,
+    lg::BillboardHandle::PlasmaGlow
+  );
+  failures += expect(
+    plasmaDescriptor != nullptr &&
+      farPlasmaCore != nullptr &&
+      farPlasmaGlow != nullptr &&
+      nearlyEqual(farPlasmaCore->scale.x, plasmaDescriptor->coreScale) &&
+      nearlyEqual(farPlasmaGlow->scale.x, plasmaDescriptor->glowScale) &&
+      farPlasmaGlow->color.alpha == plasmaDescriptor->glowColor.alpha,
+    "remote plasma projectiles should keep their full world cue outside the near-view fade"
+  );
   failures += expect(
     plasmaProjectileScene.simpleInstances[0].position.x <
       plasmaRockets[0].position.x - 0.35F,
     "remote plasma projectile instances should render from the plasma gun model"
+  );
+
+  plasmaRockets[0].position =
+    plasmaProjectileScene.camera.position +
+    plasmaProjectileScene.camera.forward * 0.35F;
+  const lg::Scene3D nearRemotePlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    settings
+  );
+  const lg::SimpleRenderInstance* nearRemotePlasmaCore = findSimpleMesh(
+    nearRemotePlasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  const lg::SimpleRenderInstance* nearRemotePlasmaGlow = findSimpleBillboard(
+    nearRemotePlasmaProjectileScene,
+    lg::BillboardHandle::PlasmaGlow
+  );
+  failures += expect(
+    farPlasmaCore != nullptr &&
+      farPlasmaGlow != nullptr &&
+      nearRemotePlasmaCore != nullptr &&
+      nearRemotePlasmaGlow != nullptr &&
+      nearRemotePlasmaCore->scale.x < farPlasmaCore->scale.x * 0.30F &&
+      nearRemotePlasmaGlow->scale.x < farPlasmaGlow->scale.x * 0.30F &&
+      nearRemotePlasmaGlow->color.alpha < farPlasmaGlow->color.alpha * 0.35F,
+    "incoming plasma projectiles should shrink and dim near the camera"
   );
 
   plasmaRockets[0].owner = 0;
@@ -5583,11 +5647,25 @@ int main() {
     plasmaRockets,
     localShotgunWeaponStartSettings
   );
+  const lg::SimpleRenderInstance* localPlasmaCore = findSimpleMesh(
+    localPlasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  const lg::SimpleRenderInstance* localPlasmaGlow = findSimpleBillboard(
+    localPlasmaProjectileScene,
+    lg::BillboardHandle::PlasmaGlow
+  );
   failures += expect(
     localPlasmaProjectileScene.simpleInstances.size() == 2U &&
       localPlasmaProjectileScene.simpleInstances[0].position.z <
-        plasmaRockets[0].position.z - 0.15F,
-    "local plasma projectile instances should render from the first-person weapon muzzle"
+        plasmaRockets[0].position.z - 0.15F &&
+      plasmaDescriptor != nullptr &&
+      localPlasmaCore != nullptr &&
+      localPlasmaGlow != nullptr &&
+      nearlyEqual(localPlasmaCore->scale.x, plasmaDescriptor->coreScale) &&
+      nearlyEqual(localPlasmaGlow->scale.x, plasmaDescriptor->glowScale) &&
+      localPlasmaGlow->color.alpha == plasmaDescriptor->glowColor.alpha,
+    "local plasma projectile launch cues should keep full size at the first-person muzzle"
   );
   lg::RenderSettings swayedLocalPlasmaProjectileSettings =
     localShotgunWeaponStartSettings;
@@ -6576,8 +6654,87 @@ int main() {
   );
   failures += expect(
     plasmaExplosionScene.transientVfxStats.explosionInstancesSubmitted == 3 &&
-      plasmaExplosionScene.simpleInstances.size() == 3U,
-    "plasma explosion effects should submit a distinct compact three-instance burst"
+      plasmaExplosionScene.simpleInstances.size() == 3U &&
+      findSimpleMesh(plasmaExplosionScene, lg::MeshHandle::ExplosionCore) != nullptr,
+    "distant plasma explosion effects should submit the full three-instance burst"
+  );
+  const lg::SimpleRenderInstance* farPlasmaExplosionFlash = findSimpleBillboard(
+    plasmaExplosionScene,
+    lg::BillboardHandle::ExplosionFlash
+  );
+  const lg::SimpleRenderInstance* farPlasmaExplosionHalo = findSimpleBillboard(
+    plasmaExplosionScene,
+    lg::BillboardHandle::ExplosionHalo
+  );
+  for (std::size_t index = 0; index < 3U; ++index) {
+    explosionEffects[index].position =
+      plasmaExplosionScene.camera.position +
+      plasmaExplosionScene.camera.forward * 0.35F;
+  }
+  const lg::Scene3D nearPlasmaExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 3U),
+    settings
+  );
+  const lg::SimpleRenderInstance* nearPlasmaExplosionFlash = findSimpleBillboard(
+    nearPlasmaExplosionScene,
+    lg::BillboardHandle::ExplosionFlash
+  );
+  const lg::SimpleRenderInstance* nearPlasmaExplosionHalo = findSimpleBillboard(
+    nearPlasmaExplosionScene,
+    lg::BillboardHandle::ExplosionHalo
+  );
+  failures += expect(
+    nearPlasmaExplosionScene.transientVfxStats.activeExplosionEffects == 3U &&
+      nearPlasmaExplosionScene.transientVfxStats.explosionInstancesSubmitted == 2U &&
+      nearPlasmaExplosionScene.transientVfxStats.explosionOpaqueBatches == 0U &&
+      nearPlasmaExplosionScene.simpleInstances.size() == 2U &&
+      findSimpleMesh(nearPlasmaExplosionScene, lg::MeshHandle::ExplosionCore) == nullptr &&
+      farPlasmaExplosionFlash != nullptr &&
+      farPlasmaExplosionHalo != nullptr &&
+      nearPlasmaExplosionFlash != nullptr &&
+      nearPlasmaExplosionHalo != nullptr &&
+      nearPlasmaExplosionFlash->scale.x < farPlasmaExplosionFlash->scale.x * 0.25F &&
+      nearPlasmaExplosionHalo->scale.x < farPlasmaExplosionHalo->scale.x * 0.25F &&
+      nearPlasmaExplosionFlash->color.alpha <
+        farPlasmaExplosionFlash->color.alpha * 0.30F &&
+      nearPlasmaExplosionHalo->color.alpha <
+        farPlasmaExplosionHalo->color.alpha * 0.30F,
+    "near plasma hits should omit the opaque core and keep two small additive cues"
+  );
+  lg::TransientEffect nearPlasmaGoalMarker = explosionEffects[1];
+  nearPlasmaGoalMarker.lifetimeSeconds = 1.0F;
+  nearPlasmaGoalMarker.initialScale = 0.55F;
+  nearPlasmaGoalMarker.finalScale = 0.55F;
+  const lg::Scene3D nearPlasmaGoalMarkerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(&nearPlasmaGoalMarker, 1U),
+    settings
+  );
+  const lg::SimpleRenderInstance* nearPlasmaGoalCore = findSimpleMesh(
+    nearPlasmaGoalMarkerScene,
+    lg::MeshHandle::ExplosionCore
+  );
+  failures += expect(
+    nearPlasmaGoalCore != nullptr &&
+      nearlyEqual(nearPlasmaGoalCore->scale.x, 0.55F),
+    "near-view limits for short plasma hits should not alter long-lived goal markers"
   );
 
   explosionEffects[0] = {

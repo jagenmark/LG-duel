@@ -444,7 +444,7 @@ int main() {
     source.requestReset = true;
     source.toggleReady = true;
     source.requestGameMode = true;
-    source.requestedGameMode = lg::GameMode::ClanArena;
+    source.requestedGameMode = lg::GameMode::FreeForAll;
     source.requestTeam = true;
     source.requestedTeam = lg::Team::Blue;
     source.requestSpectator = true;
@@ -581,8 +581,8 @@ int main() {
     );
     failures += expect(
       decoded.requestGameMode &&
-        decoded.requestedGameMode == lg::GameMode::ClanArena,
-      "explicit gamemode request should round trip"
+        decoded.requestedGameMode == lg::GameMode::FreeForAll,
+      "explicit FFA gamemode request should round trip"
     );
     failures += expect(
       decoded.requestTeam && decoded.requestedTeam == lg::Team::Blue,
@@ -705,7 +705,7 @@ int main() {
       "bundle command order should round trip"
     );
     failures += expect(
-      decodedBundle.commands[0].requestedGameMode == lg::GameMode::ClanArena &&
+      decodedBundle.commands[0].requestedGameMode == lg::GameMode::FreeForAll &&
         decodedBundle.commands[2].requestedTeam == lg::Team::Blue,
       "redundant command bundles should preserve explicit mode and team requests"
     );
@@ -1008,8 +1008,10 @@ int main() {
     source.healthPickupAvailable[0] = true;
     source.healthPickupAvailable[3] = true;
     source.respawnTicksRemaining = {0, 88};
-    source.scores = {7, 4};
-    source.gameMode = lg::GameMode::ClanArena;
+    source.scores = {-7, 4};
+    source.scores[2] = std::numeric_limits<lg::PlayerScore>::min();
+    source.scores[3] = std::numeric_limits<lg::PlayerScore>::max();
+    source.gameMode = lg::GameMode::FreeForAll;
     source.teams = {
       lg::Team::Red,
       lg::Team::Blue,
@@ -1415,9 +1417,14 @@ int main() {
       "health pickup availability bits should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
-    failures += expect(decoded.scores == source.scores, "scores should round trip");
     failures += expect(
-      decoded.gameMode == lg::GameMode::ClanArena &&
+      decoded.scores == source.scores && decoded.scores[0] == -7 &&
+        decoded.scores[2] == std::numeric_limits<lg::PlayerScore>::min() &&
+        decoded.scores[3] == std::numeric_limits<lg::PlayerScore>::max(),
+      "signed scores and both bounds should round trip"
+    );
+    failures += expect(
+      decoded.gameMode == lg::GameMode::FreeForAll &&
         decoded.teams == source.teams &&
         decoded.teamScores == source.teamScores &&
         decoded.roundWinningTeam == lg::Team::Red &&

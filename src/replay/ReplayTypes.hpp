@@ -14,7 +14,7 @@ namespace lg::replay {
 // bots ordinary recorded actors and keeps their private planning state out of
 // both hashes and checkpoints.
 inline constexpr std::uint16_t kReplayFormatVersionV1 = 1;
-inline constexpr std::uint16_t kReplayFormatVersion = 3;
+inline constexpr std::uint16_t kReplayFormatVersion = 4;
 inline constexpr std::uint16_t kReplayTickRate = 125;
 // Saved demos may cover a full high-player match. Killcam transfer has its own
 // much smaller cap in ReplayTransfer.hpp.
@@ -166,7 +166,7 @@ struct ReplayMatchState {
   std::uint32_t phaseTicksRemaining = 0;
   std::uint32_t liveTicksElapsed = 0;
   bool overtime = false;
-  std::array<std::uint16_t, kDuelPlayerCount> scores = {};
+  std::array<PlayerScore, kDuelPlayerCount> scores = {};
   std::array<std::uint16_t, kPlayableTeamCount> teamScores = {};
   std::array<std::uint16_t, kPlayableTeamCount> mcguffinScores = {};
   std::array<std::uint8_t, kPlayableTeamCount> mcguffinRoundsWon = {};

@@ -186,7 +186,7 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   ) {
     return false;
   }
-  if (snapshot.gameMode == GameMode::Duel) {
+  if (isIndividualGameMode(snapshot.gameMode)) {
     return areDuelOpponents(attackerIndex, targetIndex);
   }
   return areClanArenaEnemies(snapshot.teams, attackerIndex, targetIndex);
@@ -361,7 +361,7 @@ void recordProjectileHit(
 }
 
 [[nodiscard]] std::optional<std::size_t> uniqueScoreLeader(
-  const std::array<std::uint16_t, kDuelPlayerCount>& scores,
+  const std::array<PlayerScore, kDuelPlayerCount>& scores,
   const std::array<bool, kDuelPlayerCount>& players
 ) {
   std::optional<std::size_t> leader;
@@ -378,6 +378,15 @@ void recordProjectileHit(
     }
   }
   return tied ? std::nullopt : leader;
+}
+
+void adjustPlayerScore(PlayerScore& score, int change) {
+  const std::int32_t adjusted = static_cast<std::int32_t>(score) + change;
+  score = static_cast<PlayerScore>(std::clamp(
+    adjusted,
+    static_cast<std::int32_t>(std::numeric_limits<PlayerScore>::min()),
+    static_cast<std::int32_t>(std::numeric_limits<PlayerScore>::max())
+  ));
 }
 
 [[nodiscard]] float q3KnockbackToInternal(float knockback) {
@@ -709,6 +718,8 @@ void ServerGame::tick(float fixedDt) {
     }
   }
 
+  updateDeathRespawns();
+
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     PlayerState& player = snapshot_.players[playerIndex];
     decayPlayerFreezeLevel(player, freezeGunTuning_, fixedDt);
@@ -833,6 +844,7 @@ void ServerGame::tick(float fixedDt) {
     player.position = collision.position;
     player.velocity = collision.velocity;
   }
+  updateKillVolumes();
   updateHealthPickups();
   updateMcGuffin();
   updateFootstepAudioEvents();
@@ -1351,13 +1363,14 @@ void ServerGame::tick(float fixedDt) {
     // McGuffin rounds end through score control and the final-hold rule. A
     // generic match timer must not bypass its best-of-three round structure.
     if (
-      matchRules_.timeLimitMinutes > 0 &&
+      snapshot_.matchRules.timeLimitMinutes > 0 &&
       snapshot_.gameMode != GameMode::McGuffin &&
       !snapshot_.overtime &&
       snapshot_.matchPhase != MatchPhase::MatchEnd
     ) {
       const std::uint32_t limitTicks =
-        static_cast<std::uint32_t>(matchRules_.timeLimitMinutes) * 60U * 125U;
+        static_cast<std::uint32_t>(snapshot_.matchRules.timeLimitMinutes) *
+        60U * 125U;
       if (snapshot_.liveTicksElapsed >= limitTicks) {
         if (snapshot_.gameMode == GameMode::Duel) {
           const auto leader = uniqueScoreLeader(snapshot_.scores, occupiedPlayers());
@@ -1368,6 +1381,16 @@ void ServerGame::tick(float fixedDt) {
           }
         } else if (snapshot_.gameMode == GameMode::ClanArena) {
           const auto leader = clanArenaScoreLeader(snapshot_.teamScores);
+          if (leader.has_value()) {
+            beginMatchEnd(*leader);
+          } else {
+            snapshot_.overtime = true;
+          }
+        } else if (snapshot_.gameMode == GameMode::FreeForAll) {
+          const auto leader = uniqueScoreLeader(
+            snapshot_.scores,
+            snapshot_.participatingPlayers
+          );
           if (leader.has_value()) {
             beginMatchEnd(*leader);
           } else {
@@ -1872,7 +1895,7 @@ bool ServerGame::restoreReplayCheckpoint(
   snapshot_.map = mapDescriptor_;
   snapshot_.gameMode = checkpoint.match.gameMode;
   matchRules_ = metadata.matchRules;
-  snapshot_.matchRules = matchRules_;
+  updateEffectiveMatchRules();
   snapshot_.movementTuning = configuredSnapshot.movementTuning;
   snapshot_.playerSizeScaleXY = configuredSnapshot.playerSizeScaleXY;
   snapshot_.playerSizeScaleZ = configuredSnapshot.playerSizeScaleZ;
@@ -2068,7 +2091,7 @@ void ServerGame::resetMatch() {
       : playerIndex % arena_.spawnCount;
     player.position.z = arena_.spawnPositions[spawnIndex].z + player.bounds.halfHeight;
   }
-  snapshot_.matchRules = matchRules_;
+  updateEffectiveMatchRules();
   snapshot_.movementTuning = movementTuning_;
   snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
   snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
@@ -2348,6 +2371,21 @@ void ServerGame::respawnRound() {
   recordHistory();
 }
 
+void ServerGame::updateDeathRespawns() {
+  if (snapshot_.matchPhase != MatchPhase::Live) {
+    return;
+  }
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (snapshot_.respawnTicksRemaining[index] == 0) {
+      continue;
+    }
+    --snapshot_.respawnTicksRemaining[index];
+    if (snapshot_.respawnTicksRemaining[index] == 0 && isOccupiedSlot(index)) {
+      respawnPlayer(index);
+    }
+  }
+}
+
 void ServerGame::setConnectedPlayers(
   const std::array<bool, kDuelPlayerCount>& connectedPlayers
 ) {
@@ -2355,7 +2393,9 @@ void ServerGame::setConnectedPlayers(
     return;
   }
 
-  const bool abortActiveMatch = !warmupPhase() && snapshot_.gameMode != GameMode::McGuffin;
+  const bool abortActiveMatch = !warmupPhase() &&
+    (snapshot_.gameMode == GameMode::Duel ||
+     snapshot_.gameMode == GameMode::ClanArena);
   const std::array<bool, kDuelPlayerCount> previousConnected =
     snapshot_.connectedPlayers;
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
@@ -2367,6 +2407,7 @@ void ServerGame::setConnectedPlayers(
 
     if (wasHuman && !isHuman) {
       dropMcGuffinCarrier(index);
+      clearPlayerIdentityMatchState(index);
       snapshot_.readyPlayers[index] = false;
       snapshot_.teams[index] = Team::None;
       snapshot_.playerNames[index] = "PLAYER " + std::to_string(index + 1U);
@@ -2376,10 +2417,14 @@ void ServerGame::setConnectedPlayers(
       botMotors_[index] = {};
       botBrains_[index].reset(0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U));
     } else if (!wasHuman && isHuman) {
+      clearPlayerIdentityMatchState(index);
       snapshot_.readyPlayers[index] = false;
       snapshot_.teams[index] = Team::None;
       snapshot_.playerNames[index] = "PLAYER " + std::to_string(index + 1U);
       resetPlayerInputState(index);
+      if (snapshot_.gameMode == GameMode::FreeForAll) {
+        respawnPlayer(index);
+      }
       botDodgeSwitchSeconds_[index] = 0.0F;
       botMotors_[index] = {};
       botBrains_[index].reset(0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U));
@@ -2436,12 +2481,62 @@ void ServerGame::setConnectedPlayers(
       playerSessions_[index] != 0 &&
       playerSessions_[index] != playerSessions[index]
     ) {
+      clearPlayerIdentityMatchState(index);
       snapshot_.readyPlayers[index] = false;
       snapshot_.playerNames[index] = "PLAYER " + std::to_string(index + 1U);
       resetPlayerInputState(index);
+      if (snapshot_.gameMode == GameMode::FreeForAll) {
+        respawnPlayer(index);
+      }
       botDodgeSwitchSeconds_[index] = 0.0F;
     }
     playerSessions_[index] = playerSessions[index];
+  }
+}
+
+void ServerGame::clearPlayerIdentityMatchState(std::size_t playerIndex) {
+  if (playerIndex >= kDuelPlayerCount) {
+    return;
+  }
+  snapshot_.scores[playerIndex] = 0;
+  snapshot_.roundCombatStats[playerIndex] = {};
+  snapshot_.matchCombatStats[playerIndex] = {};
+  if (snapshot_.gameMode != GameMode::FreeForAll) {
+    return;
+  }
+  snapshot_.respawnTicksRemaining[playerIndex] = 0;
+  snapshot_.players[playerIndex].health = 0;
+  clearPlayerProjectiles(playerIndex);
+}
+
+void ServerGame::clearPlayerProjectiles(std::size_t playerIndex) {
+  if (playerIndex >= kDuelPlayerCount) {
+    return;
+  }
+  const std::size_t firstSlot = playerIndex * kProjectileSlotsPerPlayer;
+  const std::size_t endSlot = firstSlot + kProjectileSlotsPerPlayer;
+  for (std::size_t slot = firstSlot; slot < endSlot; ++slot) {
+    RocketProjectile& projectile = rockets_[slot];
+    if (!projectile.active) {
+      continue;
+    }
+    projectile.active = false;
+    ProjectileUpdate removed;
+    removed.kind = ProjectileUpdateKind::Remove;
+    removed.slot = static_cast<std::uint16_t>(slot);
+    removed.sequence = projectile.sequence;
+    removed.weapon = projectile.weapon;
+    removed.position = projectile.position;
+    removed.velocity = projectile.velocity;
+    removed.radius = projectile.projectileRadius;
+    removed.ageTicks = projectile.ageTicks;
+    removed.resting = projectile.resting;
+    recentProjectileRemovals_.push_back({
+      removed,
+      snapshot_.serverTick + 1U,
+      false,
+      false,
+    });
   }
 }
 
@@ -2494,7 +2589,11 @@ void ServerGame::setMatchRules(const MatchRules& rules) {
     1,
     static_cast<std::uint8_t>(kDuelPlayerCount)
   );
-  snapshot_.matchRules = matchRules_;
+  updateEffectiveMatchRules();
+}
+
+void ServerGame::updateEffectiveMatchRules() {
+  snapshot_.matchRules = effectiveMatchRules(snapshot_.gameMode, matchRules_);
 }
 
 ArenaSpawnGroup ServerGame::spawnGroupForTeam(Team team) const {
@@ -3278,7 +3377,7 @@ bool ServerGame::enoughPlayersConnected() const {
   if (occupiedCount < matchRules_.playerLimit) {
     return false;
   }
-  if (snapshot_.gameMode == GameMode::Duel) {
+  if (!isTeamGameMode(snapshot_.gameMode)) {
     return occupiedCount >= 1U;
   }
 
@@ -3309,7 +3408,7 @@ bool ServerGame::allConnectedPlayersReady() const {
     if (!snapshot_.readyPlayers[index]) {
       return false;
     }
-    if (snapshot_.gameMode != GameMode::Duel) {
+    if (isTeamGameMode(snapshot_.gameMode)) {
       if (!isPlayableTeam(snapshot_.teams[index])) {
         return false;
       }
@@ -3317,7 +3416,7 @@ bool ServerGame::allConnectedPlayersReady() const {
       hasBluePlayer = hasBluePlayer || snapshot_.teams[index] == Team::Blue;
     }
   }
-  if (snapshot_.gameMode != GameMode::Duel && (!hasRedPlayer || !hasBluePlayer)) {
+  if (isTeamGameMode(snapshot_.gameMode) && (!hasRedPlayer || !hasBluePlayer)) {
     return false;
   }
   return true;
@@ -3348,7 +3447,7 @@ bool ServerGame::isValidEnemyTarget(
   ) {
     return false;
   }
-  return snapshot_.gameMode == GameMode::Duel
+  return isIndividualGameMode(snapshot_.gameMode)
     ? areDuelOpponents(attackerIndex, targetIndex)
     : areClanArenaEnemies(snapshot_.teams, attackerIndex, targetIndex);
 }
@@ -3415,7 +3514,7 @@ bool ServerGame::damageAllowed(
   if (warmupPhase()) {
     return areDuelOpponents(attackerIndex, targetIndex);
   }
-  return snapshot_.gameMode == GameMode::Duel
+  return isIndividualGameMode(snapshot_.gameMode)
     ? areDuelOpponents(attackerIndex, targetIndex)
     : areClanArenaEnemies(snapshot_.teams, attackerIndex, targetIndex);
 }
@@ -3805,16 +3904,39 @@ void ServerGame::applyDamageAndKnockback(
     frag.weapon = weapon;
   }
 
+  if (wasAlive && target.health == 0 && damageApplied > 0) {
+    handlePlayerDeath(targetIndex, attackerIndex);
+  }
+}
+
+void ServerGame::handlePlayerDeath(
+  std::size_t targetIndex,
+  std::optional<std::size_t> attackerIndex
+) {
   if (
-    wasAlive &&
-    target.health == 0 &&
-    snapshot_.matchPhase == MatchPhase::Live
+    targetIndex >= kDuelPlayerCount ||
+    snapshot_.players[targetIndex].health > 0
   ) {
+    return;
+  }
+
+  PlayerState& target = snapshot_.players[targetIndex];
+  if (snapshot_.matchPhase == MatchPhase::Live) {
     if (
+      attackerIndex.has_value() &&
       snapshot_.gameMode == GameMode::ClanArena &&
-      areClanArenaEnemies(snapshot_.teams, attackerIndex, targetIndex)
+      areClanArenaEnemies(snapshot_.teams, *attackerIndex, targetIndex)
     ) {
-      ++snapshot_.scores[attackerIndex];
+      adjustPlayerScore(snapshot_.scores[*attackerIndex], 1);
+    } else if (snapshot_.gameMode == GameMode::FreeForAll) {
+      if (attackerIndex.has_value()) {
+        adjustPlayerScore(
+          snapshot_.scores[*attackerIndex],
+          *attackerIndex == targetIndex ? -1 : 1
+        );
+      } else {
+        adjustPlayerScore(snapshot_.scores[targetIndex], -1);
+      }
     }
     target.knockbackTicksRemaining = 0;
     target.freezeLevel = 0.0F;
@@ -3843,8 +3965,7 @@ void ServerGame::applyDamageAndKnockback(
       std::array<bool, kDuelPlayerCount> alivePlayers = {};
       for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
         alivePlayers[index] =
-          isOccupiedSlot(index) &&
-          snapshot_.players[index].health > 0;
+          isOccupiedSlot(index) && snapshot_.players[index].health > 0;
       }
       const auto winner = clanArenaRoundWinner(
         occupiedPlayers(),
@@ -3853,6 +3974,30 @@ void ServerGame::applyDamageAndKnockback(
       );
       if (winner.has_value()) {
         beginRoundEnd(*winner);
+      }
+    } else if (snapshot_.gameMode == GameMode::FreeForAll) {
+      if (
+        attackerIndex.has_value() &&
+        *attackerIndex != targetIndex &&
+        snapshot_.scores[*attackerIndex] >= kFreeForAllScoreLimit
+      ) {
+        beginMatchEnd(*attackerIndex);
+      } else if (snapshot_.overtime) {
+        const auto leader = uniqueScoreLeader(
+          snapshot_.scores,
+          snapshot_.participatingPlayers
+        );
+        if (leader.has_value()) {
+          beginMatchEnd(*leader);
+        }
+      }
+      if (snapshot_.matchPhase == MatchPhase::Live) {
+        if (matchRules_.deathRespawnTicks == 0) {
+          respawnPlayer(targetIndex);
+        } else {
+          snapshot_.respawnTicksRemaining[targetIndex] =
+            matchRules_.deathRespawnTicks;
+        }
       }
     } else {
       dropMcGuffinCarrier(targetIndex);
@@ -3865,19 +4010,17 @@ void ServerGame::applyDamageAndKnockback(
     }
     return;
   }
-  if (
-    target.health == 0 &&
-    (
-      snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
-      snapshot_.matchPhase == MatchPhase::WaitingForReady
-    )
-  ) {
-    const FragEvent fragEvent = snapshot_.fragEvents[attackerIndex];
-    // Warmup deaths respawn immediately, but the respawn reset must not erase
-    // the frag event before clients have had a chance to present it.
+
+  if (warmupPhase()) {
+    FragEvent fragEvent;
+    if (attackerIndex.has_value()) {
+      fragEvent = snapshot_.fragEvents[*attackerIndex];
+    }
+    // Warmup deaths respawn at once, but a player frag must remain visible for
+    // the next snapshot. World deaths have no frag event to restore.
     respawnPlayer(targetIndex);
-    if (fragEvent.active) {
-      snapshot_.fragEvents[attackerIndex] = fragEvent;
+    if (attackerIndex.has_value() && fragEvent.active) {
+      snapshot_.fragEvents[*attackerIndex] = fragEvent;
     }
   }
 }
@@ -4373,6 +4516,48 @@ void ServerGame::resetHealthPickups() {
   }
 }
 
+void ServerGame::updateKillVolumes() {
+  const bool live = snapshot_.matchPhase == MatchPhase::Live;
+  if (!live && !warmupPhase()) {
+    return;
+  }
+
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    if (!isActiveCombatant(playerIndex)) {
+      continue;
+    }
+    PlayerState& player = snapshot_.players[playerIndex];
+    for (std::size_t volumeIndex = 0;
+         volumeIndex < arena_.killVolumeCount;
+         ++volumeIndex) {
+      const ArenaKillVolume& volume = arena_.killVolumes[volumeIndex];
+      if (!playerTouchesTriggerVolume(
+            player.bounds,
+            player.position,
+            volume.min,
+            volume.max
+          )) {
+        continue;
+      }
+
+      player.health = 0;
+      // Replay data has an explicit world lethal kind. Its weapon field has no
+      // world value, so keep the victim's current value while the kind carries
+      // the cause and the network frag feed stays empty.
+      recordReplayLethal(
+        kDuelPlayerCount,
+        playerIndex,
+        selectedWeapons_[playerIndex]
+      );
+      handlePlayerDeath(playerIndex, std::nullopt);
+      break;
+    }
+    if (live && snapshot_.matchPhase != MatchPhase::Live) {
+      break;
+    }
+  }
+}
+
 void ServerGame::updateHealthPickups() {
   for (std::size_t pickupIndex = 0; pickupIndex < arena_.healthPickupCount; ++pickupIndex) {
     if (!snapshot_.healthPickupAvailable[pickupIndex]) {
@@ -4502,14 +4687,6 @@ void ServerGame::updateMcGuffin() {
   if (snapshot_.matchPhase == MatchPhase::Live) {
     ++mcguffinRoundLiveTicks_;
   }
-  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-    if (snapshot_.respawnTicksRemaining[index] == 0) continue;
-    --snapshot_.respawnTicksRemaining[index];
-    if (snapshot_.respawnTicksRemaining[index] == 0 && isOccupiedSlot(index)) {
-      respawnPlayer(index);
-    }
-  }
-
   if (snapshot_.matchPhase != MatchPhase::Live) return;
 
   if (mcguffinThrowPickupLockoutTicks_ > 0) {
@@ -5298,7 +5475,7 @@ void ServerGame::handleBotCommandRequest(const CommandPacket& packet) {
 }
 
 void ServerGame::updateClanArenaBotTeams() {
-  if (snapshot_.gameMode == GameMode::Duel) {
+  if (!isTeamGameMode(snapshot_.gameMode)) {
     for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
       if (botPlayers_[index]) {
         snapshot_.teams[index] = Team::None;
@@ -5361,6 +5538,7 @@ void ServerGame::addBotAtPlayerIndex(std::size_t playerIndex) {
   if (playerIndex >= kDuelPlayerCount || snapshot_.connectedPlayers[playerIndex]) {
     return;
   }
+  clearPlayerIdentityMatchState(playerIndex);
   botPlayers_[playerIndex] = true;
   snapshot_.botPlayers[playerIndex] = true;
   snapshot_.readyPlayers[playerIndex] = true;
@@ -5382,6 +5560,7 @@ void ServerGame::removeBotAtPlayerIndex(std::size_t playerIndex) {
   if (playerIndex >= kDuelPlayerCount || !botPlayers_[playerIndex]) {
     return;
   }
+  clearPlayerIdentityMatchState(playerIndex);
   botPlayers_[playerIndex] = false;
   snapshot_.botPlayers[playerIndex] = false;
   snapshot_.readyPlayers[playerIndex] = false;
@@ -5461,8 +5640,8 @@ bool ServerGame::applyScenarioSetup(
     if (!isValidTeam(player.team)) {
       return reject("scenario player team is invalid");
     }
-    if (setup.match.gameMode == GameMode::Duel && player.team != Team::None) {
-      return reject("duel scenario players cannot have a team");
+    if (!isTeamGameMode(setup.match.gameMode) && player.team != Team::None) {
+      return reject("individual-mode scenario players cannot have a team");
     }
     if (!occupied && (player.alive || player.ready || player.team != Team::None)) {
       return reject(
@@ -6198,7 +6377,7 @@ void ServerGame::receiveCommands() {
     if (
       packet.requestTeam &&
       snapshot_.connectedPlayers[playerIndex] &&
-      snapshot_.gameMode != GameMode::Duel &&
+      isTeamGameMode(snapshot_.gameMode) &&
       warmupPhase() &&
       packet.requestedTeam != snapshot_.teams[playerIndex]
     ) {
@@ -6219,7 +6398,7 @@ void ServerGame::receiveCommands() {
         snapshot_.connectedPlayers[playerIndex] &&
         warmupPhase() &&
         (
-          snapshot_.gameMode == GameMode::Duel ||
+          !isTeamGameMode(snapshot_.gameMode) ||
           isPlayableTeam(snapshot_.teams[playerIndex])
         )
       ) {

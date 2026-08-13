@@ -410,6 +410,30 @@ int main() {
       "generated overkill import should preserve its restored teleport route"
     );
     failures += expect(
+      loaded.ok && loaded.arena.killVolumeCount == 3,
+      "generated overkill import should preserve its three Q3 pit kill volumes"
+    );
+    if (loaded.ok && loaded.arena.killVolumeCount == 3U) {
+      constexpr std::array<lg::ArenaKillVolume, 3> expectedKillVolumes = {{
+        {{-36.8F, 6.4F, -8.0F}, {-4.0F, 38.4F, -6.4F}},
+        {{-17.8F, -35.2F, -16.0F}, {5.0F, -8.0F, -14.4F}},
+        {{11.2F, 14.4F, -16.0F}, {27.2F, 28.8F, -14.4F}},
+      }};
+      for (std::size_t index = 0; index < expectedKillVolumes.size(); ++index) {
+        const lg::ArenaKillVolume& actual = loaded.arena.killVolumes[index];
+        const lg::ArenaKillVolume& expected = expectedKillVolumes[index];
+        failures += expect(
+          nearlyEqual(actual.min.x, expected.min.x) &&
+            nearlyEqual(actual.min.y, expected.min.y) &&
+            nearlyEqual(actual.min.z, expected.min.z) &&
+            nearlyEqual(actual.max.x, expected.max.x) &&
+            nearlyEqual(actual.max.y, expected.max.y) &&
+            nearlyEqual(actual.max.z, expected.max.z),
+          "overkill pit kill volume should keep its authored Q3 bounds"
+        );
+      }
+    }
+    failures += expect(
       loaded.ok && loaded.arena.staticLightCount == 11 && loaded.arena.sunLight.enabled,
       "generated overkill import should preserve its reviewed adaptation lighting"
     );

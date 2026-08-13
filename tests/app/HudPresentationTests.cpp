@@ -1,3 +1,4 @@
+#include "app/GameModeConsole.hpp"
 #include "app/HudPresentation.hpp"
 
 #include <cmath>
@@ -72,6 +73,14 @@ int main() {
 
   int failures = 0;
   failures += expect(
+    lg::gameModeForConsoleToken("ffa") == lg::GameMode::FreeForAll,
+    "the console should parse gamemode ffa"
+  );
+  failures += expect(
+    lg::kGameModeConsoleUsage.find("ffa") != std::string_view::npos,
+    "gamemode help should list ffa"
+  );
+  failures += expect(
     lg::MatchRules{}.roundEndTicks == 625,
     "the default round-end phase should last five seconds"
   );
@@ -129,6 +138,33 @@ int main() {
       !lg::playerPresentedAsTeammate(snapshot, 0, 2),
     "live Clan Arena player presentation should distinguish teammates from enemies"
   );
+  {
+    lg::ServerSnapshot ffa = snapshot;
+    ffa.gameMode = lg::GameMode::FreeForAll;
+    ffa.teams = {};
+    ffa.participatingPlayers = {true, true, true};
+    ffa.scores = {-1, 4, 2};
+    ffa.matchRules = lg::effectiveMatchRules(
+      lg::GameMode::FreeForAll,
+      lg::MatchRules{}
+    );
+    ffa.matchWinner = 0;
+    failures += expect(
+      lg::hudScoreLine(ffa, 0) == "SCORE -1 / 100" &&
+        lg::matchTimeLine(ffa) == "TIME 10:00",
+      "FFA HUD helpers should show signed score and fixed limits"
+    );
+    failures += expect(
+      lg::opponentPlayerIndex(ffa, 0) == 1 &&
+        !lg::playerPresentedAsTeammate(ffa, 0, 1),
+      "every other FFA participant should present as an enemy"
+    );
+    failures += expect(
+      lg::localPlayerWonResult(ffa, 0, true) &&
+        !lg::localPlayerWonResult(ffa, 1, true),
+      "FFA match results should use the individual match winner"
+    );
+  }
   failures += expect(
     lg::playerRoundStatsLine(snapshot, 2) == "ENEMY lg 0%  DMG 0",
     "post-round stats should display the enemy player name"

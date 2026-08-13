@@ -88,6 +88,17 @@ struct MatchRules {
   bool showOpponentHealth = true;
 };
 
+[[nodiscard]] constexpr MatchRules effectiveMatchRules(
+  GameMode gameMode,
+  MatchRules configured
+) {
+  if (gameMode == GameMode::FreeForAll) {
+    configured.roundLimit = static_cast<std::uint16_t>(kFreeForAllScoreLimit);
+    configured.timeLimitMinutes = kFreeForAllTimeLimitMinutes;
+  }
+  return configured;
+}
+
 enum class McGuffinEventType : std::uint8_t {
   None = 0,
   Pickup = 1,
@@ -445,7 +456,7 @@ struct ServerSnapshot {
   IcePoolArray icePools = {};
   std::array<bool, Arena::kHealthPickupCount> healthPickupAvailable = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
-  std::array<std::uint16_t, kDuelPlayerCount> scores = {};
+  std::array<PlayerScore, kDuelPlayerCount> scores = {};
   GameMode gameMode = GameMode::Duel;
   std::array<Team, kDuelPlayerCount> teams = {};
   std::array<std::uint16_t, kPlayableTeamCount> teamScores = {};
