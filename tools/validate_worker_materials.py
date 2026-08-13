@@ -21,7 +21,7 @@ ENGINE_REPORT = ROOT / "imports/assets/review/quaternius_worker/reports/engine-v
 ALBEDO = ROOT / "assets/models/quaternius_worker/materials/worker_albedo.png"
 MASK = ROOT / "assets/models/quaternius_worker/materials/worker_material_mask.png"
 
-EXPECTED_RUNTIME_SHA256 = "368445c36b4c7da7bdec8f677cfecb6c5a34d575caac59ff4b721a5cd85f22db"
+EXPECTED_RUNTIME_SHA256 = "5ac9184b9a6181e9f71aeac45c23ce81cb11aa7b9ab80cf49f5ec4465d7f7a0f"
 EXPECTED_REVIEW_SHA256 = "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60"
 EXPECTED_MATERIALS = [
     "Skin",
@@ -224,30 +224,44 @@ def validate_glb_contract(runtime: dict, binary: bytes, review: dict, review_bin
     require(bounds_min[1] <= 0.0 and bounds_min[1] >= -0.01, "Worker foot placement changed")
 
     animation_names = [animation.get("name", "") for animation in runtime.get("animations", [])]
-    require(len(animation_names) == 33 and "Idle_Gun_TwoHanded" in animation_names and "Death" in animation_names, "Worker animation inventory changed")
-    require(animation_names == [animation.get("name", "") for animation in review.get("animations", [])], "Worker animation names changed")
+    review_animation_names = [animation.get("name", "") for animation in review.get("animations", [])]
+    require(
+        animation_names == review_animation_names + ["LEAN_LEFT", "LEAN_RIGHT"],
+        "Worker animation inventory changed",
+    )
     runtime_durations = animation_durations(runtime, binary)
     review_durations = animation_durations(review, review_binary)
-    require(runtime_durations.keys() == review_durations.keys(), "Worker animation duration inventory changed")
-    changed_clips = {"JUMP", "FALL"}
+    changed_clips = {"JUMP", "FALL", "LEAN_LEFT", "LEAN_RIGHT"}
     require(all(
         abs(runtime_durations[name] - review_durations[name]) <= 0.0001
-        for name in runtime_durations if name not in changed_clips
+        for name in review_durations if name not in changed_clips
     ), "an unchanged Worker animation duration changed")
     require(abs(runtime_durations["JUMP"] - 0.7333333) <= 0.0001, "Worker jump duration changed")
     require(abs(runtime_durations["FALL"] - 0.8333333) <= 0.0001, "Worker fall duration changed")
+    require(abs(runtime_durations["LEAN_LEFT"] - 0.8333333) <= 0.0001, "Worker left lean duration changed")
+    require(abs(runtime_durations["LEAN_RIGHT"] - 0.8333333) <= 0.0001, "Worker right lean duration changed")
     runtime_animations = {animation["name"]: animation for animation in runtime["animations"]}
     review_animations = {animation["name"]: animation for animation in review["animations"]}
     require(all(
         animation_signature(runtime, binary, runtime_animations[name]) ==
         animation_signature(review, review_binary, review_animations[name])
-        for name in runtime_animations if name not in changed_clips
+        for name in review_animations if name not in changed_clips
     ), "an unchanged Worker animation clip changed")
     runtime_roll = animation_signature(runtime, binary, runtime_animations["Roll"])
     require(animation_signature(runtime, binary, runtime_animations["JUMP"]) != runtime_roll,
             "Worker jump still matches Roll")
     require(animation_signature(runtime, binary, runtime_animations["FALL"]) != runtime_roll,
             "Worker fall still matches Roll")
+    require(
+        animation_signature(runtime, binary, runtime_animations["LEAN_LEFT"]) !=
+        animation_signature(runtime, binary, runtime_animations["STRAFE_LEFT"]),
+        "Worker left lean still matches strafe left",
+    )
+    require(
+        animation_signature(runtime, binary, runtime_animations["LEAN_RIGHT"]) !=
+        animation_signature(runtime, binary, runtime_animations["STRAFE_RIGHT"]),
+        "Worker right lean still matches strafe right",
+    )
 
     runtime_socket = next((node for node in runtime.get("nodes", []) if node.get("name") == "weapon_socket"), None)
     review_socket = next((node for node in review.get("nodes", []) if node.get("name") == "weapon_socket"), None)

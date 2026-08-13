@@ -1852,32 +1852,25 @@ struct DuelistPoseRequests {
 ) {
   const bool workerModel = &model == &workerPlayerModel();
   if (presentation == nullptr || presentation->poseLayerCount == 0U) {
-    DuelistPoseRequests poseRequests = duelistPoseRequests(
+    return duelistPoseRequests(
       player,
       leanEnabled,
       leanScale,
       animationTimeSeconds
     );
-    if (workerModel) {
-      for (std::size_t index = 0; index < poseRequests.count; ++index) {
-        SkinnedModelPoseRequest& request = poseRequests.values[index];
-        if (request.mask != SkinnedModelPoseMask::UpperBody) {
-          continue;
-        }
-        if (request.animationName == "LEAN_LEFT") {
-          request.animationName = "STRAFE_LEFT";
-        } else if (request.animationName == "LEAN_RIGHT") {
-          request.animationName = "STRAFE_RIGHT";
-        }
-      }
-    }
-    return poseRequests;
   }
 
   DuelistPoseRequests poseRequests;
   for (std::size_t index = 0; index < presentation->poseLayerCount; ++index) {
     const PlayerPoseLayer& layer = presentation->poseLayers[index];
     if (layer.mask == PlayerPoseLayerMask::UpperBody && !leanEnabled) {
+      continue;
+    }
+    if (
+      workerModel &&
+      layer.mask == PlayerPoseLayerMask::UpperBody &&
+      (layer.animationName == "LEAN_LEFT" || layer.animationName == "LEAN_RIGHT")
+    ) {
       continue;
     }
     float weight = layer.weight;
@@ -1890,22 +1883,7 @@ struct DuelistPoseRequests {
     if (workerModel && clip == "IDLE") {
       clip = "Idle_Gun_TwoHanded";
     }
-    float time = layer.timeSeconds;
-    if (workerModel && layer.mask == PlayerPoseLayerMask::UpperBody) {
-      // Worker has no separate LEAN clips. Its authored strafe clips provide
-      // the directional upper-body pose when the leg layer remains RUN.
-      if (clip == "LEAN_LEFT") {
-        clip = "STRAFE_LEFT";
-      } else if (clip == "LEAN_RIGHT") {
-        clip = "STRAFE_RIGHT";
-      }
-    } else if (
-      workerModel &&
-      layer.mask == PlayerPoseLayerMask::FullBody &&
-      (clip == "STRAFE_LEFT" || clip == "STRAFE_RIGHT")
-    ) {
-      clip = "RUN";
-    }
+    const float time = layer.timeSeconds;
     poseRequests.push({
       clip,
       time,
@@ -2004,11 +1982,15 @@ void addGltfPlayerModelInstance(
     presentation
   );
   const float aimPitch = skinnedPlayerAimPitch(player, presentation);
+  const float sideLean = workerModel && leanEnabled && presentation != nullptr
+    ? presentation->proceduralLean * (34.0F * kDegreesToRadians)
+    : 0.0F;
   if (!model.appendBonePalette(
         poseRequests.span(),
         scene.gltfBonePalette,
         poseScratch,
-        aimPitch
+        aimPitch,
+        sideLean
       )) {
     return;
   }
@@ -2146,7 +2128,10 @@ void addGltfPlayerModelInstance(
       poseRequests.span(),
       sampleCache.bonePalette,
       sampleCache.poseScratch,
-      skinnedPlayerAimPitch(remote.player, presentation)
+      skinnedPlayerAimPitch(remote.player, presentation),
+      leanEnabled && presentation != nullptr
+        ? presentation->proceduralLean * (34.0F * kDegreesToRadians)
+        : 0.0F
     )
   ) {
     return genericFrame;

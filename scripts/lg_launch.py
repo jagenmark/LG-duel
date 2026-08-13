@@ -47,6 +47,18 @@ class LaunchError(RuntimeError):
     pass
 
 
+def _executable_name(name: str) -> str:
+    return f"{name}.exe" if platform.system() == "Windows" else name
+
+
+def _executable_path(build_dir: Path, name: str) -> Path:
+    preferred = build_dir / _executable_name(name)
+    if preferred.is_file():
+        return preferred
+    alternate = build_dir / (name if preferred.suffix == ".exe" else f"{name}.exe")
+    return alternate if alternate.is_file() else preferred
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -79,7 +91,8 @@ def _parse_vulkan_devices(output: str) -> list[dict[str, Any]]:
             "gpu_name": item.get("deviceName"),
             "gpu_type": item.get("deviceType"),
             "graphics_driver_name": item.get("driverName"),
-            "graphics_driver_version": item.get("driverInfo") or item.get("driverVersion"),
+            "graphics_driver_version": item.get("driverVersion"),
+            "graphics_driver_info": item.get("driverInfo"),
             "vulkan_api_version": item.get("apiVersion"),
         }
         for item in devices
@@ -210,24 +223,41 @@ def _probe_default_vulkan(
         if record.get("exists") and record.get("sha256") and record.get("library_path")
     ]
 
-    active_libraries = [
-        match.group(1)
+    active_devices = [
+        (match.group(1), match.group(2))
         for match in re.finditer(
-            r'Using ".+?" with driver:\s*"([^"]+)"',
+            r'Using "([^"]+)" with driver:\s*"([^"]+)"',
             loader_output,
             flags=re.IGNORECASE,
         )
+    ]
+    selected_libraries = [
+        library
+        for gpu_name, library in active_devices
+        if gpu_name == selected.get("gpu_name")
     ]
     active_records = [
         record
         for record in records
         if any(
             _normalized(str(record["library_path"])) == _normalized(library)
-            for library in active_libraries
+            or Path(str(record["library_path"])).name == Path(library).name
+            for library in selected_libraries
         )
     ]
     if len(active_records) == 1:
         record = active_records[0]
+        matched_library = next(
+            (
+                library
+                for library in selected_libraries
+                if _normalized(str(record["library_path"])) == _normalized(library)
+                or Path(str(record["library_path"])).name == Path(library).name
+            ),
+            None,
+        )
+        if matched_library is not None:
+            record["library_path"] = matched_library
     elif len(records) == 1:
         record = records[0]
     else:
@@ -275,6 +305,7 @@ def _selection_from_document(document: dict[str, Any], source: str) -> dict[str,
         "gpu_type": environment.get("gpu_type"),
         "graphics_driver_name": environment.get("graphics_driver_name"),
         "graphics_driver_version": environment.get("graphics_driver_version"),
+        "graphics_driver_info": environment.get("graphics_driver_info"),
         "vulkan_api_version": environment.get("vulkan_api_version"),
     }
 
@@ -322,7 +353,8 @@ def _write_generated_vulkan_selection(selection: dict[str, Any]) -> None:
     path = STATE_DIR / "vulkan.json"
     fields = (
         "icd_path", "icd_sha256", "icd_library_path", "gpu_name", "gpu_type",
-        "graphics_driver_name", "graphics_driver_version", "vulkan_api_version",
+        "graphics_driver_name", "graphics_driver_version", "graphics_driver_info",
+        "vulkan_api_version",
         "verification_state",
     )
     document = {field: selection.get(field) for field in fields if selection.get(field) is not None}
@@ -386,7 +418,7 @@ def discover_vulkan_selection(
     selection = _discover_windows_vulkan_selection(runner=runner)
     if selection is not None:
         return selection
-    if platform.system() == "Windows":
+    if platform.system() in {"Linux", "Windows"}:
         try:
             selection = _probe_default_vulkan(runner=runner)
         except LaunchError:
@@ -433,7 +465,7 @@ def resolve_vulkan_selection(
         **probed,
         "icd_path": str(manifest.resolve()),
         "icd_sha256": actual_hash,
-        "icd_library_path": record.get("library_path"),
+        "icd_library_path": selection.get("icd_library_path") or record.get("library_path"),
         "verification_state": "preflight-verified",
         "vulkan_driver_environment": {"VK_DRIVER_FILES": str(manifest.resolve())},
     }
@@ -982,8 +1014,8 @@ def launch_scenario_session(
     scenario = Path(scenario_path).resolve()
     output_dir = Path(run_dir).resolve()
     launch_build_dir = Path(build_dir or BUILD_DIR).resolve()
-    client_exe = launch_build_dir / "lg_duel_client.exe"
-    server_exe = launch_build_dir / "lg_duel_server.exe"
+    client_exe = _executable_path(launch_build_dir, "lg_duel_client")
+    server_exe = _executable_path(launch_build_dir, "lg_duel_server")
     missing = [
         str(path) for path in (scenario, client_exe, server_exe) if not path.is_file()
     ]
@@ -1453,8 +1485,8 @@ def _ensure_client_unlocked(
         # to the same explicit flag used by MCP callers.
         allow_fallback = True
     launch_build_dir = (build_dir or BUILD_DIR).resolve()
-    client_exe = launch_build_dir / "lg_duel_client.exe"
-    server_exe = launch_build_dir / "lg_duel_server.exe"
+    client_exe = _executable_path(launch_build_dir, "lg_duel_client")
+    server_exe = _executable_path(launch_build_dir, "lg_duel_server")
     deadline = time.monotonic() + timeout
     try:
         raw = send_request(

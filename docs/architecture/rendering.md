@@ -88,6 +88,28 @@ keeps the GLB, geometry, skeleton, animations, and weapon socket unchanged.
 It also means this first slice gives each material a broad authored region,
 not a unique painted UV layout.
 
+### Blender, glTF, and game axes
+
+Do not copy a Blender axis name into runtime animation code. Blender uses Z up,
+while glTF and the imported Worker data use Y up. Blender's export conversion
+maps axes as follows:
+
+| Blender | glTF model space | Worker meaning in `Scene3D` |
+| --- | --- | --- |
+| `+X` | `+X` | model right |
+| `+Y` | `-Z` | model forward |
+| `+Z` | `+Y` | model up |
+
+The Worker lean actions are the key example. Blender authors their accepted
+34-degree abdomen bend around armature `+Y`. Runtime must therefore apply the
+same bend around glTF `-Z`, not glTF `Y`. A glTF `Y` rotation turns the torso
+around its upright axis and can look like no lean or a forward bend after pose
+blending.
+
+The model-instance matrix then maps glTF `+X`, `+Y`, and `+Z` to the player's
+world right, up, and forward axes. Check a change after export in the GLB and
+in the GPU client. Do not infer runtime axes from Blender labels alone.
+
 | Quality | Albedo and mask | Team tint and highlights | Metal and environment |
 | --- | --- | --- | --- |
 | 0 | No authored samples; texture-free flat pipeline | Existing diffuse sun and point lights only | Off |
@@ -125,3 +147,4 @@ passes remain texture-free.
 - Do not add high-vertex dynamic meshes for frequent effects without a budget and caching strategy.
 - Static lighting is baked into generated vertex colors at world-scene build time; changing light data should change the arena fingerprint or otherwise trigger rebuild.
 - Keep visual-only changes out of server simulation and network authority.
+- Convert Blender axes to glTF axes before adding model-space animation math.
