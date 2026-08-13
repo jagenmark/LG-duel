@@ -376,6 +376,23 @@ float directionalNormalSpan(const LineBounds& bounds, int edge) {
     : bounds.maximumX - bounds.minimumX;
 }
 
+float maximumLineWidth(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color
+) {
+  float maximumWidth = 0.0F;
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    const auto* line = std::get_if<lg::Line2D>(&command);
+    if (line == nullptr || line->color.red != color.red ||
+        line->color.green != color.green || line->color.blue != color.blue ||
+        line->color.alpha != color.alpha) {
+      continue;
+    }
+    maximumWidth = std::max(maximumWidth, line->width);
+  }
+  return maximumWidth;
+}
+
 } // namespace
 
 int main() {
@@ -942,6 +959,7 @@ int main() {
             directionalUi, directionalColor, 1280.0F, 720.0F
           ) && directionalTangentSpan(bounds, direction.edge) > 100.0F &&
           directionalNormalSpan(bounds, direction.edge) > 1.0F &&
+          maximumLineWidth(directionalUi, directionalColor) >= 6.0F &&
           !hasLineNearCenter(
             directionalUi, directionalColor, 640.0F, 360.0F, 180.0F
           ),

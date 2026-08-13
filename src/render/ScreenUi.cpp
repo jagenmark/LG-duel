@@ -2731,8 +2731,15 @@ void addDirectionalDamageIndicators(
   const float halfWidth = centerX;
   const float halfHeight = centerY;
   const float minimumHalfExtent = std::min(halfWidth, halfHeight);
-  const float softWidth = std::max(2.0F, 8.0F * scale);
-  const float highlightWidth = std::max(1.0F, 2.0F * scale);
+  constexpr float kCrescentThicknessMultiplier = 3.5F;
+  const float softWidth = std::max(
+    2.0F,
+    8.0F * scale * kCrescentThicknessMultiplier
+  );
+  const float highlightWidth = std::max(
+    1.0F,
+    2.0F * scale * kCrescentThicknessMultiplier
+  );
   const float edgePadding = std::max(
     2.0F * scale,
     softWidth * 0.5F + scale
