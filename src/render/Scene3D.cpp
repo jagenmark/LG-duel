@@ -56,6 +56,7 @@ constexpr float kSniperRifleViewModelWidthScale = 1.30F;
 constexpr float kSniperRifleViewModelHeightScale = 1.15F;
 constexpr float kRocketLauncherViewModelForwardOffset = -0.16F;
 constexpr float kRocketLauncherViewModelUpOffset = -0.15F;
+constexpr Vec3 kGrenadeLauncherMuzzleSocket = {0.805F, 0.0F, 0.09F};
 constexpr int kPlayerContactShadowSegments = 16;
 constexpr std::size_t kPlayerContactShadowVerticesPerPlayer =
   static_cast<std::size_t>(kPlayerContactShadowSegments) * 3U;
@@ -2717,6 +2718,18 @@ void addFirstPersonWeaponModel(
       settings.viewModelPresentation
     );
   switch (weapon) {
+  case Weapon::GrenadeLauncher:
+    appendStaticMeshInstance(
+      scene,
+      weaponMeshInstance(
+        MeshHandle::RemoteGrenadeLauncher,
+        RenderPass::ViewModel,
+        frame,
+        {255, 255, 255, 255}
+      )
+    );
+    ++scene.viewModelStats.drawCalls;
+    break;
   case Weapon::MachineGun: {
     WeaponModelFrame weaponFrame = frame;
     weaponFrame.hand -= weaponFrame.basis.forward * 0.10F;
@@ -3374,11 +3387,14 @@ void addWireBox(
     }
     if (
       projectile.weapon == Weapon::PlasmaGun ||
-      projectile.weapon == Weapon::RocketLauncher
+      projectile.weapon == Weapon::RocketLauncher ||
+      projectile.weapon == Weapon::GrenadeLauncher
     ) {
       const Vec3 muzzle = projectile.weapon == Weapon::RocketLauncher
         ? firstPersonRocketLauncherMuzzlePosition(localPlayer, settings)
-        : firstPersonPlasmaGunMuzzlePosition(localPlayer, settings);
+        : projectile.weapon == Weapon::GrenadeLauncher
+          ? firstPersonGrenadeLauncherMuzzlePosition(localPlayer, settings)
+          : firstPersonPlasmaGunMuzzlePosition(localPlayer, settings);
       // Begin at the presentation socket, then converge quickly to the
       // authoritative projectile so the visible trajectory remains centered.
       const float blend = 1.0F - std::clamp(
@@ -3393,7 +3409,8 @@ void addWireBox(
   }
   if (
     projectile.weapon != Weapon::PlasmaGun &&
-    projectile.weapon != Weapon::RocketLauncher
+    projectile.weapon != Weapon::RocketLauncher &&
+    projectile.weapon != Weapon::GrenadeLauncher
   ) {
     return projectile.position;
   }
@@ -3409,6 +3426,8 @@ void addWireBox(
   Vec3 muzzle;
   if (projectile.weapon == Weapon::RocketLauncher) {
     muzzle = remoteRocketLauncherMuzzlePosition(remote, settings);
+  } else if (projectile.weapon == Weapon::GrenadeLauncher) {
+    muzzle = remoteGrenadeLauncherMuzzlePosition(remote, settings);
   } else {
     const bool leanEnabled = remote.teammate
       ? settings.teammateLeanEnabled
@@ -4278,8 +4297,10 @@ Vec3 firstPersonPlasmaGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
+    viewModelPlayer,
     settings.weaponPosition,
     settings.viewModelPresentation
   );
@@ -4357,6 +4378,43 @@ Vec3 rocketLauncherMuzzleSocket() {
 
 Vec3 rocketLauncherGripSocket() {
   return kRocketLauncherGripSocket;
+}
+
+Vec3 grenadeLauncherMuzzleSocket() {
+  return kGrenadeLauncherMuzzleSocket;
+}
+
+Vec3 firstPersonGrenadeLauncherMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  const WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    viewModelPlayer,
+    settings.weaponPosition,
+    settings.viewModelPresentation
+  );
+  return weaponLocalPoint(
+    frame,
+    kGrenadeLauncherMuzzleSocket.x,
+    kGrenadeLauncherMuzzleSocket.y,
+    kGrenadeLauncherMuzzleSocket.z
+  );
+}
+
+Vec3 remoteGrenadeLauncherMuzzlePosition(
+  const RemotePlayerView& remote,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = remoteRenderedWeaponFrame(remote, settings);
+  frame.scale *= thirdPersonWeaponVisualScale(Weapon::GrenadeLauncher);
+  return weaponLocalPoint(
+    frame,
+    kGrenadeLauncherMuzzleSocket.x,
+    kGrenadeLauncherMuzzleSocket.y,
+    kGrenadeLauncherMuzzleSocket.z
+  );
 }
 
 Vec3 firstPersonRocketLauncherMuzzlePosition(

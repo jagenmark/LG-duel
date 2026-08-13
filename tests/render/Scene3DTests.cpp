@@ -4796,6 +4796,42 @@ int main() {
     "remote rocket muzzle helper should follow mechanism motion and pose turns"
   );
 
+  lg::RenderSettings localGrenadeLauncherSettings = settings;
+  localGrenadeLauncherSettings.localSelectedWeapon =
+    lg::Weapon::GrenadeLauncher;
+  localGrenadeLauncherSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D localGrenadeLauncherScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localGrenadeLauncherSettings
+  );
+  const lg::StaticMeshInstance grenadeLauncherBody = findViewModel(
+    localGrenadeLauncherScene,
+    lg::MeshHandle::RemoteGrenadeLauncher
+  );
+  failures += expect(
+    grenadeLauncherBody.mesh == lg::MeshHandle::RemoteGrenadeLauncher &&
+      lg::length(
+        transformPoint(
+          grenadeLauncherBody,
+          lg::grenadeLauncherMuzzleSocket()
+        ) -
+        lg::firstPersonGrenadeLauncherMuzzlePosition(
+          player,
+          localGrenadeLauncherSettings
+        )
+      ) < 0.001F,
+    "first-person grenade launcher muzzle should follow the rendered model through camera motion"
+  );
+
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
     workerRocketRemotePlayers = {};
   workerRocketRemotePlayers[1] = remoteRocketSocketView;
@@ -4988,6 +5024,35 @@ int main() {
       lg::firstPersonPlasmaGunMuzzlePosition(player, localPlasmaGunSettings)
     ) < 0.001F,
     "first-person plasma projectile origin should match the authored muzzle socket"
+  );
+  lg::RenderSettings swayedPlasmaGunSettings = localPlasmaGunSettings;
+  swayedPlasmaGunSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D swayedPlasmaGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    {},
+    {},
+    swayedPlasmaGunSettings
+  );
+  const lg::StaticMeshInstance swayedPlasmaBody = findViewModel(
+    swayedPlasmaGunScene,
+    lg::MeshHandle::RemotePlasmaGunBody
+  );
+  failures += expect(
+    swayedPlasmaBody.mesh == lg::MeshHandle::RemotePlasmaGunBody &&
+      lg::length(
+        transformPoint(swayedPlasmaBody, lg::plasmaGunMuzzleSocket()) -
+        lg::firstPersonPlasmaGunMuzzlePosition(player, swayedPlasmaGunSettings)
+      ) < 0.001F,
+    "first-person plasma projectile origin should follow the rendered muzzle through camera motion"
   );
   failures += expect(
     lg::length(firingPlasmaCore.modelRow0) <
@@ -5524,6 +5589,37 @@ int main() {
         plasmaRockets[0].position.z - 0.15F,
     "local plasma projectile instances should render from the first-person weapon muzzle"
   );
+  lg::RenderSettings swayedLocalPlasmaProjectileSettings =
+    localShotgunWeaponStartSettings;
+  swayedLocalPlasmaProjectileSettings.localSelectedWeapon = lg::Weapon::PlasmaGun;
+  swayedLocalPlasmaProjectileSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D swayedLocalPlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    swayedLocalPlasmaProjectileSettings
+  );
+  const lg::SimpleRenderInstance* swayedLocalPlasmaCore = findSimpleMesh(
+    swayedLocalPlasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  failures += expect(
+    swayedLocalPlasmaCore != nullptr &&
+      lg::length(
+        swayedLocalPlasmaCore->position -
+        lg::firstPersonPlasmaGunMuzzlePosition(
+          player,
+          swayedLocalPlasmaProjectileSettings
+        )
+      ) < 0.001F,
+    "local plasma projectile should start at the rendered muzzle through camera motion"
+  );
 
   plasmaRockets[0].active = false;
   const lg::Scene3D inactivePlasmaProjectileScene = lg::buildPerspectiveScene(
@@ -5987,6 +6083,72 @@ int main() {
       grenadeProjectileScene.simpleInstances[0].pass == lg::RenderPass::OpaqueWorld &&
       grenadeProjectileScene.temporaryLights.empty(),
     "active grenade projectile should produce one opaque instance with no glow or local light"
+  );
+
+  grenadeProjectiles[0].owner = 0;
+  grenadeProjectiles[0].position =
+    player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  lg::RenderSettings localGrenadeProjectileSettings = settings;
+  localGrenadeProjectileSettings.localSelectedWeapon =
+    lg::Weapon::GrenadeLauncher;
+  localGrenadeProjectileSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D localGrenadeProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    grenadeProjectiles,
+    localGrenadeProjectileSettings
+  );
+  const lg::SimpleRenderInstance* localGrenadeCore = findSimpleMesh(
+    localGrenadeProjectileScene,
+    lg::MeshHandle::GrenadeProjectile
+  );
+  failures += expect(
+    localGrenadeCore != nullptr &&
+      lg::length(
+        localGrenadeCore->position -
+        lg::firstPersonGrenadeLauncherMuzzlePosition(
+          player,
+          localGrenadeProjectileSettings
+        )
+      ) < 0.001F,
+    "local grenade projectile should start at the rendered muzzle through camera motion"
+  );
+
+  grenadeProjectiles[0].owner = 1;
+  grenadeProjectiles[0].position =
+    shotgunRemotePlayers[1].player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  shotgunRemotePlayers[1].selectedWeapon = lg::Weapon::GrenadeLauncher;
+  const lg::Scene3D remoteGrenadeProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    grenadeProjectiles,
+    settings
+  );
+  const lg::SimpleRenderInstance* remoteGrenadeCore = findSimpleMesh(
+    remoteGrenadeProjectileScene,
+    lg::MeshHandle::GrenadeProjectile
+  );
+  failures += expect(
+    remoteGrenadeCore != nullptr &&
+      lg::length(
+        remoteGrenadeCore->position -
+        lg::remoteGrenadeLauncherMuzzlePosition(
+          shotgunRemotePlayers[1],
+          settings
+        )
+      ) < 0.001F,
+    "remote grenade projectile should start at the rendered launcher muzzle"
   );
 
   grenadeProjectiles[0].velocity = {};
