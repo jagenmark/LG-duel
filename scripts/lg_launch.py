@@ -257,7 +257,7 @@ def _probe_default_vulkan(
             None,
         )
         if matched_library is not None:
-            record["library_path"] = str(Path(matched_library).resolve())
+            record["library_path"] = matched_library
     elif len(records) == 1:
         record = records[0]
     else:
