@@ -1923,10 +1923,12 @@ int main() {
       foundUntintedNonClothPrimitive,
     "Worker GLB should load finite primitives with normalized weights and material tint masks"
   );
-  constexpr std::array<std::string_view, 7> presentationClips = {{
+  constexpr std::array<std::string_view, 9> presentationClips = {{
     "RUN_BACK",
     "STRAFE_LEFT",
     "STRAFE_RIGHT",
+    "LEAN_LEFT",
+    "LEAN_RIGHT",
     "START_FORWARD",
     "STOP_FORWARD",
     "LAND_LIGHT",
@@ -1945,6 +1947,41 @@ int main() {
       }
     ),
     "runtime GLB should contain every authored presentation clip"
+  );
+  lg::GltfSkinnedModel::PoseScratch workerStrafeLeftScratch;
+  lg::GltfSkinnedModel::PoseScratch workerLeanLeftScratch;
+  lg::GltfSkinnedModel::PoseScratch workerStrafeRightScratch;
+  lg::GltfSkinnedModel::PoseScratch workerLeanRightScratch;
+  std::vector<std::array<float, 16>> workerStrafeLeftPalette;
+  std::vector<std::array<float, 16>> workerLeanLeftPalette;
+  std::vector<std::array<float, 16>> workerStrafeRightPalette;
+  std::vector<std::array<float, 16>> workerLeanRightPalette;
+  const bool workerDirectionalClipsDistinct =
+    workerModel.appendBonePalette(
+      {{"STRAFE_LEFT", 0.25F, 1.0F}},
+      workerStrafeLeftPalette,
+      workerStrafeLeftScratch
+    ) &&
+    workerModel.appendBonePalette(
+      {{"LEAN_LEFT", 0.25F, 1.0F}},
+      workerLeanLeftPalette,
+      workerLeanLeftScratch
+    ) &&
+    workerModel.appendBonePalette(
+      {{"STRAFE_RIGHT", 0.25F, 1.0F}},
+      workerStrafeRightPalette,
+      workerStrafeRightScratch
+    ) &&
+    workerModel.appendBonePalette(
+      {{"LEAN_RIGHT", 0.25F, 1.0F}},
+      workerLeanRightPalette,
+      workerLeanRightScratch
+    );
+  failures += expect(
+    workerDirectionalClipsDistinct &&
+      maxPaletteDelta(workerStrafeLeftPalette, workerLeanLeftPalette) > 0.001F &&
+      maxPaletteDelta(workerStrafeRightPalette, workerLeanRightPalette) > 0.001F,
+    "Worker lean clips should contain poses distinct from the strafe clips"
   );
   failures += expect(
     baseScene.gltfPlayerModelStats.staticMeshGpuBytes == primitiveVertexCount * 64U &&
