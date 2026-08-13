@@ -524,5 +524,59 @@ int main() {
     );
   }
 
+  {
+    lg::LoopbackTransport worldDeathTransport;
+    lg::ServerGame worldDeathServer(worldDeathTransport);
+    lg::Arena arena = objectiveArena();
+    arena.killVolumeCount = 1;
+    arena.killVolumes[0] = {{-1.0F, -1.0F, 0.0F}, {1.0F, 1.0F, 2.0F}};
+    worldDeathServer.setArena(arena);
+    lg::MatchRules rules;
+    rules.deathRespawnTicks = 2;
+    worldDeathServer.setMatchRules(rules);
+
+    lg::ScenarioSetup setup;
+    setup.match.gameMode = lg::GameMode::McGuffin;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.players[0].connected = true;
+    setup.players[0].ready = true;
+    setup.players[0].team = lg::Team::Red;
+    setup.players[0].alive = true;
+    setup.players[0].health = 100;
+    setup.players[0].position = {-6.0F, 0.0F, 0.9F};
+    setup.players[0].onGround = true;
+    setup.players[1].connected = true;
+    setup.players[1].ready = true;
+    setup.players[1].team = lg::Team::Blue;
+    setup.players[1].alive = true;
+    setup.players[1].health = 100;
+    setup.players[1].position = {0.0F, 0.0F, 0.9F};
+    setup.players[1].onGround = true;
+    std::string setupError;
+    failures += expect(
+      worldDeathServer.applyScenarioSetup(setup, &setupError),
+      "McGuffin world-death scenario should apply"
+    );
+
+    worldDeathServer.tick(lg::kFixedTickSeconds);
+    failures += expect(
+      worldDeathServer.snapshot().players[1].health == 0 &&
+        worldDeathServer.snapshot().respawnTicksRemaining[1] == 2,
+      "McGuffin world death should keep the full respawn delay on its death tick"
+    );
+    worldDeathServer.tick(lg::kFixedTickSeconds);
+    failures += expect(
+      worldDeathServer.snapshot().players[1].health == 0 &&
+        worldDeathServer.snapshot().respawnTicksRemaining[1] == 1,
+      "McGuffin world-death respawn delay should start on the next tick"
+    );
+    worldDeathServer.tick(lg::kFixedTickSeconds);
+    failures += expect(
+      worldDeathServer.snapshot().players[1].health == 100 &&
+        worldDeathServer.snapshot().respawnTicksRemaining[1] == 0,
+      "McGuffin world death should respawn on the configured tick"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }

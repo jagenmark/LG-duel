@@ -1063,6 +1063,76 @@ int main() {
     const std::string text =
       basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
       "{\n"
+      "\"classname\" \"trigger_kill\"\n" +
+      cuboidBrush(-80, -40, -160, 80, 40, -80) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "world kill trigger map should convert");
+    failures += expect(
+      result.ok && result.arena.killVolumeCount == 1 &&
+        result.arena.wallCount == 1,
+      "world kill trigger should be stored without becoming solid geometry"
+    );
+    failures += expect(
+      result.ok &&
+        nearlyEqual(result.arena.killVolumes[0].min.x, -2.0F) &&
+        nearlyEqual(result.arena.killVolumes[0].min.y, -1.0F) &&
+        nearlyEqual(result.arena.killVolumes[0].min.z, -4.0F) &&
+        nearlyEqual(result.arena.killVolumes[0].max.x, 2.0F) &&
+        nearlyEqual(result.arena.killVolumes[0].max.y, 1.0F) &&
+        nearlyEqual(result.arena.killVolumes[0].max.z, -2.0F),
+      "world kill trigger bounds should use Quake-to-LG scale"
+    );
+    if (result.ok) {
+      lg::Arena withoutKillVolume = result.arena;
+      withoutKillVolume.killVolumeCount = 0;
+      failures += expect(
+        lg::hashArena(result.arena) != lg::hashArena(withoutKillVolume),
+        "world kill trigger bounds should affect the map content hash"
+      );
+    }
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"trigger_kill\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(
+      !result.ok && result.error.find("requires at least one brush") != std::string::npos,
+      "world kill trigger without a brush should be rejected"
+    );
+  }
+
+  {
+    const std::string slopedBrush =
+      "{\n"
+      "( -1 -1 0 ) ( -1 1 0 ) ( -1 1 1.5 ) common/trigger 0 0 0 1 1\n"
+      "( 1 -1 0 ) ( 1 -1 0.5 ) ( 1 1 0.5 ) common/trigger 0 0 0 1 1\n"
+      "( -1 -1 0 ) ( 1 -1 0 ) ( 1 -1 0.5 ) common/trigger 0 0 0 1 1\n"
+      "( -1 1 0 ) ( -1 1 1.5 ) ( 1 1 0.5 ) common/trigger 0 0 0 1 1\n"
+      "( -1 -1 0 ) ( -1 1 0 ) ( 1 1 0 ) common/trigger 0 0 0 1 1\n"
+      "( -1 -1 1.5 ) ( 1 -1 0.5 ) ( 1 1 0.5 ) common/trigger 0 0 0 1 1\n"
+      "}\n";
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"trigger_kill\"\n" +
+      slopedBrush +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(
+      !result.ok && result.error.find("cuboid") != std::string::npos,
+      "sloped world kill trigger should be rejected instead of using its box bounds"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
       "\"classname\" \"trigger_jumppad\"\n"
       "\"target\" \"missing_target\"\n" +
       cuboidBrush(-8, -8, 16, 8, 8, 24) +

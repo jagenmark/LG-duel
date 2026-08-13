@@ -24,6 +24,10 @@
   target(target_destination) : "Teleport exit target" : "" : "Required target_position targetname. Each brush becomes one non-solid teleport volume."
 ]
 
+@SolidClass = trigger_kill : "Instant world-death cuboid trigger volume"
+[
+]
+
 @SolidClass = trigger_mcguffin_base : "McGuffin team base volume"
 [
   team(choices) : "Base team" : "red" : "Required. Place exactly one non-degenerate cuboid brush for each team." =

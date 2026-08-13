@@ -204,6 +204,9 @@ Teleport volumes use `trigger_teleport` brushes whose `target` names a
 managed map tools expose teleports as one typed object, so callers do not write
 raw target links.
 
+Instant world-death zones use non-solid cuboid `trigger_kill` brushes. They
+end a life on first touch without crediting a player weapon or frag event.
+
 Brush texture names are preserved as material ids and replicated to clients.
 Referenced textures must exist under `textures/`; for example a TrenchBroom
 face material `512x512/Brick/Brick_14-512x512` resolves to

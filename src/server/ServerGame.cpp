@@ -833,6 +833,8 @@ void ServerGame::tick(float fixedDt) {
     player.position = collision.position;
     player.velocity = collision.velocity;
   }
+  updateRespawnTimers();
+  updateKillVolumes();
   updateHealthPickups();
   updateMcGuffin();
   updateFootstepAudioEvents();
@@ -3805,16 +3807,30 @@ void ServerGame::applyDamageAndKnockback(
     frag.weapon = weapon;
   }
 
+  if (wasAlive && target.health == 0 && damageApplied > 0) {
+    handlePlayerDeath(targetIndex, attackerIndex);
+  }
+}
+
+void ServerGame::handlePlayerDeath(
+  std::size_t targetIndex,
+  std::optional<std::size_t> attackerIndex
+) {
   if (
-    wasAlive &&
-    target.health == 0 &&
-    snapshot_.matchPhase == MatchPhase::Live
+    targetIndex >= kDuelPlayerCount ||
+    snapshot_.players[targetIndex].health > 0
   ) {
+    return;
+  }
+
+  PlayerState& target = snapshot_.players[targetIndex];
+  if (snapshot_.matchPhase == MatchPhase::Live) {
     if (
+      attackerIndex.has_value() &&
       snapshot_.gameMode == GameMode::ClanArena &&
-      areClanArenaEnemies(snapshot_.teams, attackerIndex, targetIndex)
+      areClanArenaEnemies(snapshot_.teams, *attackerIndex, targetIndex)
     ) {
-      ++snapshot_.scores[attackerIndex];
+      ++snapshot_.scores[*attackerIndex];
     }
     target.knockbackTicksRemaining = 0;
     target.freezeLevel = 0.0F;
@@ -3843,8 +3859,7 @@ void ServerGame::applyDamageAndKnockback(
       std::array<bool, kDuelPlayerCount> alivePlayers = {};
       for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
         alivePlayers[index] =
-          isOccupiedSlot(index) &&
-          snapshot_.players[index].health > 0;
+          isOccupiedSlot(index) && snapshot_.players[index].health > 0;
       }
       const auto winner = clanArenaRoundWinner(
         occupiedPlayers(),
@@ -3865,19 +3880,17 @@ void ServerGame::applyDamageAndKnockback(
     }
     return;
   }
-  if (
-    target.health == 0 &&
-    (
-      snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
-      snapshot_.matchPhase == MatchPhase::WaitingForReady
-    )
-  ) {
-    const FragEvent fragEvent = snapshot_.fragEvents[attackerIndex];
-    // Warmup deaths respawn immediately, but the respawn reset must not erase
-    // the frag event before clients have had a chance to present it.
+
+  if (warmupPhase()) {
+    FragEvent fragEvent;
+    if (attackerIndex.has_value()) {
+      fragEvent = snapshot_.fragEvents[*attackerIndex];
+    }
+    // Warmup deaths respawn at once, but a player frag must remain visible for
+    // the next snapshot. World deaths have no frag event to restore.
     respawnPlayer(targetIndex);
-    if (fragEvent.active) {
-      snapshot_.fragEvents[attackerIndex] = fragEvent;
+    if (attackerIndex.has_value() && fragEvent.active) {
+      snapshot_.fragEvents[*attackerIndex] = fragEvent;
     }
   }
 }
@@ -4373,6 +4386,63 @@ void ServerGame::resetHealthPickups() {
   }
 }
 
+void ServerGame::updateKillVolumes() {
+  const bool live = snapshot_.matchPhase == MatchPhase::Live;
+  if (!live && !warmupPhase()) {
+    return;
+  }
+
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    if (!isActiveCombatant(playerIndex)) {
+      continue;
+    }
+    PlayerState& player = snapshot_.players[playerIndex];
+    for (std::size_t volumeIndex = 0;
+         volumeIndex < arena_.killVolumeCount;
+         ++volumeIndex) {
+      const ArenaKillVolume& volume = arena_.killVolumes[volumeIndex];
+      if (!playerTouchesTriggerVolume(
+            player.bounds,
+            player.position,
+            volume.min,
+            volume.max
+          )) {
+        continue;
+      }
+
+      player.health = 0;
+      // Replay data has an explicit world lethal kind. Its weapon field has no
+      // world value, so keep the victim's current value while the kind carries
+      // the cause and the network frag feed stays empty.
+      recordReplayLethal(
+        kDuelPlayerCount,
+        playerIndex,
+        selectedWeapons_[playerIndex]
+      );
+      handlePlayerDeath(playerIndex, std::nullopt);
+      break;
+    }
+    if (live && snapshot_.matchPhase != MatchPhase::Live) {
+      break;
+    }
+  }
+}
+
+void ServerGame::updateRespawnTimers() {
+  if (snapshot_.gameMode != GameMode::McGuffin) {
+    return;
+  }
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (snapshot_.respawnTicksRemaining[index] == 0) {
+      continue;
+    }
+    --snapshot_.respawnTicksRemaining[index];
+    if (snapshot_.respawnTicksRemaining[index] == 0 && isOccupiedSlot(index)) {
+      respawnPlayer(index);
+    }
+  }
+}
+
 void ServerGame::updateHealthPickups() {
   for (std::size_t pickupIndex = 0; pickupIndex < arena_.healthPickupCount; ++pickupIndex) {
     if (!snapshot_.healthPickupAvailable[pickupIndex]) {
@@ -4502,14 +4572,6 @@ void ServerGame::updateMcGuffin() {
   if (snapshot_.matchPhase == MatchPhase::Live) {
     ++mcguffinRoundLiveTicks_;
   }
-  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-    if (snapshot_.respawnTicksRemaining[index] == 0) continue;
-    --snapshot_.respawnTicksRemaining[index];
-    if (snapshot_.respawnTicksRemaining[index] == 0 && isOccupiedSlot(index)) {
-      respawnPlayer(index);
-    }
-  }
-
   if (snapshot_.matchPhase != MatchPhase::Live) return;
 
   if (mcguffinThrowPickupLockoutTicks_ > 0) {

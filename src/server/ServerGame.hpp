@@ -263,6 +263,8 @@ private:
   );
   void updateFootstepAudioEvents();
   void resetHealthPickups();
+  void updateRespawnTimers();
+  void updateKillVolumes();
   void updateHealthPickups();
   void resetMcGuffinRound();
   void updateMcGuffin();
@@ -299,6 +301,10 @@ private:
     Weapon weapon,
     bool headshot,
     DamageContext context
+  );
+  void handlePlayerDeath(
+    std::size_t targetIndex,
+    std::optional<std::size_t> attackerIndex
   );
   void clearProjectiles();
   void publishSnapshot();

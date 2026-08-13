@@ -151,6 +151,28 @@ struct ArenaTeleport {
   Vec3 exitVelocity = {};
 };
 
+struct ArenaKillVolume {
+  Vec3 min = {};
+  Vec3 max = {};
+};
+
+[[nodiscard]] inline bool playerTouchesTriggerVolume(
+  CollisionBounds bounds,
+  Vec3 position,
+  Vec3 minimum,
+  Vec3 maximum
+) {
+  const float closestX = std::clamp(position.x, minimum.x, maximum.x);
+  const float closestY = std::clamp(position.y, minimum.y, maximum.y);
+  const float deltaX = position.x - closestX;
+  const float deltaY = position.y - closestY;
+  const bool overlapsPlanar =
+    (deltaX * deltaX) + (deltaY * deltaY) <= bounds.radius * bounds.radius;
+  const float playerMinZ = position.z - bounds.halfHeight;
+  const float playerMaxZ = position.z + bounds.halfHeight;
+  return overlapsPlanar && playerMaxZ >= minimum.z && playerMinZ <= maximum.z;
+}
+
 enum class HealthPickupType : std::uint8_t {
   Small = 0,
   Large = 1,
@@ -236,6 +258,7 @@ struct Arena {
   static constexpr std::size_t kStaticLightCount = 96;
   static constexpr std::size_t kJumpPadCount = 48;
   static constexpr std::size_t kTeleportCount = 16;
+  static constexpr std::size_t kKillVolumeCount = 32;
   static constexpr std::size_t kHealthPickupCount = 32;
   static constexpr std::size_t kSpawnCount = 32;
   static constexpr std::size_t kTeamSpawnCount = 32;
@@ -266,6 +289,8 @@ struct Arena {
   std::size_t jumpPadCount = 0;
   std::array<ArenaTeleport, kTeleportCount> teleports = {};
   std::size_t teleportCount = 0;
+  std::array<ArenaKillVolume, kKillVolumeCount> killVolumes = {};
+  std::size_t killVolumeCount = 0;
   std::array<ArenaHealthPickup, kHealthPickupCount> healthPickups = {};
   std::size_t healthPickupCount = 0;
   std::array<Vec3, kSpawnCount> spawnPositions = {{
