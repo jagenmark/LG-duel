@@ -43,6 +43,25 @@ class CompileShaderTests(unittest.TestCase):
                 "libshaderc_shared.so.1",
             )
 
+    def test_ubuntu_shaderc_library_is_used_as_fallback(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            compile_shaders.Path,
+            "glob",
+            return_value=[],
+        ), mock.patch.object(
+            compile_shaders.ctypes.util,
+            "find_library",
+            side_effect=(None, "libshaderc.so.1"),
+        ) as find_library:
+            self.assertEqual(
+                compile_shaders.shaderc_library(),
+                "libshaderc.so.1",
+            )
+            self.assertEqual(
+                find_library.call_args_list,
+                [mock.call("shaderc_shared"), mock.call("shaderc")],
+            )
+
     def test_vulkan_sdk_linux_library_is_preferred(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             sdk_root = Path(temporary)

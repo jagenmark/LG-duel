@@ -380,9 +380,11 @@ The policy uses these results:
   primary GPU median is required by both trusted GPU enforcement profiles.
 - `SKIPPED`: a metric does not apply to that scenario.
 
-The PR smoke job keeps `NOT_COMPARABLE` in its report but does not block the PR
-for that status. It uses `--not-comparable-exit-zero`; `FAIL` and tool errors
-still block the job. Manual and full benchmark runs remain strict by default.
+The PR smoke job runs for pull requests labeled `performance-smoke`, and through
+manual PR verification workflow runs. It keeps `NOT_COMPARABLE` in its report
+but does not fail for that status. It uses `--not-comparable-exit-zero`; `FAIL`
+and tool errors still fail the job. Manual and full benchmark runs remain strict
+by default.
 
 Most timing rules require a regression to exceed both their absolute and
 relative limits. The required GPU medians instead use hard relative caps:

@@ -337,6 +337,10 @@ int main() {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     latestSnapshot(transport);
+    failures += expect(
+      server.botNavigationBuildCount() == 1U,
+      "server startup should build bot navigation once"
+    );
 
     lg::Arena arena;
     arena.spawnCount = lg::Arena::kSpawnCount;
