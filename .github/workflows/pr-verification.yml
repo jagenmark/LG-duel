@@ -58,7 +58,8 @@ jobs:
       - name: Run CTest
         run: |
           mkdir -p verification/linux
-          ctest --preset default --output-junit verification/linux/ctest.xml
+          ctest --preset default --parallel 2 \
+            --output-junit verification/linux/ctest.xml
 
       - name: Run focused address and undefined behavior checks
         if: always()
@@ -134,7 +135,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force verification/windows | Out-Null
-          ctest --preset msvc --output-junit verification/windows/ctest.xml
+          ctest --preset msvc --parallel 2 `
+            --output-junit verification/windows/ctest.xml
 
       - name: Collect CI evidence
         if: always()

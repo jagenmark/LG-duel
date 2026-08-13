@@ -5,6 +5,11 @@ repository secrets. Runs for an older commit on the same pull request stop when
 a new commit arrives. Each job has a time limit and uploads its JSON, JUnit,
 logs, and other evidence even when a check fails.
 
+The main Linux and Windows CTest steps run two independent test programs at a
+time. Tests that open UDP sockets use system-assigned ports, and tests that write
+files use separate paths, so this keeps the same checks while cutting idle CPU
+time.
+
 ## Required checks
 
 In **Settings > Branches > Branch protection rules**, add or edit the rule for
