@@ -2485,6 +2485,7 @@ struct MiscMenuState {
   int pressedRow = -1;
   bool scrollbarDragging = false;
   float scrollbarGrabOffsetY = 0.0F;
+  MiscMenuDraft damageIndicatorDraft;
 };
 
 struct LingeringWeaponFire {
@@ -3865,14 +3866,15 @@ void populateMiscMenuRenderState(HudRenderState &hud, const MiscMenuState &menu,
   hud.miscMenuScrollRows = menu.scrollRows;
   hud.miscMenuHoveredRow = menu.hoveredRow;
   hud.miscMenuPressedRow = menu.pressedRow;
-  const std::vector<MiscMenuItem> items = miscMenuItems(console);
+  const std::vector<MiscMenuItem> items =
+      miscMenuItems(console, menu.damageIndicatorDraft);
   hud.miscMenuItems.reserve(items.size());
   for (std::size_t index = 0U; index < items.size(); ++index) {
     hud.miscMenuItems.push_back(HudRenderState::SettingsMenuItem{
         items[index].label,
         items[index].value,
         menu.selectedRow == static_cast<int>(index),
-        false,
+        items[index].changed,
         items[index].command,
     });
   }
@@ -6238,12 +6240,14 @@ int GameApp::run() const {
     input.mouseDeltaX = 0.0F;
     input.mouseDeltaY = 0.0F;
     if (open) {
+      syncMiscMenuDraft(miscMenu.damageIndicatorDraft, console);
       miscMenu.selectedRow = std::clamp(
           miscMenu.selectedRow, 0, static_cast<int>(MiscMenuRow::Count) - 1);
       miscMenu.scrollRows = 0U;
       SDL_SetWindowRelativeMouseMode(window, false);
       SDL_ShowCursor();
     } else {
+      revertMiscMenuDraft(miscMenu.damageIndicatorDraft);
       miscMenu.hoveredRow = -1;
       miscMenu.pressedRow = -1;
       miscMenu.scrollbarDragging = false;
@@ -6376,6 +6380,7 @@ int GameApp::run() const {
   LocalHitFeedbackDedupeState localHitFeedbackDedupe;
   std::array<int, kDuelPlayerCount> lastRemoteHealth = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteHealth = {};
+  std::array<float, kDuelPlayerCount> remoteDeathFadeAgeSeconds = {};
   std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
@@ -7809,17 +7814,24 @@ int GameApp::run() const {
                 static_cast<std::size_t>(rowCount));
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
             (void)adjustMiscMenuValue(
-                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), -1);
+                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), -1,
+                miscMenu.damageIndicatorDraft);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
             (void)adjustMiscMenuValue(
-                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), 1);
+                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), 1,
+                miscMenu.damageIndicatorDraft);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
-            if (static_cast<MiscMenuRow>(miscMenu.selectedRow) ==
-                MiscMenuRow::Close) {
+            const MiscMenuRow row =
+                static_cast<MiscMenuRow>(miscMenu.selectedRow);
+            if (row == MiscMenuRow::Close) {
               setMiscMenuOpen(false);
+            } else if (row == MiscMenuRow::DamageIndicatorReset) {
+              resetMiscMenuDraft(miscMenu.damageIndicatorDraft);
+            } else if (row == MiscMenuRow::DamageIndicatorApply) {
+              (void)applyMiscMenuDraft(console, miscMenu.damageIndicatorDraft);
             } else {
               (void)adjustMiscMenuValue(
-                  console, static_cast<MiscMenuRow>(miscMenu.selectedRow), 1);
+                  console, row, 1, miscMenu.damageIndicatorDraft);
             }
           }
           break;
@@ -8131,14 +8143,19 @@ int GameApp::run() const {
           } else if (miscMenu.pressedRow >= 0 && miscMenu.pressedRow == row) {
             const int clickedRow = miscMenu.pressedRow;
             miscMenu.pressedRow = -1;
-            if (static_cast<MiscMenuRow>(clickedRow) == MiscMenuRow::Close) {
+            const MiscMenuRow row = static_cast<MiscMenuRow>(clickedRow);
+            if (row == MiscMenuRow::Close) {
               setMiscMenuOpen(false);
+            } else if (row == MiscMenuRow::DamageIndicatorReset) {
+              resetMiscMenuDraft(miscMenu.damageIndicatorDraft);
+            } else if (row == MiscMenuRow::DamageIndicatorApply) {
+              (void)applyMiscMenuDraft(console, miscMenu.damageIndicatorDraft);
             } else {
               const float arrowX =
                   layout.panelX + layout.panelWidth - 28.0F - 9.0F * 18.0F;
               (void)adjustMiscMenuValue(
-                  console, static_cast<MiscMenuRow>(clickedRow),
-                  event.button.x < arrowX + 36.0F ? -1 : 1);
+                  console, row, event.button.x < arrowX + 36.0F ? -1 : 1,
+                  miscMenu.damageIndicatorDraft);
             }
           } else {
             miscMenu.pressedRow = -1;
@@ -8454,6 +8471,9 @@ int GameApp::run() const {
     if (currentPresentationGame == nullptr) {
       presentationView = {};
       presentationViewGame = nullptr;
+      lastRemoteHealth = {};
+      hasLastRemoteHealth = {};
+      remoteDeathFadeAgeSeconds = {};
       pendingLateViewModelMouseDeltaX = 0.0F;
       pendingLateViewModelMouseDeltaY = 0.0F;
       previousFrameUsedPresentationView = usePresentationView;
@@ -8463,6 +8483,9 @@ int GameApp::run() const {
       // reset.
       presentationView = {};
       playerPresentationStates = {};
+      lastRemoteHealth = {};
+      hasLastRemoteHealth = {};
+      remoteDeathFadeAgeSeconds = {};
       viewModelPresentation.reset();
       pendingLateViewModelMouseDeltaX = 0.0F;
       pendingLateViewModelMouseDeltaY = 0.0F;
@@ -9892,6 +9915,31 @@ int GameApp::run() const {
         renderPlayer = visualPlayer;
       }
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+        const int currentRemoteHealth =
+          renderSnapshot.players[playerIndex].health;
+        const bool hadLastRemoteHealth = hasLastRemoteHealth[playerIndex];
+        const int previousRemoteHealth = lastRemoteHealth[playerIndex];
+        if (!renderSnapshot.participatingPlayers[playerIndex]) {
+          remoteDeathFadeAgeSeconds[playerIndex] = 0.0F;
+          hasLastRemoteHealth[playerIndex] = false;
+        } else if (currentRemoteHealth > 0) {
+          remoteDeathFadeAgeSeconds[playerIndex] = 0.0F;
+        } else if (
+          !hasLastRemoteHealth[playerIndex] ||
+          lastRemoteHealth[playerIndex] > 0
+        ) {
+          remoteDeathFadeAgeSeconds[playerIndex] = 0.0F;
+        } else {
+          remoteDeathFadeAgeSeconds[playerIndex] = std::min(
+            kDeadBodyFadeDurationSeconds,
+            remoteDeathFadeAgeSeconds[playerIndex] +
+              std::max(0.0F, elapsed.count())
+          );
+        }
+        lastRemoteHealth[playerIndex] = currentRemoteHealth;
+        hasLastRemoteHealth[playerIndex] =
+          renderSnapshot.participatingPlayers[playerIndex];
+
         if (playerIndex == cameraPlayerIndex ||
             (!session.spectator() && playerIndex == localPlayerIndex)) {
           playerPresentationStates[playerIndex] = {};
@@ -9917,6 +9965,16 @@ int GameApp::run() const {
           renderSnapshot.playerNames[playerIndex],
           renderAnimationTimeSeconds,
         };
+        renderRemotePlayers[playerIndex].bodyFade =
+          currentRemoteHealth <= 0
+            ? remoteBodyFadeAtAge(remoteDeathFadeAgeSeconds[playerIndex])
+            : RemoteBodyFade{};
+        renderRemotePlayers[playerIndex].visible =
+          renderRemotePlayers[playerIndex].bodyFade.visible;
+        if (!renderRemotePlayers[playerIndex].visible) {
+          playerPresentationStates[playerIndex] = {};
+          continue;
+        }
         PlayerPresentationConfig presentationConfig;
         presentationConfig.leanScale = teammate
           ? console.getFloat("r_teammate_lean_scale")
@@ -9934,11 +9992,8 @@ int GameApp::run() const {
           );
         }
         renderRemotePlayers[playerIndex].hasPresentation = true;
-        const int currentRemoteHealth =
-          renderSnapshot.players[playerIndex].health;
         if (
-          hasLastRemoteHealth[playerIndex] &&
-          currentRemoteHealth < lastRemoteHealth[playerIndex]
+          hadLastRemoteHealth && currentRemoteHealth < previousRemoteHealth
         ) {
           lastRemoteDamageTime[playerIndex] = now;
           hasLastRemoteDamageTime[playerIndex] = true;

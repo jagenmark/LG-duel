@@ -409,6 +409,8 @@ struct StaticMeshInstance {
   bool playerBoxBody = false;
   bool playerBoxOutlined = false;
   bool playerSilhouetteOutlined = false;
+  bool castsSunShadow = true;
+  bool remotePlayerWeapon = false;
 };
 
 struct StaticMeshBatch {
@@ -442,6 +444,7 @@ struct RemoteWeaponRenderStats {
   std::uint32_t instanceUploadBytes = 0;
   std::uint32_t batches = 0;
   std::uint32_t drawCalls = 0;
+  std::uint32_t shadowCasterInstances = 0;
   std::uint32_t legacyDynamicVertices = 0;
 };
 
@@ -453,6 +456,7 @@ struct PlayerBoxRenderStats {
   std::uint32_t sharedCubeStaticGpuBytes = 0;
   std::uint32_t opaqueBatches = 0;
   std::uint32_t opaqueDrawCalls = 0;
+  std::uint32_t shadowCasterInstances = 0;
   std::uint32_t outlineMaskBatches = 0;
   std::uint32_t outlineMaskDrawCalls = 0;
   std::uint32_t legacyCpuGeneratedVertices = 0;
@@ -481,16 +485,6 @@ struct GltfShadowCasterPlan {
   std::uint32_t instances = 0;
   std::uint32_t drawCalls = 0;
 };
-
-[[nodiscard]] constexpr GltfShadowCasterPlan gltfShadowCasterPlan(
-  std::uint32_t instanceCount,
-  std::uint32_t primitiveDrawCalls,
-  std::uint32_t shadowMapSize
-) {
-  return shadowMapSize == 0U
-    ? GltfShadowCasterPlan{}
-    : GltfShadowCasterPlan{instanceCount, primitiveDrawCalls};
-}
 
 struct ViewModelRenderStats {
   std::uint32_t drawCalls = 0;
@@ -522,7 +516,36 @@ struct GltfPlayerModelInstance {
   OutlineState outlineState = {};
   bool skinned = false;
   bool outlined = false;
+  bool castsSunShadow = true;
 };
+
+[[nodiscard]] inline GltfShadowCasterPlan gltfShadowCasterPlan(
+  std::span<const GltfPlayerModelInstance> instances,
+  std::uint32_t primitiveDrawCalls,
+  std::uint32_t shadowMapSize
+) {
+  if (shadowMapSize == 0U) {
+    return {};
+  }
+  std::uint32_t shadowCasterInstances = 0U;
+  std::uint32_t shadowCasterRuns = 0U;
+  bool inShadowCasterRun = false;
+  for (const GltfPlayerModelInstance& instance : instances) {
+    if (!instance.castsSunShadow) {
+      inShadowCasterRun = false;
+      continue;
+    }
+    ++shadowCasterInstances;
+    if (!inShadowCasterRun) {
+      ++shadowCasterRuns;
+      inShadowCasterRun = true;
+    }
+  }
+  return {
+    shadowCasterInstances,
+    primitiveDrawCalls * shadowCasterRuns,
+  };
+}
 
 struct GltfPlayerModelBasisColumns {
   Vec3 right = {};

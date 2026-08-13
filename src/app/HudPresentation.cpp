@@ -412,7 +412,7 @@ DirectionalDamagePresentation DirectionalDamageState::presentation(
   result.enabled = enabled;
   result.distancePixels = std::isfinite(config.distancePixels)
     ? std::clamp(config.distancePixels, 24.0F, 2000.0F)
-    : 112.0F;
+    : 24.0F;
   result.scale = std::isfinite(config.scale)
     ? std::clamp(config.scale, 0.25F, 4.0F)
     : 1.0F;

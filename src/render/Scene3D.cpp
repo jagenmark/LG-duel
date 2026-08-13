@@ -929,7 +929,8 @@ void addIcePoolDisk(Scene3D& scene, const IcePool& pool) {
 void addPlayerContactShadow(
   Scene3D& scene,
   const Arena& arena,
-  const PlayerState& player
+  const PlayerState& player,
+  float fadeAlpha = 1.0F
 ) {
   if (player.bounds.radius <= 0.0F || player.bounds.halfHeight <= 0.0F) {
     return;
@@ -966,7 +967,10 @@ void addPlayerContactShadow(
       : kPlayerContactShadowAlpha;
   const std::uint8_t centerAlpha = static_cast<std::uint8_t>(
     std::clamp(
-      std::lround(static_cast<float>(baseAlpha) * opacity),
+      std::lround(
+        static_cast<float>(baseAlpha) * opacity *
+        std::clamp(fadeAlpha, 0.0F, 1.0F)
+      ),
       1L,
       255L
     )
@@ -5585,6 +5589,22 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
     static_cast<std::uint32_t>(
       kPlayerBoxCubeMeshVertices.size() * kStaticMeshVertexUploadBytes
     );
+  scene.playerBoxStats.shadowCasterInstances = 0U;
+  scene.remoteWeaponStats.shadowCasterInstances = 0U;
+  for (const StaticMeshInstance& instance : scene.staticMeshInstances) {
+    if (
+      instance.pass != RenderPass::OpaqueWorld ||
+      !instance.castsSunShadow
+    ) {
+      continue;
+    }
+    if (instance.playerBoxBody) {
+      ++scene.playerBoxStats.shadowCasterInstances;
+    }
+    if (instance.remotePlayerWeapon) {
+      ++scene.remoteWeaponStats.shadowCasterInstances;
+    }
+  }
   for (const StaticMeshBatch& batch : scene.staticMeshBatches) {
     if (batch.instanceCount == 0U) {
       continue;
@@ -5668,6 +5688,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
         instance.outlineState.visibility == runState.visibility &&
         instance.outlineState.widthPixels == runState.widthPixels &&
         instance.outlineState.alpha == runState.alpha &&
+        instance.outlineState.fadeAlpha == runState.fadeAlpha &&
         instance.outlineState.pulse == runState.pulse
       )
     ) {
@@ -5740,7 +5761,10 @@ void finalizeGltfPlayerModelBatches(
     ++primitiveCount;
   }
   const GltfShadowCasterPlan shadowPlan = gltfShadowCasterPlan(
-    static_cast<std::uint32_t>(scene.gltfPlayerModelInstances.size()),
+    std::span<const GltfPlayerModelInstance>(
+      scene.gltfPlayerModelInstances.data(),
+      scene.gltfPlayerModelInstances.size()
+    ),
     scene.gltfPlayerModelStats.bodyDrawCalls,
     scene.lights.shadow.mapSize
   );
@@ -5792,6 +5816,7 @@ void finalizeGltfPlayerModelBatches(
         instance.outlineState.visibility == runState.visibility &&
         instance.outlineState.widthPixels == runState.widthPixels &&
         instance.outlineState.alpha == runState.alpha &&
+        instance.outlineState.fadeAlpha == runState.fadeAlpha &&
         instance.outlineState.pulse == runState.pulse
       )
     ) {
@@ -6296,9 +6321,19 @@ Scene3D buildPerspectiveScene(
 
   for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
     const RemotePlayerView& remote = remotePlayers[remoteIndex];
-    if (!remote.visible) {
+    if (!remote.visible || !remote.bodyFade.visible) {
       continue;
     }
+    const float modelFadeAlpha = std::clamp(
+      remote.bodyFade.modelAlpha,
+      0.0F,
+      1.0F
+    );
+    const float outlineFadeAlpha = std::clamp(
+      remote.bodyFade.outlineAlpha,
+      0.0F,
+      1.0F
+    );
     ++scene.remoteCandidates;
     if (settings.drawRemoteWeapons) {
       ++scene.remoteWeaponStats.candidates;
@@ -6344,6 +6379,11 @@ Scene3D buildPerspectiveScene(
       remote.teammate ? settings.teammateGreen : settings.enemyGreen;
     const std::uint8_t blue =
       remote.teammate ? settings.teammateBlue : settings.enemyBlue;
+    const float configuredModelAlpha = std::clamp(
+      remote.teammate ? settings.teammateAlpha : settings.enemyAlpha,
+      0.0F,
+      1.0F
+    );
     const RenderColor opponentColor = {
       blendChannel(
         red,
@@ -6361,11 +6401,7 @@ Scene3D buildPerspectiveScene(
         hitAmount
       ),
       static_cast<std::uint8_t>(
-        std::clamp(
-          remote.teammate ? settings.teammateAlpha : settings.enemyAlpha,
-          0.0F,
-          1.0F
-        ) * 255.0F
+        configuredModelAlpha * modelFadeAlpha * 255.0F
       ),
     };
     const bool outlineEnabled = remote.teammate
@@ -6377,13 +6413,21 @@ Scene3D buildPerspectiveScene(
     const float outlineAlpha = remote.teammate
       ? settings.teammateOutlineAlpha
       : settings.enemyOutlineAlpha;
+    const float configuredOutlineAlpha = std::clamp(
+      outlineAlpha,
+      0.0F,
+      1.0F
+    );
+    const float effectiveOutlineAlpha =
+      configuredOutlineAlpha * outlineFadeAlpha;
     const OutlineState outlineState = {
       remote.teammate ? OutlineGroup::Teammate : OutlineGroup::Enemy,
       outlineEnabled ? OutlineVisibility::VisibleOnly : OutlineVisibility::None,
       settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
         ? settings.playerOutlineWidth
         : outlineWidth,
-      std::clamp(outlineAlpha, 0.0F, 1.0F),
+      configuredOutlineAlpha,
+      outlineFadeAlpha,
       hitAmount,
     };
     const bool wantsOutline =
@@ -6393,9 +6437,10 @@ Scene3D buildPerspectiveScene(
       outlineState.group != OutlineGroup::None &&
       outlineState.visibility != OutlineVisibility::None &&
       outlineState.widthPixels > 0.0F &&
-      outlineState.alpha > 0.0F;
+      outlineState.alpha > 0.0F &&
+      outlineState.fadeAlpha > 0.0F;
     if (settings.drawRemotePlayers && settings.contactShadowsEnabled) {
-      addPlayerContactShadow(scene, arena, remote.player);
+      addPlayerContactShadow(scene, arena, remote.player, modelFadeAlpha);
     }
     if (
       wantsOutline &&
@@ -6421,7 +6466,7 @@ Scene3D buildPerspectiveScene(
             ? settings.teammateOutlineBlue
             : settings.enemyOutlineBlue,
           static_cast<std::uint8_t>(
-            std::clamp(outlineAlpha, 0.0F, 1.0F) * 255.0F
+            effectiveOutlineAlpha * 255.0F
           ),
         },
         remote.teammate
@@ -6442,6 +6487,7 @@ Scene3D buildPerspectiveScene(
       ++scene.remoteBodyModelsBuilt;
       if (usePlayerBoxModel) {
         ++scene.playerBoxStats.visiblePlayers;
+        const std::size_t firstBodyInstance = scene.staticMeshInstances.size();
         addPlayerBoxInstances(
           scene,
           remote.player,
@@ -6457,7 +6503,17 @@ Scene3D buildPerspectiveScene(
             settings.playerOutlineStyle
           )
         );
+        for (
+          std::size_t index = firstBodyInstance;
+          index < scene.staticMeshInstances.size();
+          ++index
+        ) {
+          scene.staticMeshInstances[index].castsSunShadow =
+            modelFadeAlpha >= 1.0F;
+        }
       } else {
+        const std::size_t firstGltfInstance =
+          scene.gltfPlayerModelInstances.size();
         addGltfPlayerModelInstance(
           scene,
           *gltfPlayerModel,
@@ -6478,6 +6534,14 @@ Scene3D buildPerspectiveScene(
           gltfPoseScratch,
           gltfPlayerModel == &workerPlayerModel() ? &weaponAttachment : nullptr
         );
+        for (
+          std::size_t index = firstGltfInstance;
+          index < scene.gltfPlayerModelInstances.size();
+          ++index
+        ) {
+          scene.gltfPlayerModelInstances[index].castsSunShadow =
+            modelFadeAlpha >= 1.0F;
+        }
       }
     }
     if (settings.drawRemoteWeapons) {
@@ -6499,6 +6563,22 @@ Scene3D buildPerspectiveScene(
         remote.plasmaGunContainmentAmount,
         weaponAttachment ? &*weaponAttachment : nullptr
       );
+      for (
+        std::size_t index = firstWeaponInstance;
+        index < scene.staticMeshInstances.size();
+        ++index
+      ) {
+        StaticMeshInstance& instance = scene.staticMeshInstances[index];
+        instance.remotePlayerWeapon = true;
+        instance.castsSunShadow = modelFadeAlpha >= 1.0F;
+        if (modelFadeAlpha < 1.0F) {
+          instance.color.alpha = static_cast<std::uint8_t>(
+            std::lround(
+              static_cast<float>(instance.color.alpha) * modelFadeAlpha
+            )
+          );
+        }
+      }
       if (
         wantsOutline &&
         settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
@@ -6554,7 +6634,11 @@ Scene3D buildPerspectiveScene(
   }
 
   for (const RemotePlayerView& remote : remotePlayers) {
-    if (!remote.visible || !remote.lightningGun.active) {
+    if (
+      !remote.visible ||
+      remote.player.health <= 0 ||
+      !remote.lightningGun.active
+    ) {
       continue;
     }
     const float pulse = std::clamp(settings.beamPulse, -1.0F, 1.0F);

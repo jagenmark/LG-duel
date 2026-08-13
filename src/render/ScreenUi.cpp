@@ -2567,6 +2567,152 @@ void addCrosshair(
   }
 }
 
+[[nodiscard]] ScreenPoint directionalDamagePerimeterPoint(
+  float centerX,
+  float centerY,
+  float halfWidth,
+  float halfHeight,
+  float inset,
+  float relativeYaw
+) {
+  const ScreenPoint direction = {
+    -std::sin(relativeYaw),
+    -std::cos(relativeYaw),
+  };
+  const float availableHalfWidth = std::max(0.0F, halfWidth - inset);
+  const float availableHalfHeight = std::max(0.0F, halfHeight - inset);
+  const float horizontalDistance = std::fabs(direction.x) > 0.0001F
+    ? availableHalfWidth / std::fabs(direction.x)
+    : std::numeric_limits<float>::infinity();
+  const float verticalDistance = std::fabs(direction.y) > 0.0001F
+    ? availableHalfHeight / std::fabs(direction.y)
+    : std::numeric_limits<float>::infinity();
+  const float distance = std::min(horizontalDistance, verticalDistance);
+  return {
+    centerX + direction.x * distance,
+    centerY + direction.y * distance,
+  };
+}
+
+[[nodiscard]] ScreenPoint directionalDamageArcPoint(
+  float centerX,
+  float centerY,
+  float halfWidth,
+  float halfHeight,
+  float inset,
+  float relativeYaw,
+  float sampleYaw,
+  float halfAngle,
+  float curveDepth
+) {
+  const ScreenPoint perimeterPoint = directionalDamagePerimeterPoint(
+    centerX,
+    centerY,
+    halfWidth,
+    halfHeight,
+    inset,
+    sampleYaw
+  );
+  const float normalizedOffset = halfAngle > 0.0F
+    ? std::clamp((sampleYaw - relativeYaw) / halfAngle, -1.0F, 1.0F)
+    : 0.0F;
+  const float bow = curveDepth * (1.0F - normalizedOffset * normalizedOffset);
+  const float towardCenterX = centerX - perimeterPoint.x;
+  const float towardCenterY = centerY - perimeterPoint.y;
+  const float towardCenterLength = std::hypot(towardCenterX, towardCenterY);
+  if (towardCenterLength <= 0.0001F) {
+    return perimeterPoint;
+  }
+  return {
+    perimeterPoint.x + towardCenterX / towardCenterLength * bow,
+    perimeterPoint.y + towardCenterY / towardCenterLength * bow,
+  };
+}
+
+[[nodiscard]] float directionalDamageArcHalfAngle(
+  float relativeYaw,
+  float centerX,
+  float centerY,
+  float halfWidth,
+  float halfHeight,
+  float inset,
+  float desiredHalfLength
+) {
+  constexpr float kBearingSample = 0.001F;
+  const ScreenPoint before = directionalDamagePerimeterPoint(
+    centerX,
+    centerY,
+    halfWidth,
+    halfHeight,
+    inset,
+    relativeYaw - kBearingSample
+  );
+  const ScreenPoint after = directionalDamagePerimeterPoint(
+    centerX,
+    centerY,
+    halfWidth,
+    halfHeight,
+    inset,
+    relativeYaw + kBearingSample
+  );
+  const float tangentPixels = std::hypot(
+    (after.x - before.x) / (2.0F * kBearingSample),
+    (after.y - before.y) / (2.0F * kBearingSample)
+  );
+  return std::clamp(
+    desiredHalfLength / std::max(1.0F, tangentPixels),
+    0.06F,
+    0.60F
+  );
+}
+
+void addDirectionalDamageArc(
+  DrawList2D& drawList,
+  float centerX,
+  float centerY,
+  float halfWidth,
+  float halfHeight,
+  float inset,
+  float relativeYaw,
+  float halfAngle,
+  float curveDepth,
+  RenderColor color,
+  float lineWidth,
+  int segmentCount
+) {
+  segmentCount = std::max(1, segmentCount);
+  const float startAngle = relativeYaw - halfAngle;
+  ScreenPoint previous = directionalDamageArcPoint(
+    centerX,
+    centerY,
+    halfWidth,
+    halfHeight,
+    inset,
+    relativeYaw,
+    startAngle,
+    halfAngle,
+    curveDepth
+  );
+  for (int segment = 1; segment <= segmentCount; ++segment) {
+    const float amount = static_cast<float>(segment) /
+      static_cast<float>(segmentCount);
+    const float angle = startAngle + halfAngle * 2.0F * amount;
+    const ScreenPoint current = directionalDamageArcPoint(
+      centerX,
+      centerY,
+      halfWidth,
+      halfHeight,
+      inset,
+      relativeYaw,
+      angle,
+      halfAngle,
+      curveDepth
+    );
+    addLine(drawList, previous, current, color, lineWidth);
+    previous = current;
+  }
+}
+
 void addDirectionalDamageIndicators(
   DrawList2D& drawList,
   int width,
@@ -2582,21 +2728,53 @@ void addDirectionalDamageIndicators(
     : 1.0F;
   const float centerX = static_cast<float>(width) * 0.5F;
   const float centerY = static_cast<float>(height) * 0.5F;
-  const float edgeDistance = std::min(
-    static_cast<float>(width),
-    static_cast<float>(height)
-  ) * 0.45F;
-  const float requestedDistance = std::isfinite(presentation.distancePixels)
-    ? presentation.distancePixels * scale
-    : 112.0F * scale;
-  const float distance = std::clamp(
-    requestedDistance,
-    20.0F * scale,
-    std::max(20.0F * scale, edgeDistance)
+  const float halfWidth = centerX;
+  const float halfHeight = centerY;
+  const float minimumHalfExtent = std::min(halfWidth, halfHeight);
+  constexpr float kCrescentThicknessMultiplier = 3.5F;
+  const float softWidth = std::max(
+    2.0F,
+    8.0F * scale * kCrescentThicknessMultiplier
   );
-  const float chevronLength = 20.0F * scale;
-  const float chevronWidth = 10.0F * scale;
-  const float lineWidth = std::max(1.0F, 2.0F * scale);
+  const float highlightWidth = std::max(
+    1.0F,
+    2.0F * scale * kCrescentThicknessMultiplier
+  );
+  const float edgePadding = std::max(
+    2.0F * scale,
+    softWidth * 0.5F + scale
+  );
+  const float requestedInset = std::isfinite(presentation.distancePixels)
+    ? presentation.distancePixels * scale
+    : 24.0F * scale;
+  const float maximumInset = std::max(
+    0.0F,
+    minimumHalfExtent - edgePadding
+  );
+  const float minimumInset = std::min(2.0F * scale, maximumInset);
+  const float inset = std::clamp(
+    requestedInset,
+    minimumInset,
+    maximumInset
+  );
+  const float softInset = std::min(
+    inset + 3.0F * scale,
+    maximumInset
+  );
+  const float perimeterInset = std::min(
+    std::max(inset, edgePadding),
+    minimumHalfExtent
+  );
+  const float softPerimeterInset = std::min(
+    std::max(softInset, edgePadding),
+    minimumHalfExtent
+  );
+
+  const auto alpha = [](float amount) {
+    return static_cast<std::uint8_t>(
+      std::clamp(amount, 0.0F, 1.0F) * 255.0F
+    );
+  };
 
   for (const DirectionalDamageIndicator& indicator : presentation.indicators) {
     const float opacity = std::isfinite(indicator.opacity)
@@ -2605,65 +2783,75 @@ void addDirectionalDamageIndicators(
     if (!indicator.active || opacity <= 0.0F) {
       continue;
     }
+
     const RenderColor color = indicator.selfDamage
-      ? RenderColor{255, 186, 66, static_cast<std::uint8_t>(opacity * 255.0F)}
-      : RenderColor{255, 76, 70, static_cast<std::uint8_t>(opacity * 255.0F)};
-
-    if (!indicator.directionValid) {
-      const float radius = 8.0F * scale;
-      addLine(drawList, {centerX, centerY - radius},
-              {centerX + radius, centerY}, color, lineWidth);
-      addLine(drawList, {centerX + radius, centerY},
-              {centerX, centerY + radius}, color, lineWidth);
-      addLine(drawList, {centerX, centerY + radius},
-              {centerX - radius, centerY}, color, lineWidth);
-      addLine(drawList, {centerX - radius, centerY},
-              {centerX, centerY - radius}, color, lineWidth);
-      continue;
-    }
-
-    const float relativeYaw = std::isfinite(indicator.relativeYawRadians)
+      ? RenderColor{255, 186, 66, alpha(opacity)}
+      : RenderColor{255, 76, 70, alpha(opacity)};
+    const RenderColor softColor = {
+      color.red,
+      color.green,
+      color.blue,
+      alpha(opacity * 0.28F),
+    };
+    const float relativeYaw = indicator.directionValid &&
+        std::isfinite(indicator.relativeYawRadians)
       ? std::atan2(
           std::sin(indicator.relativeYawRadians),
           std::cos(indicator.relativeYawRadians)
         )
       : 0.0F;
-    const ScreenPoint direction = {
-      -std::sin(relativeYaw),
-      -std::cos(relativeYaw),
-    };
-    const ScreenPoint perpendicular = {-direction.y, direction.x};
-    const ScreenPoint tip = {
-      centerX + direction.x * distance,
-      centerY + direction.y * distance,
-    };
-    const ScreenPoint base = {
-      tip.x - direction.x * chevronLength,
-      tip.y - direction.y * chevronLength,
-    };
-
-    if (indicator.selfDamage) {
-      addLine(
-        drawList,
-        {base.x - perpendicular.x * chevronWidth,
-         base.y - perpendicular.y * chevronWidth},
-        {base.x + perpendicular.x * chevronWidth,
-         base.y + perpendicular.y * chevronWidth},
-        color, lineWidth
-      );
-      continue;
-    }
-    addLine(
-      drawList,
-      {base.x - perpendicular.x * chevronWidth,
-       base.y - perpendicular.y * chevronWidth},
-      tip, color, lineWidth
+    const float desiredHalfLength = (
+      indicator.directionValid ? 108.0F : 132.0F
+    ) * scale * (indicator.selfDamage ? 0.82F : 1.0F);
+    const float softHalfAngle = directionalDamageArcHalfAngle(
+      relativeYaw,
+      centerX,
+      centerY,
+      halfWidth,
+      halfHeight,
+      softPerimeterInset,
+      desiredHalfLength + 10.0F * scale
     );
-    addLine(
+    const float highlightHalfAngle = directionalDamageArcHalfAngle(
+      relativeYaw,
+      centerX,
+      centerY,
+      halfWidth,
+      halfHeight,
+      perimeterInset,
+      desiredHalfLength
+    );
+
+    // The path endpoints stay on the inset perimeter for every bearing. A
+    // shallow inward bow keeps each path curved while the two paths make one
+    // restrained crescent, not a cursor marker or a straight border bar.
+    addDirectionalDamageArc(
       drawList,
-      {base.x + perpendicular.x * chevronWidth,
-       base.y + perpendicular.y * chevronWidth},
-      tip, color, lineWidth
+      centerX,
+      centerY,
+      halfWidth,
+      halfHeight,
+      softPerimeterInset,
+      relativeYaw,
+      softHalfAngle,
+      24.0F * scale,
+      softColor,
+      softWidth,
+      12
+    );
+    addDirectionalDamageArc(
+      drawList,
+      centerX,
+      centerY,
+      halfWidth,
+      halfHeight,
+      perimeterInset,
+      relativeYaw,
+      highlightHalfAngle,
+      18.0F * scale,
+      color,
+      highlightWidth,
+      10
     );
   }
 }
