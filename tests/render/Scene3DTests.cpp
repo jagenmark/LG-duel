@@ -1983,6 +1983,36 @@ int main() {
       maxPaletteDelta(workerStrafeRightPalette, workerLeanRightPalette) > 0.001F,
     "Worker lean clips should contain poses distinct from the strafe clips"
   );
+  {
+    lg::GltfSkinnedModel::PoseScratch runScratch;
+    lg::GltfSkinnedModel::PoseScratch additiveScratch;
+    lg::GltfSkinnedModel::PoseScratch fullLayerScratch;
+    std::vector<std::array<float, 16>> runPalette;
+    std::vector<std::array<float, 16>> additivePalette;
+    std::vector<std::array<float, 16>> fullLayerPalette;
+    const bool additiveLeanSampled = workerModel.appendBonePalette(
+      {{"RUN", 0.25F, 1.0F}}, runPalette, runScratch
+    ) && workerModel.appendBonePalette(
+      {{"RUN", 0.25F, 1.0F}},
+      additivePalette,
+      additiveScratch,
+      0.0F,
+      34.0F * 3.14159265358979323846F / 180.0F
+    ) && workerModel.appendBonePalette(
+      {
+        {"RUN", 0.25F, 1.0F},
+        {"LEAN_LEFT", 0.25F, 1.0F, lg::SkinnedModelPoseMask::UpperBody},
+      },
+      fullLayerPalette,
+      fullLayerScratch
+    );
+    failures += expect(
+      additiveLeanSampled &&
+        maxPaletteDelta(runPalette, additivePalette) > 0.001F &&
+        maxPaletteDelta(additivePalette, fullLayerPalette) > 0.001F,
+      "Worker lean should bend the run pose without replacing the upper-body pose"
+    );
+  }
   failures += expect(
     baseScene.gltfPlayerModelStats.staticMeshGpuBytes == primitiveVertexCount * 64U &&
       baseScene.gltfPlayerModelStats.staticIndexGpuBytes == primitiveIndexCount * 4U &&
@@ -2728,7 +2758,7 @@ int main() {
   workerRunRemote.selectedWeapon = lg::Weapon::LightningGun;
   workerRunRemote.visible = true;
   workerRunRemote.presentation.poseLayers[0] = {
-    "RUN", 0.25F, 1.0F, lg::PlayerPoseLayerMask::FullBody,
+    "STRAFE_LEFT", 0.25F, 1.0F, lg::PlayerPoseLayerMask::FullBody,
   };
   workerRunRemote.presentation.poseLayerCount = 1U;
   workerRunRemote.hasPresentation = true;
@@ -2740,6 +2770,7 @@ int main() {
     "LEAN_LEFT", 0.25F, 1.0F, lg::PlayerPoseLayerMask::UpperBody,
   };
   workerLeanRemote.presentation.poseLayerCount = 2U;
+  workerLeanRemote.presentation.proceduralLean = 1.0F;
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> workerRunRemotes = {};
   workerRunRemotes[0] = workerRunRemote;
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> workerLeanRemotes = {};
@@ -2794,7 +2825,7 @@ int main() {
         leanDisabledScene.gltfBonePalette,
         workerUpperBodyJoints
       ) > 0.001F,
-    "Worker horizontal movement should keep RUN legs while leaning above the waist"
+    "Worker horizontal movement should keep STRAFE legs while leaning above the waist"
   );
   opponent.velocity = {};
 

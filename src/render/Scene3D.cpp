@@ -1866,6 +1866,13 @@ struct DuelistPoseRequests {
     if (layer.mask == PlayerPoseLayerMask::UpperBody && !leanEnabled) {
       continue;
     }
+    if (
+      workerModel &&
+      layer.mask == PlayerPoseLayerMask::UpperBody &&
+      (layer.animationName == "LEAN_LEFT" || layer.animationName == "LEAN_RIGHT")
+    ) {
+      continue;
+    }
     float weight = layer.weight;
     if (index == 0U && presentation->diagnostics.previousBlendWeight > 0.0F) {
       // The sampler blends each request over the accumulated pose. Establish
@@ -1876,14 +1883,7 @@ struct DuelistPoseRequests {
     if (workerModel && clip == "IDLE") {
       clip = "Idle_Gun_TwoHanded";
     }
-    float time = layer.timeSeconds;
-    if (
-      workerModel &&
-      layer.mask == PlayerPoseLayerMask::FullBody &&
-      (clip == "STRAFE_LEFT" || clip == "STRAFE_RIGHT")
-    ) {
-      clip = "RUN";
-    }
+    const float time = layer.timeSeconds;
     poseRequests.push({
       clip,
       time,
@@ -1982,11 +1982,15 @@ void addGltfPlayerModelInstance(
     presentation
   );
   const float aimPitch = skinnedPlayerAimPitch(player, presentation);
+  const float sideLean = workerModel && leanEnabled && presentation != nullptr
+    ? presentation->proceduralLean * (34.0F * kDegreesToRadians)
+    : 0.0F;
   if (!model.appendBonePalette(
         poseRequests.span(),
         scene.gltfBonePalette,
         poseScratch,
-        aimPitch
+        aimPitch,
+        sideLean
       )) {
     return;
   }
@@ -2124,7 +2128,10 @@ void addGltfPlayerModelInstance(
       poseRequests.span(),
       sampleCache.bonePalette,
       sampleCache.poseScratch,
-      skinnedPlayerAimPitch(remote.player, presentation)
+      skinnedPlayerAimPitch(remote.player, presentation),
+      leanEnabled && presentation != nullptr
+        ? presentation->proceduralLean * (34.0F * kDegreesToRadians)
+        : 0.0F
     )
   ) {
     return genericFrame;

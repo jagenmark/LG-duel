@@ -253,7 +253,8 @@ public:
     std::span<const SkinnedModelPoseRequest> poses,
     std::vector<std::array<float, 16>>& out,
     PoseScratch& scratch,
-    float upperBodyAimPitchRadians = 0.0F
+    float upperBodyAimPitchRadians = 0.0F,
+    float armatureSpaceSideLeanRadians = 0.0F
   ) const;
   [[nodiscard]] bool nodeGlobalMatrix(
     std::string_view nodeName,
@@ -264,13 +265,15 @@ public:
     std::initializer_list<SkinnedModelPoseRequest> poses,
     std::vector<std::array<float, 16>>& out,
     PoseScratch& scratch,
-    float upperBodyAimPitchRadians = 0.0F
+    float upperBodyAimPitchRadians = 0.0F,
+    float armatureSpaceSideLeanRadians = 0.0F
   ) const {
     return appendBonePalette(
       std::span<const SkinnedModelPoseRequest>(poses.begin(), poses.size()),
       out,
       scratch,
-      upperBodyAimPitchRadians
+      upperBodyAimPitchRadians,
+      armatureSpaceSideLeanRadians
     );
   }
 
