@@ -1128,7 +1128,8 @@ void appendCollisionDebugGeometry(
 );
 [[nodiscard]] Vec3 firstPersonFreezeGunMuzzlePosition(
   const PlayerState& player,
-  const RenderSettings& settings
+  const RenderSettings& settings,
+  float cameraVerticalOffset = 0.0F
 );
 [[nodiscard]] Vec3 freezeGunMuzzleSocket();
 [[nodiscard]] Vec3 plasmaGunMuzzleSocket();

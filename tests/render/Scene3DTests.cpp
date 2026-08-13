@@ -370,6 +370,14 @@ float nearestTranslucentVertexDistance(const lg::Scene3D& scene, lg::Vec3 point)
   return result;
 }
 
+float nearestSceneVertexDistance(const lg::Scene3D& scene, lg::Vec3 point) {
+  float result = nearestTranslucentVertexDistance(scene, point);
+  for (const lg::Vertex3D& vertex : scene.vertices) {
+    result = std::min(result, lg::length(vertex.position - point));
+  }
+  return result;
+}
+
 bool hasAnyVertex(const lg::Scene3D& scene) {
   return !scene.vertices.empty() || !scene.translucentVertices.empty();
 }
@@ -5463,30 +5471,65 @@ int main() {
     {0.025F, -0.015F, 0.010F};
   localFreezeGunSettings.viewModelPresentation.rotationRadians =
     {0.030F, -0.020F, 0.010F};
+  localFreezeGunSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  localFreezeGunSettings.freezeGunFiringAmount = 1.0F;
+  constexpr float kLocalFreezeCameraVerticalOffset = 0.12F;
+  lg::LightningGunResult localFreezeBeam;
+  localFreezeBeam.active = true;
+  localFreezeBeam.end = player.position + lg::Vec3{6.0F, 0.0F, 0.65F};
+  const std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
+    localFreezeRemotePlayers = {};
   const lg::Scene3D localFreezeGunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
     player,
-    opponent,
-    inactiveBeam,
-    inactiveBeam,
+    localFreezeRemotePlayers,
+    localFreezeBeam,
     weaponFires,
     rocketExplosions,
     rockets,
-    localFreezeGunSettings
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    localFreezeGunSettings,
+    kLocalFreezeCameraVerticalOffset
   );
   const lg::StaticMeshInstance freezeGunBody = findViewModel(
     localFreezeGunScene,
     lg::MeshHandle::RemoteFreezeGunBody
+  );
+  const lg::Vec3 localFreezeMuzzle = lg::firstPersonFreezeGunMuzzlePosition(
+    player,
+    localFreezeGunSettings,
+    kLocalFreezeCameraVerticalOffset
+  );
+  const lg::Vec3 unoffsetFreezeMuzzle =
+    lg::firstPersonFreezeGunMuzzlePosition(player, localFreezeGunSettings);
+  const float nearestFreezeBeamVertex = nearestSceneVertexDistance(
+    localFreezeGunScene,
+    localFreezeMuzzle
+  );
+  const float nearestUnoffsetFreezeBeamVertex = nearestSceneVertexDistance(
+    localFreezeGunScene,
+    unoffsetFreezeMuzzle
   );
   failures += expect(
     freezeGunBody.mesh == lg::MeshHandle::RemoteFreezeGunBody &&
       localFreezeGunScene.viewModelStats.drawCalls == 3U &&
       lg::length(
         transformPoint(freezeGunBody, lg::freezeGunMuzzleSocket()) -
-        lg::firstPersonFreezeGunMuzzlePosition(player, localFreezeGunSettings)
+        localFreezeMuzzle
       ) < 0.001F,
-    "first-person Freeze muzzle should match the rendered model socket at its main pose"
+    "first-person Freeze muzzle should match the rendered model through camera and step motion"
+  );
+  failures += expect(
+    nearestFreezeBeamVertex < 0.035F,
+    "first-person Freeze beam should begin at the rendered muzzle through camera and step motion"
+  );
+  failures += expect(
+    nearestUnoffsetFreezeBeamVertex > 0.040F,
+    "first-person Freeze beam should not retain the unoffset muzzle after a camera step"
   );
 
   lg::RenderSettings localGrenadeLauncherSettings = settings;

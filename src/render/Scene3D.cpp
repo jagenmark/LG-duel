@@ -4443,6 +4443,26 @@ namespace {
   );
 }
 
+[[nodiscard]] Vec3 freezeGunMuzzlePositionForViewModelPlayer(
+  const PlayerState& viewModelPlayer,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    viewModelPlayer,
+    settings.weaponPosition,
+    settings.viewModelPresentation
+  );
+  frame.scale *= 0.82F;
+  frame.hand -= frame.basis.forward * 0.08F;
+  frame = freezeGunViewModelFrame(frame, settings.weaponPosition);
+  return weaponLocalPoint(
+    frame,
+    kFreezeGunMuzzleSocket.x,
+    kFreezeGunMuzzleSocket.y,
+    kFreezeGunMuzzleSocket.z
+  );
+}
+
 } // namespace
 
 Vec3 firstPersonSniperRifleMuzzlePosition(
@@ -4633,22 +4653,13 @@ Vec3 remoteRocketLauncherMuzzlePosition(
 
 Vec3 firstPersonFreezeGunMuzzlePosition(
   const PlayerState& player,
-  const RenderSettings& settings
+  const RenderSettings& settings,
+  float cameraVerticalOffset
 ) {
-  WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
-    settings.weaponPosition,
-    settings.viewModelPresentation
-  );
-  frame.scale *= 0.82F;
-  frame.hand -= frame.basis.forward * 0.08F;
-  frame = freezeGunViewModelFrame(frame, settings.weaponPosition);
-  return weaponLocalPoint(
-    frame,
-    kFreezeGunMuzzleSocket.x,
-    kFreezeGunMuzzleSocket.y,
-    kFreezeGunMuzzleSocket.z
-  );
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position.z += cameraVerticalOffset;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  return freezeGunMuzzlePositionForViewModelPlayer(viewModelPlayer, settings);
 }
 
 const BillboardAsset* billboardAsset(BillboardHandle handle) {
@@ -6390,6 +6401,9 @@ Scene3D buildPerspectiveScene(
   const Vec3 cameraMotion = viewModelCameraMotion(player, settings);
   const Vec3 cameraPosition = player.position + cameraMotion +
     Vec3{0.0F, 0.0F, eyeHeight + cameraVerticalOffset};
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position.z += cameraVerticalOffset;
+  viewModelPlayer.position += cameraMotion;
 
   Scene3D scene;
   scene.camera = makePerspectiveCamera(
@@ -6444,9 +6458,6 @@ Scene3D buildPerspectiveScene(
   }
 
   if (settings.showOwnWeapons) {
-    PlayerState viewModelPlayer = player;
-    viewModelPlayer.position.z += cameraVerticalOffset;
-    viewModelPlayer.position += cameraMotion;
     addFirstPersonWeaponModel(
       scene,
       viewModelPlayer,
@@ -6892,7 +6903,7 @@ Scene3D buildPerspectiveScene(
   ) {
     addLayeredFreezeBeam(
       scene,
-      firstPersonFreezeGunMuzzlePosition(player, settings),
+      freezeGunMuzzlePositionForViewModelPlayer(viewModelPlayer, settings),
       localLightningGun.end,
       settings.beamPhaseRadians,
       settings.freezeGunFiringAmount,
