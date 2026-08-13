@@ -1,5 +1,13 @@
 # Project agent rules
 
+## Local game launches
+
+- When the user asks to open or launch a game client, use the SDL GPU/Vulkan
+  backend by default. Set `LG_DUEL_RENDER_BACKEND=gpu`. Use another backend
+  only when the user asks for it.
+- For a playable local test, start a server from the same worktree on a free,
+  explicit port, then launch the client against that port.
+
 ## Visual evidence
 
 - Publish each image that a task intends to show the user to the private LG Duel gallery as part of the task. Do not add a second approval step for ordinary image delivery.
