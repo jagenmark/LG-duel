@@ -38,7 +38,40 @@ void setRendererPerformanceMode(ConsoleSystem &console, int mode) {
 
 } // namespace
 
+void syncMiscMenuDraft(MiscMenuDraft &draft, const ConsoleSystem &console) {
+  draft.pendingDamageIndicator = console.getBool("r_damage_indicator");
+  draft.originalDamageIndicator = draft.pendingDamageIndicator;
+}
+
+bool miscMenuDraftChanged(const MiscMenuDraft &draft) {
+  return draft.pendingDamageIndicator != draft.originalDamageIndicator;
+}
+
+void resetMiscMenuDraft(MiscMenuDraft &draft) {
+  draft.pendingDamageIndicator = true;
+}
+
+void revertMiscMenuDraft(MiscMenuDraft &draft) {
+  draft.pendingDamageIndicator = draft.originalDamageIndicator;
+}
+
+bool applyMiscMenuDraft(ConsoleSystem &console, MiscMenuDraft &draft) {
+  if (!miscMenuDraftChanged(draft)) {
+    return false;
+  }
+  setBool(console, "r_damage_indicator", draft.pendingDamageIndicator);
+  draft.originalDamageIndicator = draft.pendingDamageIndicator;
+  return true;
+}
+
 std::vector<MiscMenuItem> miscMenuItems(const ConsoleSystem &console) {
+  MiscMenuDraft draft;
+  syncMiscMenuDraft(draft, console);
+  return miscMenuItems(console, draft);
+}
+
+std::vector<MiscMenuItem> miscMenuItems(const ConsoleSystem &console,
+                                        const MiscMenuDraft &draft) {
   constexpr std::array<const char *, 3> weaponPositions = {
       "Center",
       "Right",
@@ -131,17 +164,38 @@ std::vector<MiscMenuItem> miscMenuItems(const ConsoleSystem &console) {
           false,
       },
       {
-          "Close",
+          "Damage direction",
+          onOff(draft.pendingDamageIndicator),
+          "Shows a restrained warning arc at the screen edge when damage comes from a direction.",
+          false,
+          miscMenuDraftChanged(draft),
+      },
+      {
+          "Reset damage draft",
+          "Default (On)",
+          "Resets the damage-direction toggle to its default On state.",
+          true,
+      },
+      {
+          "Apply changes",
+          miscMenuDraftChanged(draft) ? "Enter" : "No changes",
+          "Applies the changed damage-direction setting and saves it.",
+          true,
+          miscMenuDraftChanged(draft),
+      },
+      {
+          "Close / Revert draft",
           "Esc",
-          "Closes this menu.",
+          "Closes this menu and restores the last applied damage setting.",
           true,
       },
   };
 }
 
 bool adjustMiscMenuValue(ConsoleSystem &console, MiscMenuRow row,
-                         int direction) {
-  if (direction == 0 || row == MiscMenuRow::Close ||
+                         int direction, MiscMenuDraft &draft) {
+  if (direction == 0 || row == MiscMenuRow::DamageIndicatorReset ||
+      row == MiscMenuRow::DamageIndicatorApply || row == MiscMenuRow::Close ||
       row == MiscMenuRow::Count) {
     return false;
   }
@@ -186,6 +240,11 @@ bool adjustMiscMenuValue(ConsoleSystem &console, MiscMenuRow row,
     setInt(console, "cl_netgraph",
            wrappedValue(console.getInt("cl_netgraph"), direction, 3));
     return true;
+  case MiscMenuRow::DamageIndicator:
+    draft.pendingDamageIndicator = !draft.pendingDamageIndicator;
+    return true;
+  case MiscMenuRow::DamageIndicatorReset:
+  case MiscMenuRow::DamageIndicatorApply:
   case MiscMenuRow::Close:
   case MiscMenuRow::Count:
     return false;

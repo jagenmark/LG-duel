@@ -461,7 +461,7 @@ int ServerApp::run() const {
       std::string scoreText;
       for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
         if (!scoreText.empty()) {
-          scoreText += "-";
+          scoreText += ",";
         }
         scoreText += std::to_string(snapshot.scores[index]);
       }
@@ -604,23 +604,62 @@ int ServerApp::run() const {
     }
   );
   console.registerCommand(
+    "bot_difficulty",
+    "Set normal bot skill: bot_difficulty easy|medium|hard.",
+    [&server](const std::vector<std::string>& arguments) {
+      if (arguments.size() == 1) {
+        return std::string("bot_difficulty = ") +
+          botAttackModeCvarValue(server.botAttackMode());
+      }
+      if (arguments.size() != 2) {
+        return std::string("usage: bot_difficulty easy|medium|hard");
+      }
+      const std::optional<BotAttackMode> mode = parseBotAttackMode(arguments[1]);
+      if (!mode.has_value() || *mode == BotAttackMode::Off) {
+        return std::string("usage: bot_difficulty easy|medium|hard");
+      }
+      server.setBotAttackMode(*mode);
+      return std::string("bot_difficulty = ") + botAttackModeCvarValue(*mode);
+    }
+  );
+  console.registerCommand(
     "bot_weapon",
-    "Set the authoritative weapon used by all training bots: bot_weapon [mg|sg|gl|rl|lg|rg|pg|fg|re|1..9].",
+    "Force a bot weapon, or return to catalog-based auto choice: bot_weapon [auto|mg|sg|gl|rl|lg|rg|pg|fg|re|1..9].",
     [&server](const std::vector<std::string>& arguments) {
       if (arguments.size() == 1) {
         return std::string("bot_weapon = ") +
-          std::string(weaponShortName(server.botWeapon()));
+          (server.botWeaponAuto() ? "auto" : std::string(weaponShortName(server.botWeapon())));
       }
       if (arguments.size() != 2) {
-        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
+        return std::string("usage: bot_weapon auto|mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
+      }
+      if (arguments[1] == "auto") {
+        server.setBotWeaponAuto();
+        return std::string("bot_weapon = auto");
       }
       const std::optional<Weapon> weapon = parseWeaponToken(arguments[1]);
       if (!weapon.has_value()) {
-        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
+        return std::string("usage: bot_weapon auto|mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
       }
       server.setBotWeapon(*weapon);
       return std::string("bot_weapon = ") +
         std::string(weaponShortName(*weapon));
+    }
+  );
+  console.registerCommand(
+    "bot_debug",
+    "Show one bot's current filtered AI state: bot_debug <slot>.",
+    [&server](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) return std::string("usage: bot_debug <slot>");
+      int slot = 0;
+      const auto parsed = std::from_chars(
+        arguments[1].data(), arguments[1].data() + arguments[1].size(), slot
+      );
+      if (parsed.ec != std::errc{} || parsed.ptr != arguments[1].data() + arguments[1].size() ||
+          slot < 1 || slot > static_cast<int>(kDuelPlayerCount)) {
+        return std::string("usage: bot_debug <slot>");
+      }
+      return server.botDebugString(static_cast<std::size_t>(slot - 1));
     }
   );
 

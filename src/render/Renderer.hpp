@@ -139,6 +139,7 @@ struct OutlineState {
   OutlineVisibility visibility = OutlineVisibility::None;
   float widthPixels = 0.0F;
   float alpha = 1.0F;
+  float fadeAlpha = 1.0F;
   float pulse = 0.0F;
 };
 
@@ -319,7 +320,9 @@ struct RenderSettings {
   std::array<Vec3, kDuelPlayerCount> sniperSmokeTracerDirections = {};
   std::array<float, kDuelPlayerCount> sniperSmokeTracerTraceLengths = {};
   bool showOwnWeapons = true;
-  bool viewModelHandsEnabled = true;
+  // The hand meshes are an experimental preview. Keep direct RenderSettings
+  // callers aligned with the default-off client cvar.
+  bool viewModelHandsEnabled = false;
   int weaponPosition = 0;
   bool shotgunWeaponModelStart = false;
   int combatEffectsQuality = 2;
@@ -394,6 +397,25 @@ struct ConsoleRenderState {
 };
 
 struct HudRenderState {
+  struct FreeForAllScoreboardRow {
+    std::size_t rank = 0;
+    std::uint8_t playerIndex = 0;
+    std::string name;
+    PlayerScore score = 0;
+    Weapon accuracyWeapon = Weapon::LightningGun;
+    std::uint32_t accuracyPercent = 0;
+    std::uint32_t totalDamage = 0;
+    bool localPlayer = false;
+  };
+
+  struct FreeForAllStandingRow {
+    std::size_t rank = 0;
+    std::uint8_t playerIndex = 0;
+    std::string name;
+    PlayerScore score = 0;
+    bool localPlayer = false;
+  };
+
   struct SettingsMenuItem {
     std::string label;
     std::string value;
@@ -472,6 +494,9 @@ struct HudRenderState {
   bool chatHistoryExpanded = false;
   std::size_t chatScrollRows = 0;
   bool scoreboardOpen = false;
+  bool freeForAllScoreboard = false;
+  std::vector<FreeForAllScoreboardRow> freeForAllScoreboardRows;
+  std::vector<FreeForAllStandingRow> freeForAllStandingRows;
   std::vector<std::string> scoreboardLines;
   std::vector<Team> scoreboardLineTeams;
   std::vector<Weapon> scoreboardLineAccuracyWeapons;
@@ -491,8 +516,34 @@ struct HudRenderState {
   bool showOpponentHealthBar = false;
   std::int32_t healthAmount = 100;
   DamageNumberPresentation damageNumbers;
+  DirectionalDamagePresentation directionalDamage;
   NetGraphState netGraph;
 };
+
+inline constexpr float kDeadBodyFadeDurationSeconds = 1.5F;
+inline constexpr float kDeadBodyOutlineFadeDurationSeconds = 0.20F;
+
+struct RemoteBodyFade {
+  float modelAlpha = 1.0F;
+  float outlineAlpha = 1.0F;
+  bool visible = true;
+};
+
+[[nodiscard]] inline RemoteBodyFade remoteBodyFadeAtAge(float ageSeconds) {
+  if (!std::isfinite(ageSeconds) || ageSeconds <= 0.0F) {
+    return {};
+  }
+  if (ageSeconds >= kDeadBodyFadeDurationSeconds) {
+    return {0.0F, 0.0F, false};
+  }
+  return {
+    1.0F - ageSeconds / kDeadBodyFadeDurationSeconds,
+    ageSeconds >= kDeadBodyOutlineFadeDurationSeconds
+      ? 0.0F
+      : 1.0F - ageSeconds / kDeadBodyOutlineFadeDurationSeconds,
+    true,
+  };
+}
 
 struct RemotePlayerView {
   PlayerState player = {};
@@ -514,6 +565,7 @@ struct RemotePlayerView {
   PlayerPresentationFrame presentation = {};
   bool hasPresentation = false;
   WeaponSwitchPresentationOutput weaponSwitchPresentation = {};
+  RemoteBodyFade bodyFade = {};
 };
 
 enum class TracerStyle : std::uint8_t {

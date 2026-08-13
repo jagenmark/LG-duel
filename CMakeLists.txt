@@ -56,10 +56,18 @@ add_library(lg_duel_core
   src/net/NetCodec.cpp
   src/net/SimulatedTransport.cpp
   src/net/UdpTransport.cpp
+  src/replay/ReplayCodec.cpp
+  src/replay/ReplayFile.cpp
+  src/replay/ReplayPlayback.cpp
+  src/replay/ReplayPresentationSession.cpp
+  src/replay/ReplayRecorder.cpp
+  src/replay/ReplayRollingBuffer.cpp
+  src/replay/ReplayTransfer.cpp
   src/scenario/LiveScenarioSession.cpp
   src/scenario/ScenarioEvidence.cpp
   src/scenario/ScenarioRuntime.cpp
   src/scenario/ScenarioSchema.cpp
+  src/server/BotAi.cpp
   src/server/ServerGame.cpp
   src/sim/Arena.cpp
   src/sim/ArenaBroadphase.cpp
@@ -527,6 +535,12 @@ add_custom_target(lg_duel_validate_maps ALL
   COMMAND $<TARGET_FILE:lg_duel_map_validate> "${CMAKE_CURRENT_SOURCE_DIR}/maps"
   DEPENDS lg_duel_map_validate
   COMMENT "Validating maps"
+)
+
+add_custom_target(lg_duel_validate_bot_nav
+  COMMAND $<TARGET_FILE:lg_duel_map_validate> --nav "${CMAKE_CURRENT_SOURCE_DIR}/maps"
+  DEPENDS lg_duel_map_validate
+  COMMENT "Validating player-sized bot navigation anchors"
 )
 
 add_dependencies(lg_duel_runtime_assets lg_duel_validate_maps)

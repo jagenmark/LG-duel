@@ -113,6 +113,21 @@ int main() {
         "r_display_gamma = 1.25",
     "display gamma should default neutral and enforce its endpoints"
   );
+  failures += expect(
+    console.getBool("r_damage_indicator") &&
+      console.getFloat("r_damage_indicator_distance") == 24.0F &&
+      std::find(
+        initialArchivedConfig.begin(),
+        initialArchivedConfig.end(),
+        "set r_damage_indicator 1"
+      ) != initialArchivedConfig.end() &&
+      std::find(
+        initialArchivedConfig.begin(),
+        initialArchivedConfig.end(),
+        "set r_damage_indicator_distance 24"
+      ) != initialArchivedConfig.end(),
+    "screen-edge damage warning should default on, hug the border, and persist"
+  );
   const std::vector<std::string> displayGammaArchivedConfig =
     console.archivedConfigLines();
   failures += expect(

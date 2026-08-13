@@ -135,6 +135,89 @@ private:
   std::uint32_t nextSequence_ = 0;
 };
 
+// Incoming damage is kept separate from simulation state. The event stream
+// supplies an absolute world bearing; this state turns it into a short-lived
+// camera-relative HUD signal.
+struct IncomingDirectionalDamageEvent {
+  std::uint32_t sequence = 0;
+  float sourceBearingRadians = 0.0F;
+  float presentationStrength = 1.0F;
+  bool directionValid = true;
+  bool selfDamage = false;
+};
+
+struct DirectionalDamageHudConfig {
+  float durationSeconds = 0.8F;
+  float maxOpacity = 0.85F;
+  // Inset of the screen-edge warning from the final viewport border.
+  float distancePixels = 24.0F;
+  float scale = 1.0F;
+  float mergeAngleRadians = 0.45F;
+};
+
+struct DirectionalDamageIndicator {
+  bool active = false;
+  std::uint32_t sequence = 0;
+  float relativeYawRadians = 0.0F;
+  float opacity = 0.0F;
+  float strength = 0.0F;
+  bool directionValid = false;
+  bool selfDamage = false;
+};
+
+struct DirectionalDamagePresentation {
+  bool enabled = true;
+  float distancePixels = 24.0F;
+  float scale = 1.0F;
+  std::array<DirectionalDamageIndicator, 4> indicators = {};
+};
+
+[[nodiscard]] float wrapSignedAngleRadians(float angleRadians);
+
+class DirectionalDamageState {
+public:
+  void reset();
+  void update(float deltaSeconds, const DirectionalDamageHudConfig& config);
+  void addIncomingDamageEvent(
+    const IncomingDirectionalDamageEvent& event,
+    const DirectionalDamageHudConfig& config
+  );
+  [[nodiscard]] DirectionalDamagePresentation presentation(
+    float cameraYawRadians,
+    const DirectionalDamageHudConfig& config,
+    bool enabled = true
+  ) const;
+  [[nodiscard]] bool hasSeenSequence(std::uint32_t sequence) const;
+
+private:
+  struct StoredIndicator {
+    bool active = false;
+    std::uint32_t sequence = 0;
+    float sourceBearingRadians = 0.0F;
+    float strength = 0.0F;
+    float ageSeconds = 0.0F;
+    bool directionValid = false;
+    bool selfDamage = false;
+  };
+
+  [[nodiscard]] bool hasSeen(std::uint32_t sequence) const;
+  void remember(std::uint32_t sequence);
+
+  std::array<StoredIndicator, 4> indicators_ = {};
+  std::vector<std::uint32_t> seenSequences_;
+};
+
+struct OrderedDirectionalDamageEvents {
+  std::array<IncomingDirectionalDamageEvent, kDamageTakenEventWindow> events = {};
+  std::size_t count = 0;
+};
+
+[[nodiscard]] OrderedDirectionalDamageEvents
+orderedUnseenDirectionalDamageEvents(
+  const DamageTakenEventRing& events,
+  const DirectionalDamageState& state
+);
+
 [[nodiscard]] std::size_t opponentPlayerIndex(
   const ServerSnapshot& snapshot,
   std::size_t localPlayerIndex

@@ -2,7 +2,7 @@
 
 Map data ends as an `Arena` from `src/sim/Arena.hpp`: bounds, ambient
 lighting, fixed-size cuboid walls, convex brushes, spawns, jumppads, teleports,
-health pickups, static lights, an optional sun, and optional McGuffin map data.
+kill volumes, health pickups, static lights, an optional sun, and optional McGuffin map data.
 Solid geometry is used for server collision/combat traces and client rendering.
 Gameplay trigger volumes do not render.
 
@@ -18,6 +18,9 @@ Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaF
   use `info_player_team`/`lg_spawn` with physical `spawn_group` values
   `red_base` or `blue_base`; their authored `angle`/`yaw` is retained.
 - `trigger_jumppad` brush entities become non-solid, non-rendered `ArenaJumpPad` trigger AABBs. Visible pad surfaces should be ordinary `worldspawn` or `func_group` geometry; the trigger brush can use `common/trigger` or `textures/common/trigger` for editor visibility only.
+- `trigger_kill` brush entities with cuboid brushes become non-solid,
+  non-rendered world-death volumes. A living player dies on first touch, with
+  no player frag or weapon damage credit. Sloped brushes are rejected.
 - `item_health_small` and `item_health_large` point entities become static `ArenaHealthPickup` entries. Server snapshots replicate only their fixed availability bits.
 - `worldspawn`/`func_group` brushes using `common/playerclip` or `textures/common/playerclip` on every face become collision-only solids. They stay in `ArenaWall`/`ArenaBrush` for collision and traces, but `renderable=false` keeps them out of static world rendering and lighting. Mixed playerclip/non-playerclip brushes are rejected; apply playerclip to the whole brush.
 - `target_position` point entities provide jumppad landing targets and teleport
@@ -74,8 +77,9 @@ planes/vertices. Rendering uses the same structures plus material ids, face
 material ids, texture projections, light data, a `renderable` bit, and a small
 per-face surface kind. A sky face stays solid for movement and combat but does
 not add static mesh triangles. Playerclip solids keep collision data but skip
-render geometry. `ArenaJumpPad` data is not solid, is not rendered, and is
-checked only by movement. There is no separate server-only collision asset
+render geometry. `ArenaJumpPad` and `ArenaKillVolume` data is not solid and is
+not rendered. Movement checks jump pads; the server checks kill volumes after
+final movement repair. There is no separate server-only collision asset
 yet, so avoid adding render-only large data to `Arena` unless it has a clear
 version and need.
 
@@ -106,7 +110,7 @@ headless checks do not need them.
 - Valve 220 texture axes are explicitly rejected by `MapParser`.
 - Convex brush limits are fixed: `ArenaBrush::kMaxFaces`, `kMaxVertices`, and per-face max vertices.
 - Arena counts are fixed: 2048 walls, 1024 brushes, 48 jumppads, 16 teleports,
-  32 health pickups, and 96 static lights.
+  32 kill volumes, 32 health pickups, and 96 static lights.
 - Multiple `light_sun` entities are not supported.
 - Legacy Duel/CA spawn yaw remains unused. Authored team-spawn yaw is stored and
   applied by the authoritative team spawn selector.

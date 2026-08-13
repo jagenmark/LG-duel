@@ -84,6 +84,113 @@ int main() {
     return 1;
   }
 
+  {
+    lg::ServerSnapshot ignored;
+    while (firstTransport.receiveSnapshot(ignored)) {}
+    while (secondTransport.receiveSnapshot(ignored)) {}
+
+    lg::ServerSnapshot feedbackSnapshot = server.snapshot();
+    const std::size_t firstPlayerIndex = firstTransport.playerIndex();
+    const std::size_t secondPlayerIndex = secondTransport.playerIndex();
+    auto addVictimEvent = [&](std::size_t victim, std::size_t attacker,
+                              std::uint32_t sequence) {
+      lg::DamageTakenEventRing& ring =
+        feedbackSnapshot.damageTakenEvents[victim];
+      ring.events[0] = {
+        sequence,
+        64U,
+        20U,
+        static_cast<std::uint8_t>(
+          lg::kDamageTakenDirectionValid |
+          lg::kDamageTakenAttackerValid |
+          (static_cast<std::uint8_t>(attacker) << 4U)
+        ),
+        lg::Weapon::Railgun,
+      };
+      (void)lg::setDamageTakenEventActive(ring, 0);
+    };
+    feedbackSnapshot.localHitFeedbackEvents[firstPlayerIndex][0] = {
+      700U,
+      20,
+      static_cast<std::uint8_t>(secondPlayerIndex),
+      lg::Weapon::Railgun,
+      false,
+      true,
+    };
+    feedbackSnapshot.localHitFeedbackEvents[secondPlayerIndex][0] = {
+      701U,
+      20,
+      static_cast<std::uint8_t>(firstPlayerIndex),
+      lg::Weapon::Railgun,
+      false,
+      true,
+    };
+    addVictimEvent(firstPlayerIndex, secondPlayerIndex, 800U);
+    addVictimEvent(secondPlayerIndex, firstPlayerIndex, 801U);
+    serverTransport.sendSnapshot(feedbackSnapshot);
+
+    lg::ServerSnapshot firstFeedback;
+    lg::ServerSnapshot secondFeedback;
+    bool receivedFirstFeedback = false;
+    bool receivedSecondFeedback = false;
+    for (int attempt = 0; attempt < 20; ++attempt) {
+      if (!receivedFirstFeedback) {
+        lg::ServerSnapshot received;
+        if (firstTransport.receiveSnapshot(received) &&
+            lg::damageTakenEventActive(
+              received.damageTakenEvents[firstPlayerIndex], 0
+            ) &&
+            received.damageTakenEvents[firstPlayerIndex].events[0].sequence ==
+              800U) {
+          firstFeedback = received;
+          receivedFirstFeedback = true;
+        }
+      }
+      if (!receivedSecondFeedback) {
+        lg::ServerSnapshot received;
+        if (secondTransport.receiveSnapshot(received) &&
+            lg::damageTakenEventActive(
+              received.damageTakenEvents[secondPlayerIndex], 0
+            ) &&
+            received.damageTakenEvents[secondPlayerIndex].events[0].sequence ==
+              801U) {
+          secondFeedback = received;
+          receivedSecondFeedback = true;
+        }
+      }
+      if (receivedFirstFeedback && receivedSecondFeedback) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    failures += expect(
+      receivedFirstFeedback && receivedSecondFeedback,
+      "both recipients should receive the directed feedback snapshot"
+    );
+    failures += expect(
+      firstFeedback.localHitFeedbackEvents[firstPlayerIndex][0].active &&
+        !firstFeedback.localHitFeedbackEvents[secondPlayerIndex][0].active &&
+        lg::damageTakenEventActive(
+          firstFeedback.damageTakenEvents[firstPlayerIndex], 0
+        ) &&
+        !lg::damageTakenEventActive(
+          firstFeedback.damageTakenEvents[secondPlayerIndex], 0
+        ),
+      "a player should receive only its attacker and victim feedback rows"
+    );
+    failures += expect(
+      secondFeedback.localHitFeedbackEvents[secondPlayerIndex][0].active &&
+        !secondFeedback.localHitFeedbackEvents[firstPlayerIndex][0].active &&
+        lg::damageTakenEventActive(
+          secondFeedback.damageTakenEvents[secondPlayerIndex], 0
+        ) &&
+        !lg::damageTakenEventActive(
+          secondFeedback.damageTakenEvents[firstPlayerIndex], 0
+        ),
+      "unrelated players should not receive another player's feedback rows"
+    );
+  }
+
   lg::ProjectileUpdatePacket projectileSource;
   projectileSource.serverTick = 77U;
   projectileSource.mapRevision = server.snapshot().mapRevision;
@@ -450,6 +557,7 @@ int main() {
     command.playerIndex = static_cast<std::uint8_t>(firstPlayerIndex);
     command.command.sequence = sequence;
     command.command.forwardMove = 1.0F;
+    command.playerName = "LOSS-RECOVERY";
     firstTransport.sendCommand(command);
     serverTransport.update();
     syncConnectedPlayers(server, serverTransport);
@@ -480,6 +588,10 @@ int main() {
     telemetry.incomingLossPercent > 0.0F &&
       telemetry.outgoingLossPercent > 0.0F,
     "UDP telemetry should expose simulated incoming and outgoing packet loss"
+  );
+  failures += expect(
+    firstClient.snapshot().playerNames[firstPlayerIndex] == "LOSS-RECOVERY",
+    "a name revision should recover after simulated snapshot and command loss"
   );
 
   lg::CommandPacket chatCommand;
@@ -602,6 +714,102 @@ int main() {
         ) == lg::kDuelPlayerCount,
       "spectator capacity should be separate from playable bodies"
     );
+
+    {
+      lg::ServerSnapshot ignored;
+      for (const auto& client : clients) {
+        while (client->receiveSnapshot(ignored)) {}
+      }
+
+      const std::size_t firstPlayer = clients[0]->playerIndex();
+      const std::size_t secondPlayer = clients[1]->playerIndex();
+      lg::ServerSnapshot feedbackSnapshot = multiServer.snapshot();
+      auto addFeedback = [&](std::size_t victim, std::size_t attacker,
+                             std::uint32_t sequence) {
+        feedbackSnapshot.localHitFeedbackEvents[attacker][0] = {
+          sequence,
+          10,
+          static_cast<std::uint8_t>(victim),
+          lg::Weapon::Railgun,
+          false,
+          true,
+        };
+        lg::DamageTakenEventRing& ring =
+          feedbackSnapshot.damageTakenEvents[victim];
+        ring.events[0] = {
+          sequence,
+          64U,
+          10U,
+          static_cast<std::uint8_t>(
+            lg::kDamageTakenDirectionValid |
+            lg::kDamageTakenAttackerValid |
+            (static_cast<std::uint8_t>(attacker) << 4U)
+          ),
+          lg::Weapon::Railgun,
+        };
+        (void)lg::setDamageTakenEventActive(ring, 0U);
+      };
+      addFeedback(firstPlayer, secondPlayer, 900U);
+      addFeedback(secondPlayer, firstPlayer, 901U);
+      multiServerTransport.sendSnapshot(feedbackSnapshot);
+
+      lg::ServerSnapshot firstRecipient;
+      lg::ServerSnapshot spectatorRecipient;
+      bool gotFirstRecipient = false;
+      bool gotSpectatorRecipient = false;
+      for (int iteration = 0; iteration < 20; ++iteration) {
+        for (const auto& client : clients) client->update();
+        if (!gotFirstRecipient) {
+          gotFirstRecipient = clients[0]->receiveSnapshot(firstRecipient);
+        }
+        if (!gotSpectatorRecipient) {
+          gotSpectatorRecipient =
+            clients.back()->receiveSnapshot(spectatorRecipient);
+        }
+        if (gotFirstRecipient && gotSpectatorRecipient) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      const auto hasVictimEvents = [](const lg::ServerSnapshot& snapshot) {
+        return std::any_of(
+          snapshot.damageTakenEvents.begin(),
+          snapshot.damageTakenEvents.end(),
+          [](const lg::DamageTakenEventRing& ring) {
+            return ring.activeMask != 0U;
+          }
+        );
+      };
+      const auto hasHitFeedback = [](const lg::ServerSnapshot& snapshot) {
+        return std::any_of(
+          snapshot.localHitFeedbackEvents.begin(),
+          snapshot.localHitFeedbackEvents.end(),
+          [](const auto& row) {
+            return std::any_of(
+              row.begin(), row.end(),
+              [](const lg::LocalHitFeedbackEvent& event) {
+                return event.active;
+              }
+            );
+          }
+        );
+      };
+      failures += expect(
+        gotFirstRecipient &&
+          lg::damageTakenEventActive(
+            firstRecipient.damageTakenEvents[firstPlayer], 0U
+          ) &&
+          !lg::damageTakenEventActive(
+            firstRecipient.damageTakenEvents[secondPlayer], 0U
+          ) &&
+          firstRecipient.localHitFeedbackEvents[firstPlayer][0].active &&
+          !firstRecipient.localHitFeedbackEvents[secondPlayer][0].active,
+        "a player snapshot should contain only its own victim and attacker feedback"
+      );
+      failures += expect(
+        gotSpectatorRecipient && !hasVictimEvents(spectatorRecipient) &&
+          !hasHitFeedback(spectatorRecipient),
+        "a spectator snapshot should not carry player feedback rows"
+      );
+    }
 
     lg::CommandPacket spectatorChat;
     spectatorChat.command.sequence = 7;

@@ -26,6 +26,10 @@ inline constexpr std::uint8_t kNoAssignedPlayer = 255;
 inline constexpr std::size_t kMaxBundledCommands = 12;
 inline constexpr std::size_t kMaxCommandDatagramBytes = 1200;
 inline constexpr std::size_t kLocalHitFeedbackEventWindow = 4;
+// A full sixteen-slot row would make every in-memory snapshot need more than
+// the project's fixed snapshot budget. Keep the newest eight victim events;
+// a deterministic sequence-indexed overwrite handles an extreme burst.
+inline constexpr std::size_t kDamageTakenEventWindow = 8;
 inline constexpr std::size_t kMaxChatMessageBytes = 240;
 inline constexpr std::size_t kMaxPlayerNameBytes = 20;
 inline constexpr std::size_t kChatHistoryCapacity = 40;
@@ -83,6 +87,17 @@ struct MatchRules {
   std::uint16_t deathRespawnTicks = 250;
   bool showOpponentHealth = true;
 };
+
+[[nodiscard]] constexpr MatchRules effectiveMatchRules(
+  GameMode gameMode,
+  MatchRules configured
+) {
+  if (gameMode == GameMode::FreeForAll) {
+    configured.roundLimit = static_cast<std::uint16_t>(kFreeForAllScoreLimit);
+    configured.timeLimitMinutes = kFreeForAllTimeLimitMinutes;
+  }
+  return configured;
+}
 
 enum class McGuffinEventType : std::uint8_t {
   None = 0,
@@ -191,6 +206,7 @@ struct CommandPacket {
   bool requestMcGuffinThrow = false;
   bool wantsScoreboardStats = false;
   std::uint32_t acknowledgedConfigurationRevision = 0;
+  std::uint32_t acknowledgedPlayerNameRevision = 0;
   bool requestSpectator = false;
   ActionEdgeState actionEdges = {};
   // A connection identity is distinct from its optional player body. Keeping it
@@ -278,13 +294,93 @@ struct FragEvent {
 };
 
 struct LocalHitFeedbackEvent {
-  bool active = false;
   std::uint32_t sequence = 0;
-  std::uint8_t targetPlayerIndex = 255;
   int damageApplied = 0;
+  std::uint8_t targetPlayerIndex = 255;
+  Weapon weapon = Weapon::LightningGun;
   bool headshot = false;
+  bool active = false;
+};
+
+inline constexpr std::uint8_t kDamageTakenDirectionValid = 1U << 0U;
+inline constexpr std::uint8_t kDamageTakenSelfDamage = 1U << 1U;
+inline constexpr std::uint8_t kDamageTakenAttackerValid = 1U << 2U;
+inline constexpr std::uint8_t kDamageTakenMetadataFlags =
+  kDamageTakenDirectionValid |
+  kDamageTakenSelfDamage |
+  kDamageTakenAttackerValid;
+
+struct DamageTakenEvent {
+  std::uint32_t sequence = 0;
+  std::uint8_t direction256 = 0;
+  std::uint8_t presentationDamage = 0;
+  std::uint8_t metadata = 0;
   Weapon weapon = Weapon::LightningGun;
 };
+
+struct DamageTakenEventRing {
+  std::array<DamageTakenEvent, kDamageTakenEventWindow> events = {};
+  std::uint8_t activeMask = 0;
+
+  void clear() {
+    events = {};
+    activeMask = 0;
+  }
+};
+
+[[nodiscard]] constexpr bool damageTakenEventActive(
+  const DamageTakenEventRing& ring,
+  std::size_t slot
+) {
+  return slot < kDamageTakenEventWindow &&
+    (ring.activeMask & (std::uint8_t{1} << slot)) != 0U;
+}
+
+[[nodiscard]] constexpr bool setDamageTakenEventActive(
+  DamageTakenEventRing& ring,
+  std::size_t slot
+) {
+  if (slot >= kDamageTakenEventWindow) {
+    return false;
+  }
+  ring.activeMask |= std::uint8_t{1} << slot;
+  return true;
+}
+
+[[nodiscard]] constexpr bool clearDamageTakenEventActive(
+  DamageTakenEventRing& ring,
+  std::size_t slot
+) {
+  if (slot >= kDamageTakenEventWindow) {
+    return false;
+  }
+  ring.activeMask &= static_cast<std::uint8_t>(~(std::uint8_t{1} << slot));
+  return true;
+}
+
+[[nodiscard]] constexpr bool damageTakenDirectionValid(
+  const DamageTakenEvent& event
+) {
+  return (event.metadata & kDamageTakenDirectionValid) != 0U;
+}
+
+[[nodiscard]] constexpr bool damageTakenIsSelfDamage(
+  const DamageTakenEvent& event
+) {
+  return (event.metadata & kDamageTakenSelfDamage) != 0U;
+}
+
+[[nodiscard]] constexpr bool damageTakenHasAttacker(
+  const DamageTakenEvent& event
+) {
+  return (event.metadata & kDamageTakenAttackerValid) != 0U;
+}
+
+[[nodiscard]] constexpr std::uint8_t damageTakenAttackerIndex(
+  const DamageTakenEvent& event
+) {
+  return static_cast<std::uint8_t>(event.metadata >> 4U);
+}
 
 struct ProjectilePresentationTuning {
   std::uint32_t rocketLifetimeTicks = 500;
@@ -333,6 +429,9 @@ struct ServerSnapshot {
   std::uint32_t acknowledgedCommandDatagramSequence = 0;
   std::uint32_t commandDatagramAckBits = 0;
   std::uint32_t mapRevision = 1;
+  // Bumps when a scenario replaces the live timeline. Clients use this to
+  // discard presentation-side event dedupe state whose sequence values restart.
+  std::uint32_t damageFeedbackRevision = 1;
   // This changes only on an explicit full projectile clear. Delta packets in
   // the same generation keep it stable across spawn/correct/remove updates.
   std::uint32_t projectileRevision = 1;
@@ -353,10 +452,11 @@ struct ServerSnapshot {
     std::array<LocalHitFeedbackEvent, kLocalHitFeedbackEventWindow>,
     kDuelPlayerCount
   > localHitFeedbackEvents = {};
+  std::array<DamageTakenEventRing, kDuelPlayerCount> damageTakenEvents = {};
   IcePoolArray icePools = {};
   std::array<bool, Arena::kHealthPickupCount> healthPickupAvailable = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
-  std::array<std::uint16_t, kDuelPlayerCount> scores = {};
+  std::array<PlayerScore, kDuelPlayerCount> scores = {};
   GameMode gameMode = GameMode::Duel;
   std::array<Team, kDuelPlayerCount> teams = {};
   std::array<std::uint16_t, kPlayableTeamCount> teamScores = {};
@@ -376,6 +476,8 @@ struct ServerSnapshot {
   bool hasCombatStats = true;
   std::uint32_t configurationRevision = 1;
   bool hasConfiguration = true;
+  std::uint32_t playerNameRevision = 1;
+  bool hasPlayerNames = true;
   MatchPhase matchPhase = MatchPhase::WaitingForPlayers;
   MatchRules matchRules = {};
   MovementTuning movementTuning = {};

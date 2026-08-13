@@ -43,10 +43,12 @@ LIMITS = {
     "convex_brushes": 1024,
     "lights": 96,
     "jump_pads": 48,
+    "kill_volumes": 32,
     "health_pickups": 32,
     "spawns": 32,
     "teleports": 16,
 }
+LETHAL_TRIGGER_HURT_DAMAGE = 1000.0
 BSP_LUMPS = (
     ("entities", 1),
     ("textures", 72),
@@ -1438,6 +1440,42 @@ def convert(
                 converted_counts["jump_pads"] += len(valid_brushes)
             else:
                 omitted_entities["trigger_push:unclean_or_unresolved"] += 1
+        elif classname == "trigger_hurt":
+            damage_text = entity.get("dmg") or "5"
+            spawnflags_text = entity.get("spawnflags") or "0"
+            try:
+                damage = float(damage_text)
+                spawnflags = int(spawnflags_text, 10)
+            except ValueError:
+                damage = 0.0
+                spawnflags = -1
+            valid_brushes = [
+                brush
+                for brush in entity.brushes
+                if results[id(brush)].valid and
+                results[id(brush)].kind == "wall" and
+                results[id(brush)].bounds is not None
+            ]
+            clean = bool(valid_brushes) and len(valid_brushes) == len(entity.brushes)
+            # LG supports only the Q3 form used by Overkill: always on, fast,
+            # lethal on first touch. Silent and no-protection flags do not
+            # change that result; other flags need timing or target support.
+            supported_flags = spawnflags >= 0 and (spawnflags & ~12) == 0
+            lethal = math.isfinite(damage) and damage >= LETHAL_TRIGGER_HURT_DAMAGE
+            if clean and supported_flags and lethal:
+                canonical_brushes = [
+                    _box_brush(results[id(brush)].bounds[0], results[id(brush)].bounds[1], "common/trigger")
+                    for brush in valid_brushes
+                ]
+                mapped_entities.append(([
+                    ("classname", "trigger_kill"),
+                    ("lg_source_classname", "trigger_hurt"),
+                    ("dmg", damage_text),
+                    ("spawnflags", spawnflags_text),
+                ], canonical_brushes, True))
+                converted_counts["kill_volumes"] += len(canonical_brushes)
+            else:
+                omitted_entities["trigger_hurt:nonlethal_or_unsupported"] += 1
         elif classname == "trigger_teleport":
             target_name = entity.get("target")
             if target_name in ambiguous_targetnames:
@@ -1533,6 +1571,7 @@ def convert(
         "convex_brushes": convex_count,
         "lights": converted_counts["lights"],
         "jump_pads": converted_counts["jump_pads"],
+        "kill_volumes": converted_counts["kill_volumes"],
         "health_pickups": converted_counts["health_pickups"],
         "spawns": converted_counts["spawns"],
         "teleports": converted_counts["teleports"],
@@ -1645,6 +1684,7 @@ def convert(
             "source_lights": classnames["light"],
             "source_health_pickups": sum(classnames[name] for name in ("item_health", "item_health_small", "item_health_large")),
             "source_trigger_push": classnames["trigger_push"],
+            "source_trigger_hurt": classnames["trigger_hurt"],
             "source_teleports": classnames["trigger_teleport"],
             "converted": dict(sorted(converted_counts.items())),
         },
@@ -1827,6 +1867,8 @@ def markdown_report(report: dict[str, object]) -> str:
         f"- Source lights: {gameplay['source_lights']}",
         f"- Source health pickups: {gameplay['source_health_pickups']}",
         f"- Source trigger_push entities: {gameplay['source_trigger_push']}",
+        f"- Source trigger_hurt entities: {gameplay['source_trigger_hurt']} "
+        f"(instant-kill volumes converted: {gameplay['converted'].get('kill_volumes', 0)})",
         f"- Source teleports: {gameplay['source_teleports']} (converted: {gameplay['converted'].get('teleports', 0)})",
         f"- Runtime-active spawns: {conversion['runtime_effective_spawns']} (inactive authored spawns: {conversion['runtime_inactive_spawns']})",
         "",

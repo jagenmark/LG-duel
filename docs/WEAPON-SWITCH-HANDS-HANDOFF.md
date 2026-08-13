@@ -2,10 +2,9 @@
 
 ## Status
 
-This branch is a useful work in progress. It is not ready to merge, push, or
-open as a pull request. The switch code, reset rules, view ownership, tests,
-and render paths are worth keeping. The first-person hand layout still fails
-the visual gate.
+This branch keeps the switch code, reset rules, view ownership, tests, and
+render paths. First-person hands are an experimental, default-off preview;
+they need separate visual review before they become a normal setting.
 
 The user asked to pause after the final pose pass on 2026-08-11. Resume from
 the existing branch and worktree. Do not reset the three earlier commits or

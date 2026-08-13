@@ -44,6 +44,15 @@ constexpr std::size_t kMaxRocketProjectileLights = 4U;
 constexpr Vec3 kRocketProjectileLightColor = {1.0F, 0.48F, 0.20F};
 constexpr float kRocketProjectileLightIntensity = 1.15F;
 constexpr float kRocketProjectileLightRadius = 2.2F;
+constexpr float kPlasmaProjectileNearViewDistance = 0.45F;
+constexpr float kPlasmaProjectileFullViewDistance = 1.50F;
+constexpr float kPlasmaProjectileNearScaleFactor = 0.24F;
+constexpr float kPlasmaProjectileNearGlowAlphaFactor = 0.30F;
+constexpr float kPlasmaExplosionNearViewDistance = 0.55F;
+constexpr float kPlasmaExplosionFullViewDistance = 1.70F;
+constexpr float kPlasmaExplosionNearCueScaleFactor = 0.18F;
+constexpr float kPlasmaExplosionNearCueAlphaFactor = 0.25F;
+constexpr float kPlasmaImpactMaxLifetimeSeconds = 0.25F;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 40U;
 constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 56U;
@@ -57,7 +66,8 @@ constexpr float kSniperRifleViewModelScale = 1.45F;
 constexpr float kSniperRifleViewModelWidthScale = 1.30F;
 constexpr float kSniperRifleViewModelHeightScale = 1.15F;
 constexpr float kRocketLauncherViewModelForwardOffset = -0.16F;
-constexpr float kRocketLauncherViewModelUpOffset = -0.06F;
+constexpr float kRocketLauncherViewModelUpOffset = -0.15F;
+constexpr Vec3 kGrenadeLauncherMuzzleSocket = {0.805F, 0.0F, 0.09F};
 constexpr int kPlayerContactShadowSegments = 16;
 constexpr std::size_t kPlayerContactShadowVerticesPerPlayer =
   static_cast<std::size_t>(kPlayerContactShadowSegments) * 3U;
@@ -66,6 +76,19 @@ constexpr float kPlayerContactShadowTraceDistance = 1.5F;
 constexpr std::uint8_t kPlayerContactShadowAlpha = 82U;
 constexpr std::uint8_t kPlayerContactShadowWithSunAlpha = 56U;
 constexpr float kDefaultFloorZ = 0.0F;
+
+[[nodiscard]] float smoothViewDistanceFade(
+  float distance,
+  float nearDistance,
+  float fullDistance
+) {
+  const float t = std::clamp(
+    (distance - nearDistance) / (fullDistance - nearDistance),
+    0.0F,
+    1.0F
+  );
+  return t * t * (3.0F - 2.0F * t);
+}
 
 // Centered unit cube, local coordinates [-0.5, 0.5] on every axis. Player
 // cuboids use per-instance basis columns scaled to the desired full extents.
@@ -910,7 +933,8 @@ void addIcePoolDisk(Scene3D& scene, const IcePool& pool) {
 void addPlayerContactShadow(
   Scene3D& scene,
   const Arena& arena,
-  const PlayerState& player
+  const PlayerState& player,
+  float fadeAlpha = 1.0F
 ) {
   if (player.bounds.radius <= 0.0F || player.bounds.halfHeight <= 0.0F) {
     return;
@@ -947,7 +971,10 @@ void addPlayerContactShadow(
       : kPlayerContactShadowAlpha;
   const std::uint8_t centerAlpha = static_cast<std::uint8_t>(
     std::clamp(
-      std::lround(static_cast<float>(baseAlpha) * opacity),
+      std::lround(
+        static_cast<float>(baseAlpha) * opacity *
+        std::clamp(fadeAlpha, 0.0F, 1.0F)
+      ),
       1L,
       255L
     )
@@ -1827,6 +1854,7 @@ struct DuelistPoseRequests {
   float animationTimeSeconds,
   const PlayerPresentationFrame* presentation
 ) {
+  const bool workerModel = &model == &workerPlayerModel();
   if (presentation == nullptr || presentation->poseLayerCount == 0U) {
     return duelistPoseRequests(
       player,
@@ -1836,11 +1864,17 @@ struct DuelistPoseRequests {
     );
   }
 
-  const bool workerModel = &model == &workerPlayerModel();
   DuelistPoseRequests poseRequests;
   for (std::size_t index = 0; index < presentation->poseLayerCount; ++index) {
     const PlayerPoseLayer& layer = presentation->poseLayers[index];
     if (layer.mask == PlayerPoseLayerMask::UpperBody && !leanEnabled) {
+      continue;
+    }
+    if (
+      workerModel &&
+      layer.mask == PlayerPoseLayerMask::UpperBody &&
+      (layer.animationName == "LEAN_LEFT" || layer.animationName == "LEAN_RIGHT")
+    ) {
       continue;
     }
     float weight = layer.weight;
@@ -1853,9 +1887,10 @@ struct DuelistPoseRequests {
     if (workerModel && clip == "IDLE") {
       clip = "Idle_Gun_TwoHanded";
     }
+    const float time = layer.timeSeconds;
     poseRequests.push({
       clip,
-      layer.timeSeconds,
+      time,
       weight,
       layer.mask == PlayerPoseLayerMask::UpperBody
         ? SkinnedModelPoseMask::UpperBody
@@ -1952,11 +1987,15 @@ void addGltfPlayerModelInstance(
     presentation
   );
   const float aimPitch = skinnedPlayerAimPitch(player, presentation);
+  const float sideLean = workerModel && leanEnabled && presentation != nullptr
+    ? presentation->proceduralLean * (34.0F * kDegreesToRadians)
+    : 0.0F;
   if (!model.appendBonePalette(
         poseRequests.span(),
         scene.gltfBonePalette,
         poseScratch,
-        aimPitch + upperBodySwitchPitchRadians
+        aimPitch + upperBodySwitchPitchRadians,
+        sideLean
       )) {
     return;
   }
@@ -2099,8 +2138,11 @@ void addGltfPlayerModelInstance(
       poseRequests.span(),
       sampleCache.bonePalette,
       sampleCache.poseScratch,
-    skinnedPlayerAimPitch(remote.player, presentation) +
-      remote.weaponSwitchPresentation.upperBodyPitchRadians
+      skinnedPlayerAimPitch(remote.player, presentation) +
+        remote.weaponSwitchPresentation.upperBodyPitchRadians,
+      leanEnabled && presentation != nullptr
+        ? presentation->proceduralLean * (34.0F * kDegreesToRadians)
+        : 0.0F
     )
   ) {
     return genericFrame;
@@ -2775,18 +2817,31 @@ void addFirstPersonWeaponModel(
   );
   switch (weapon) {
   case Weapon::LightningGun:
-  case Weapon::GrenadeLauncher: {
-    const MeshHandle mesh = weapon == Weapon::LightningGun
-      ? MeshHandle::RemoteLightningGun
-      : MeshHandle::RemoteGrenadeLauncher;
     appendStaticMeshInstance(
       scene,
-      weaponMeshInstance(mesh, RenderPass::ViewModel, frame, {255, 255, 255, 255})
+      weaponMeshInstance(
+        MeshHandle::RemoteLightningGun,
+        RenderPass::ViewModel,
+        frame,
+        {255, 255, 255, 255}
+      )
     );
     ++scene.viewModelStats.drawCalls;
     appendViewModelHands(scene, frame, weapon, settings.viewModelHandsEnabled);
     break;
-  }
+  case Weapon::GrenadeLauncher:
+    appendStaticMeshInstance(
+      scene,
+      weaponMeshInstance(
+        MeshHandle::RemoteGrenadeLauncher,
+        RenderPass::ViewModel,
+        frame,
+        {255, 255, 255, 255}
+      )
+    );
+    ++scene.viewModelStats.drawCalls;
+    appendViewModelHands(scene, frame, weapon, settings.viewModelHandsEnabled);
+    break;
   case Weapon::MachineGun: {
     WeaponModelFrame weaponFrame = frame;
     weaponFrame.hand -= weaponFrame.basis.forward * 0.10F;
@@ -2866,7 +2921,7 @@ void addFirstPersonWeaponModel(
   }
   case Weapon::FreezeGun: {
     WeaponModelFrame weaponFrame = frame;
-    weaponFrame.scale *= 0.74F;
+    weaponFrame.scale *= 0.82F;
     weaponFrame.hand -= weaponFrame.basis.forward * 0.08F;
     weaponFrame = freezeGunViewModelFrame(
       weaponFrame,
@@ -2886,7 +2941,7 @@ void addFirstPersonWeaponModel(
   }
   case Weapon::PlasmaGun: {
     WeaponModelFrame weaponFrame = frame;
-    weaponFrame.scale *= 0.78F;
+    weaponFrame.scale *= 0.88F;
     weaponFrame.hand -= weaponFrame.basis.forward * 0.06F;
     // Plasma uses its own screen-space anchor. Applying the third-person grip
     // correction here would lift the gun and its attached hands too close to
@@ -3451,11 +3506,14 @@ void addWireBox(
     }
     if (
       projectile.weapon == Weapon::PlasmaGun ||
-      projectile.weapon == Weapon::RocketLauncher
+      projectile.weapon == Weapon::RocketLauncher ||
+      projectile.weapon == Weapon::GrenadeLauncher
     ) {
       const Vec3 muzzle = projectile.weapon == Weapon::RocketLauncher
         ? firstPersonRocketLauncherMuzzlePosition(localPlayer, settings)
-        : firstPersonPlasmaGunMuzzlePosition(localPlayer, settings);
+        : projectile.weapon == Weapon::GrenadeLauncher
+          ? firstPersonGrenadeLauncherMuzzlePosition(localPlayer, settings)
+          : firstPersonPlasmaGunMuzzlePosition(localPlayer, settings);
       // Begin at the presentation socket, then converge quickly to the
       // authoritative projectile so the visible trajectory remains centered.
       const float blend = 1.0F - std::clamp(
@@ -3470,7 +3528,8 @@ void addWireBox(
   }
   if (
     projectile.weapon != Weapon::PlasmaGun &&
-    projectile.weapon != Weapon::RocketLauncher
+    projectile.weapon != Weapon::RocketLauncher &&
+    projectile.weapon != Weapon::GrenadeLauncher
   ) {
     return projectile.position;
   }
@@ -3486,6 +3545,8 @@ void addWireBox(
   Vec3 muzzle;
   if (projectile.weapon == Weapon::RocketLauncher) {
     muzzle = remoteRocketLauncherMuzzlePosition(remote, settings);
+  } else if (projectile.weapon == Weapon::GrenadeLauncher) {
+    muzzle = remoteGrenadeLauncherMuzzlePosition(remote, settings);
   } else {
     const bool leanEnabled = remote.teammate
       ? settings.teammateLeanEnabled
@@ -4391,12 +4452,16 @@ Vec3 firstPersonPlasmaGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
+    viewModelPlayer,
     settings.weaponPosition,
     settings.viewModelPresentation
   );
-  frame.scale *= 0.78F;
+  // Keep projectile presentation at the same authored scale as the rendered
+  // first-person Plasma Gun.
+  frame.scale *= 0.88F;
   frame.hand -= frame.basis.forward * 0.06F;
   return weaponLocalPoint(
     frame,
@@ -4470,6 +4535,43 @@ Vec3 rocketLauncherMuzzleSocket() {
 
 Vec3 rocketLauncherGripSocket() {
   return kRocketLauncherGripSocket;
+}
+
+Vec3 grenadeLauncherMuzzleSocket() {
+  return kGrenadeLauncherMuzzleSocket;
+}
+
+Vec3 firstPersonGrenadeLauncherMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  const WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    viewModelPlayer,
+    settings.weaponPosition,
+    settings.viewModelPresentation
+  );
+  return weaponLocalPoint(
+    frame,
+    kGrenadeLauncherMuzzleSocket.x,
+    kGrenadeLauncherMuzzleSocket.y,
+    kGrenadeLauncherMuzzleSocket.z
+  );
+}
+
+Vec3 remoteGrenadeLauncherMuzzlePosition(
+  const RemotePlayerView& remote,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = remoteRenderedWeaponFrame(remote, settings);
+  frame.scale *= thirdPersonWeaponVisualScale(Weapon::GrenadeLauncher);
+  return weaponLocalPoint(
+    frame,
+    kGrenadeLauncherMuzzleSocket.x,
+    kGrenadeLauncherMuzzleSocket.y,
+    kGrenadeLauncherMuzzleSocket.z
+  );
 }
 
 Vec3 firstPersonRocketLauncherMuzzlePosition(
@@ -5518,9 +5620,47 @@ void addTransientEffectInstances(
         72.0F
       ));
     }
-    const float submittedScale = rocketFlash
+    const bool plasmaImpact =
+      effect.lifetimeSeconds <= kPlasmaImpactMaxLifetimeSeconds &&
+      (
+        effect.type == TransientEffectType::PlasmaExplosionFlash ||
+        effect.type == TransientEffectType::PlasmaExplosionCore ||
+        effect.type == TransientEffectType::PlasmaExplosionHalo
+      );
+    const float plasmaViewFade = plasmaImpact
+      ? smoothViewDistanceFade(
+          length(effect.position - scene.camera.position),
+          kPlasmaExplosionNearViewDistance,
+          kPlasmaExplosionFullViewDistance
+        )
+      : 1.0F;
+    if (
+      effect.type == TransientEffectType::PlasmaExplosionCore &&
+      plasmaViewFade <= 0.0F
+    ) {
+      // Near-view plasma hits keep additive direction feedback without an
+      // opaque shape over the target.
+      continue;
+    }
+    float submittedScale = rocketFlash
       ? scale * 0.54F
       : rocketHalo ? scale * 0.72F : scale;
+    if (plasmaImpact) {
+      if (coreMesh) {
+        submittedScale *= plasmaViewFade;
+      } else {
+        const float cueScaleFactor =
+          kPlasmaExplosionNearCueScaleFactor +
+          (1.0F - kPlasmaExplosionNearCueScaleFactor) * plasmaViewFade;
+        const float cueAlphaFactor =
+          kPlasmaExplosionNearCueAlphaFactor +
+          (1.0F - kPlasmaExplosionNearCueAlphaFactor) * plasmaViewFade;
+        submittedScale *= cueScaleFactor;
+        color.alpha = static_cast<std::uint8_t>(
+          static_cast<float>(color.alpha) * cueAlphaFactor
+        );
+      }
+    }
     appendSimpleInstance(
       scene,
       {
@@ -5586,6 +5726,22 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
     static_cast<std::uint32_t>(
       kPlayerBoxCubeMeshVertices.size() * kStaticMeshVertexUploadBytes
     );
+  scene.playerBoxStats.shadowCasterInstances = 0U;
+  scene.remoteWeaponStats.shadowCasterInstances = 0U;
+  for (const StaticMeshInstance& instance : scene.staticMeshInstances) {
+    if (
+      instance.pass != RenderPass::OpaqueWorld ||
+      !instance.castsSunShadow
+    ) {
+      continue;
+    }
+    if (instance.playerBoxBody) {
+      ++scene.playerBoxStats.shadowCasterInstances;
+    }
+    if (instance.remotePlayerWeapon) {
+      ++scene.remoteWeaponStats.shadowCasterInstances;
+    }
+  }
   for (const StaticMeshBatch& batch : scene.staticMeshBatches) {
     if (batch.instanceCount == 0U) {
       continue;
@@ -5669,6 +5825,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
         instance.outlineState.visibility == runState.visibility &&
         instance.outlineState.widthPixels == runState.widthPixels &&
         instance.outlineState.alpha == runState.alpha &&
+        instance.outlineState.fadeAlpha == runState.fadeAlpha &&
         instance.outlineState.pulse == runState.pulse
       )
     ) {
@@ -5741,7 +5898,10 @@ void finalizeGltfPlayerModelBatches(
     ++primitiveCount;
   }
   const GltfShadowCasterPlan shadowPlan = gltfShadowCasterPlan(
-    static_cast<std::uint32_t>(scene.gltfPlayerModelInstances.size()),
+    std::span<const GltfPlayerModelInstance>(
+      scene.gltfPlayerModelInstances.data(),
+      scene.gltfPlayerModelInstances.size()
+    ),
     scene.gltfPlayerModelStats.bodyDrawCalls,
     scene.lights.shadow.mapSize
   );
@@ -5793,6 +5953,7 @@ void finalizeGltfPlayerModelBatches(
         instance.outlineState.visibility == runState.visibility &&
         instance.outlineState.widthPixels == runState.widthPixels &&
         instance.outlineState.alpha == runState.alpha &&
+        instance.outlineState.fadeAlpha == runState.fadeAlpha &&
         instance.outlineState.pulse == runState.pulse
       )
     ) {
@@ -5832,15 +5993,29 @@ void addProjectileInstances(
     projectileVisualPosition(projectile, player, remotePlayers, settings);
   const float pulseSeed = static_cast<float>(projectileIndex) * 0.371F;
   const float rotation = projectileRotationRadians(projectile, projectileIndex);
+  const bool plasma = descriptor->type == ProjectileVisualType::Plasma;
   const bool rocket = descriptor->type == ProjectileVisualType::Rocket;
-  const float exhaustScale = rocket
+  const bool localProjectile = projectile.owner == settings.localPlayerIndex;
+  const float plasmaViewFade = plasma && !localProjectile
+    ? smoothViewDistanceFade(
+        length(position - scene.camera.position),
+        kPlasmaProjectileNearViewDistance,
+        kPlasmaProjectileFullViewDistance
+      )
+    : 1.0F;
+  const float plasmaScaleFactor = plasma
+    ? kPlasmaProjectileNearScaleFactor +
+      (1.0F - kPlasmaProjectileNearScaleFactor) * plasmaViewFade
+    : 1.0F;
+  const float coreScale = descriptor->coreScale * plasmaScaleFactor;
+  const float exhaustScale = (rocket
     ? descriptor->glowScale *
       (
         settings.combatEffectsQuality >= 2
           ? 1.0F
           : settings.combatEffectsQuality == 1 ? 0.87F : 0.74F
       )
-    : descriptor->glowScale;
+    : descriptor->glowScale) * plasmaScaleFactor;
   const float exhaustOffset = rocket
     ? descriptor->coreScale * 0.92F
     : 0.0F;
@@ -5851,7 +6026,7 @@ void addProjectileInstances(
     ? descriptor->coreScale * 0.82F
     : 0.0F;
   const float cullRadius = std::max({
-    descriptor->coreScale,
+    coreScale,
     exhaustOffset + exhaustScale,
     hotCoreOffset + hotCoreScale,
   });
@@ -5915,14 +6090,14 @@ void addProjectileInstances(
         BillboardHandle::Invalid,
         RenderPass::OpaqueWorld,
         position,
-        {descriptor->coreScale, descriptor->coreScale, descriptor->coreScale},
+        {coreScale, coreScale, coreScale},
         rotation,
         rocket
           ? projectileVelocityPitch(projectile.velocity)
           : 0.0F,
         descriptor->coreColor,
         pulseSeed,
-        {position, descriptor->coreScale},
+        {position, coreScale},
       }
     );
     countProjectileCoreInstance(scene.projectileStats, descriptor->type);
@@ -5935,6 +6110,13 @@ void addProjectileInstances(
     if (rocket && settings.combatEffectsQuality < 2) {
       exhaustColor.alpha = static_cast<std::uint8_t>(
         settings.combatEffectsQuality == 1 ? 144U : 130U
+      );
+    }
+    if (plasma) {
+      const float alphaFactor = kPlasmaProjectileNearGlowAlphaFactor +
+        (1.0F - kPlasmaProjectileNearGlowAlphaFactor) * plasmaViewFade;
+      exhaustColor.alpha = static_cast<std::uint8_t>(
+        static_cast<float>(exhaustColor.alpha) * alphaFactor
       );
     }
     appendSimpleInstance(
@@ -6276,9 +6458,19 @@ Scene3D buildPerspectiveScene(
 
   for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
     const RemotePlayerView& remote = remotePlayers[remoteIndex];
-    if (!remote.visible) {
+    if (!remote.visible || !remote.bodyFade.visible) {
       continue;
     }
+    const float modelFadeAlpha = std::clamp(
+      remote.bodyFade.modelAlpha,
+      0.0F,
+      1.0F
+    );
+    const float outlineFadeAlpha = std::clamp(
+      remote.bodyFade.outlineAlpha,
+      0.0F,
+      1.0F
+    );
     ++scene.remoteCandidates;
     if (settings.drawRemoteWeapons) {
       ++scene.remoteWeaponStats.candidates;
@@ -6324,6 +6516,11 @@ Scene3D buildPerspectiveScene(
       remote.teammate ? settings.teammateGreen : settings.enemyGreen;
     const std::uint8_t blue =
       remote.teammate ? settings.teammateBlue : settings.enemyBlue;
+    const float configuredModelAlpha = std::clamp(
+      remote.teammate ? settings.teammateAlpha : settings.enemyAlpha,
+      0.0F,
+      1.0F
+    );
     const RenderColor opponentColor = {
       blendChannel(
         red,
@@ -6341,11 +6538,7 @@ Scene3D buildPerspectiveScene(
         hitAmount
       ),
       static_cast<std::uint8_t>(
-        std::clamp(
-          remote.teammate ? settings.teammateAlpha : settings.enemyAlpha,
-          0.0F,
-          1.0F
-        ) * 255.0F
+        configuredModelAlpha * modelFadeAlpha * 255.0F
       ),
     };
     const bool outlineEnabled = remote.teammate
@@ -6357,13 +6550,21 @@ Scene3D buildPerspectiveScene(
     const float outlineAlpha = remote.teammate
       ? settings.teammateOutlineAlpha
       : settings.enemyOutlineAlpha;
+    const float configuredOutlineAlpha = std::clamp(
+      outlineAlpha,
+      0.0F,
+      1.0F
+    );
+    const float effectiveOutlineAlpha =
+      configuredOutlineAlpha * outlineFadeAlpha;
     const OutlineState outlineState = {
       remote.teammate ? OutlineGroup::Teammate : OutlineGroup::Enemy,
       outlineEnabled ? OutlineVisibility::VisibleOnly : OutlineVisibility::None,
       settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
         ? settings.playerOutlineWidth
         : outlineWidth,
-      std::clamp(outlineAlpha, 0.0F, 1.0F),
+      configuredOutlineAlpha,
+      outlineFadeAlpha,
       hitAmount,
     };
     const bool wantsOutline =
@@ -6373,9 +6574,10 @@ Scene3D buildPerspectiveScene(
       outlineState.group != OutlineGroup::None &&
       outlineState.visibility != OutlineVisibility::None &&
       outlineState.widthPixels > 0.0F &&
-      outlineState.alpha > 0.0F;
+      outlineState.alpha > 0.0F &&
+      outlineState.fadeAlpha > 0.0F;
     if (settings.drawRemotePlayers && settings.contactShadowsEnabled) {
-      addPlayerContactShadow(scene, arena, remote.player);
+      addPlayerContactShadow(scene, arena, remote.player, modelFadeAlpha);
     }
     if (
       wantsOutline &&
@@ -6401,7 +6603,7 @@ Scene3D buildPerspectiveScene(
             ? settings.teammateOutlineBlue
             : settings.enemyOutlineBlue,
           static_cast<std::uint8_t>(
-            std::clamp(outlineAlpha, 0.0F, 1.0F) * 255.0F
+            effectiveOutlineAlpha * 255.0F
           ),
         },
         remote.teammate
@@ -6422,6 +6624,7 @@ Scene3D buildPerspectiveScene(
       ++scene.remoteBodyModelsBuilt;
       if (usePlayerBoxModel) {
         ++scene.playerBoxStats.visiblePlayers;
+        const std::size_t firstBodyInstance = scene.staticMeshInstances.size();
         addPlayerBoxInstances(
           scene,
           remote.player,
@@ -6437,7 +6640,17 @@ Scene3D buildPerspectiveScene(
             settings.playerOutlineStyle
           )
         );
+        for (
+          std::size_t index = firstBodyInstance;
+          index < scene.staticMeshInstances.size();
+          ++index
+        ) {
+          scene.staticMeshInstances[index].castsSunShadow =
+            modelFadeAlpha >= 1.0F;
+        }
       } else {
+        const std::size_t firstGltfInstance =
+          scene.gltfPlayerModelInstances.size();
         addGltfPlayerModelInstance(
           scene,
           *gltfPlayerModel,
@@ -6459,6 +6672,14 @@ Scene3D buildPerspectiveScene(
           gltfPoseScratch,
           gltfPlayerModel == &workerPlayerModel() ? &weaponAttachment : nullptr
         );
+        for (
+          std::size_t index = firstGltfInstance;
+          index < scene.gltfPlayerModelInstances.size();
+          ++index
+        ) {
+          scene.gltfPlayerModelInstances[index].castsSunShadow =
+            modelFadeAlpha >= 1.0F;
+        }
       }
     }
     if (settings.drawRemoteWeapons) {
@@ -6481,6 +6702,22 @@ Scene3D buildPerspectiveScene(
         remote.weaponSwitchPresentation,
         weaponAttachment ? &*weaponAttachment : nullptr
       );
+      for (
+        std::size_t index = firstWeaponInstance;
+        index < scene.staticMeshInstances.size();
+        ++index
+      ) {
+        StaticMeshInstance& instance = scene.staticMeshInstances[index];
+        instance.remotePlayerWeapon = true;
+        instance.castsSunShadow = modelFadeAlpha >= 1.0F;
+        if (modelFadeAlpha < 1.0F) {
+          instance.color.alpha = static_cast<std::uint8_t>(
+            std::lround(
+              static_cast<float>(instance.color.alpha) * modelFadeAlpha
+            )
+          );
+        }
+      }
       if (
         wantsOutline &&
         settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
@@ -6536,7 +6773,11 @@ Scene3D buildPerspectiveScene(
   }
 
   for (const RemotePlayerView& remote : remotePlayers) {
-    if (!remote.visible || !remote.lightningGun.active) {
+    if (
+      !remote.visible ||
+      remote.player.health <= 0 ||
+      !remote.lightningGun.active
+    ) {
       continue;
     }
     const float pulse = std::clamp(settings.beamPulse, -1.0F, 1.0F);
@@ -6593,29 +6834,9 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     if (fire.weapon == Weapon::Railgun || fire.weapon == Weapon::Revolver) {
-      const bool localHitscanFire =
-        fireIndex == static_cast<std::size_t>(settings.localPlayerIndex) &&
-        settings.showOwnWeapons;
-      const Vec3 visualStart = localHitscanFire
-        ? fire.weapon == Weapon::Railgun
-          ? [&]() {
-              PlayerState viewModelPlayer = player;
-              viewModelPlayer.position.z += cameraVerticalOffset;
-              viewModelPlayer.position += cameraMotion;
-              return sniperRifleMuzzlePositionForViewModelPlayer(
-                viewModelPlayer,
-                settings
-              );
-            }()
-          : firstPersonRevolverMuzzlePosition(player, settings) +
-              Vec3{0.0F, 0.0F, cameraVerticalOffset}
-        : fireIndex < remotePlayers.size() && remotePlayers[fireIndex].visible
-          ? remoteHitscanMuzzlePosition(
-              remotePlayers[fireIndex],
-              fire.weapon,
-              settings
-            )
-          : fire.start;
+      // GameApp captures the rendered muzzle in fire.start when the event
+      // begins. Keep the fired line in world space as the player moves.
+      const Vec3 visualStart = fire.start;
       if (fire.weapon == Weapon::Revolver) {
         const float alpha = fireIndex < settings.revolverTracerAlpha.size()
           ? std::clamp(settings.revolverTracerAlpha[fireIndex], 0.0F, 1.0F)

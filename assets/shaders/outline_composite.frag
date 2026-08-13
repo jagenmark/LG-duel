@@ -46,11 +46,18 @@ void main() {
   vec4 dilated = texture(outlineDilation, halfUv);
   int selectedGroup = dilated.r > 0.75 ? 1 : dilated.r > 0.25 ? 2 : 0;
   float coverage = clamp(dilated.g, 0.0, 1.0);
+  float fadeAlpha = clamp(dilated.a, 0.0, 1.0);
 
   if (selectedGroup == 1) {
-    outColor = vec4(outline.enemyColor.rgb, outline.enemyColor.a * coverage);
+    outColor = vec4(
+      outline.enemyColor.rgb,
+      outline.enemyColor.a * coverage * fadeAlpha
+    );
   } else if (selectedGroup == 2) {
-    outColor = vec4(outline.teammateColor.rgb, outline.teammateColor.a * coverage);
+    outColor = vec4(
+      outline.teammateColor.rgb,
+      outline.teammateColor.a * coverage * fadeAlpha
+    );
   } else {
     discard;
   }

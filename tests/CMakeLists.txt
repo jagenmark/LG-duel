@@ -148,6 +148,20 @@ lg_duel_set_warnings(lg_duel_bot_server_tests)
 
 add_test(NAME lg_duel_bot_server_tests COMMAND lg_duel_bot_server_tests)
 
+add_executable(lg_duel_bot_soak_tests
+  net/BotSoakTests.cpp
+)
+
+target_link_libraries(lg_duel_bot_soak_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_bot_soak_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_bot_soak_tests)
+
+add_test(NAME lg_duel_bot_soak_tests COMMAND lg_duel_bot_soak_tests)
+set_tests_properties(
+  lg_duel_bot_soak_tests
+  PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
 add_executable(lg_duel_weapon_switching_tests
   net/WeaponSwitchingTests.cpp
 )
@@ -167,6 +181,16 @@ target_compile_features(lg_duel_clan_arena_server_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_clan_arena_server_tests)
 
 add_test(NAME lg_duel_clan_arena_server_tests COMMAND lg_duel_clan_arena_server_tests)
+
+add_executable(lg_duel_ffa_server_tests
+  net/FreeForAllServerTests.cpp
+)
+
+target_link_libraries(lg_duel_ffa_server_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_ffa_server_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_ffa_server_tests)
+
+add_test(NAME lg_duel_ffa_server_tests COMMAND lg_duel_ffa_server_tests)
 
 add_executable(lg_duel_mcguffin_server_tests
   net/McGuffinServerTests.cpp
@@ -269,6 +293,76 @@ target_compile_features(lg_duel_protocol_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_protocol_tests)
 
 add_test(NAME lg_duel_protocol_tests COMMAND lg_duel_protocol_tests)
+
+add_executable(lg_duel_replay_codec_tests
+  replay/ReplayCodecTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_codec_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_codec_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_codec_tests)
+
+add_test(NAME lg_duel_replay_codec_tests COMMAND lg_duel_replay_codec_tests)
+
+add_executable(lg_duel_replay_playback_tests
+  replay/ReplayPlaybackTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_playback_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_playback_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_playback_tests)
+
+add_test(NAME lg_duel_replay_playback_tests COMMAND lg_duel_replay_playback_tests)
+
+add_executable(lg_duel_replay_rolling_tests
+  replay/ReplayRollingBufferTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_rolling_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_rolling_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_rolling_tests)
+
+add_test(NAME lg_duel_replay_rolling_tests COMMAND lg_duel_replay_rolling_tests)
+
+add_executable(lg_duel_replay_transfer_tests
+  replay/ReplayTransferTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_transfer_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_transfer_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_transfer_tests)
+
+add_test(NAME lg_duel_replay_transfer_tests COMMAND lg_duel_replay_transfer_tests)
+
+add_executable(lg_duel_replay_file_tests
+  replay/ReplayFileTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_file_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_file_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_file_tests)
+
+add_test(NAME lg_duel_replay_file_tests COMMAND lg_duel_replay_file_tests)
+
+add_executable(lg_duel_replay_presentation_tests
+  replay/ReplayPresentationSessionTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_presentation_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_presentation_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_presentation_tests)
+
+add_test(NAME lg_duel_replay_presentation_tests COMMAND lg_duel_replay_presentation_tests)
+
+add_executable(lg_duel_replay_performance_tests
+  replay/ReplayPerformanceTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_performance_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_performance_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_performance_tests)
+
+add_test(NAME lg_duel_replay_performance_tests COMMAND lg_duel_replay_performance_tests)
 
 add_executable(lg_duel_client_network_simulator_tests
   net/ClientNetworkSimulatorTests.cpp

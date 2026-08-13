@@ -148,6 +148,20 @@ const lg::StaticMeshInstance* findStaticMesh(
   return found == scene.staticMeshInstances.end() ? nullptr : &*found;
 }
 
+const lg::SimpleRenderInstance* findSimpleBillboard(
+  const lg::Scene3D& scene,
+  lg::BillboardHandle billboard
+) {
+  const auto found = std::find_if(
+    scene.simpleInstances.begin(),
+    scene.simpleInstances.end(),
+    [billboard](const lg::SimpleRenderInstance& instance) {
+      return instance.billboard == billboard;
+    }
+  );
+  return found == scene.simpleInstances.end() ? nullptr : &*found;
+}
+
 float largestBillboardScale(
   const lg::Scene3D& scene,
   lg::BillboardHandle billboard
@@ -348,6 +362,14 @@ float maxVertexX(const lg::Scene3D& scene) {
   return result;
 }
 
+float nearestTranslucentVertexDistance(const lg::Scene3D& scene, lg::Vec3 point) {
+  float result = std::numeric_limits<float>::infinity();
+  for (const lg::Vertex3D& vertex : scene.translucentVertices) {
+    result = std::min(result, lg::length(vertex.position - point));
+  }
+  return result;
+}
+
 bool hasAnyVertex(const lg::Scene3D& scene) {
   return !scene.vertices.empty() || !scene.translucentVertices.empty();
 }
@@ -399,6 +421,28 @@ UvBounds texturedWallUvBounds(
 
 int main() {
   int failures = 0;
+  const lg::RemoteBodyFade freshBodyFade = lg::remoteBodyFadeAtAge(0.0F);
+  const lg::RemoteBodyFade halfwayBodyFade =
+    lg::remoteBodyFadeAtAge(lg::kDeadBodyFadeDurationSeconds * 0.5F);
+  const lg::RemoteBodyFade outlineGoneBodyFade =
+    lg::remoteBodyFadeAtAge(lg::kDeadBodyOutlineFadeDurationSeconds);
+  const lg::RemoteBodyFade fullyGoneBodyFade =
+    lg::remoteBodyFadeAtAge(lg::kDeadBodyFadeDurationSeconds);
+  failures += expect(
+    freshBodyFade.visible &&
+      nearlyEqual(freshBodyFade.modelAlpha, 1.0F) &&
+      nearlyEqual(freshBodyFade.outlineAlpha, 1.0F) &&
+      halfwayBodyFade.visible &&
+      nearlyEqual(halfwayBodyFade.modelAlpha, 0.5F) &&
+      nearlyEqual(halfwayBodyFade.outlineAlpha, 0.0F) &&
+      outlineGoneBodyFade.visible &&
+      outlineGoneBodyFade.modelAlpha > 0.0F &&
+      nearlyEqual(outlineGoneBodyFade.outlineAlpha, 0.0F) &&
+      !fullyGoneBodyFade.visible &&
+      nearlyEqual(fullyGoneBodyFade.modelAlpha, 0.0F) &&
+      nearlyEqual(fullyGoneBodyFade.outlineAlpha, 0.0F),
+    "dead-body fade should clear the outline quickly and remove the model at 1.5 seconds"
+  );
   failures += expect(
     lg::antiAliasingSampleCount(-1) == 1U &&
       lg::antiAliasingSampleCount(0) == 1U &&
@@ -749,11 +793,33 @@ int main() {
         energyTraits.emissive,
     "material quality should gate specular but keep readable emissive tags"
   );
+  std::array<lg::GltfPlayerModelInstance, 3> zeroShadowInstances = {};
+  for (lg::GltfPlayerModelInstance& instance : zeroShadowInstances) {
+    instance.castsSunShadow = false;
+  }
+  std::array<lg::GltfPlayerModelInstance, 3> mixedShadowInstances = {};
+  mixedShadowInstances[1].castsSunShadow = false;
+  const lg::GltfShadowCasterPlan zeroShadowPlan = lg::gltfShadowCasterPlan(
+    std::span<const lg::GltfPlayerModelInstance>(zeroShadowInstances),
+    5U,
+    2048U
+  );
+  const lg::GltfShadowCasterPlan mixedShadowPlan = lg::gltfShadowCasterPlan(
+    std::span<const lg::GltfPlayerModelInstance>(mixedShadowInstances),
+    5U,
+    2048U
+  );
   failures += expect(
-    lg::gltfShadowCasterPlan(3U, 5U, 0U).drawCalls == 0U &&
-      lg::gltfShadowCasterPlan(3U, 5U, 2048U).instances == 3U &&
-      lg::gltfShadowCasterPlan(3U, 5U, 2048U).drawCalls == 5U,
-    "skinned shadow plan should reuse body instances only when shadows run"
+    zeroShadowPlan.instances == 0U &&
+      zeroShadowPlan.drawCalls == 0U &&
+      mixedShadowPlan.instances == 2U &&
+      mixedShadowPlan.drawCalls == 10U &&
+      lg::gltfShadowCasterPlan(
+        std::span<const lg::GltfPlayerModelInstance>(mixedShadowInstances),
+        5U,
+        0U
+      ).drawCalls == 0U,
+    "skinned shadow plan should match zero and mixed filtered caster runs"
   );
   const lg::PostProcessPlan bloomPlan =
     lg::buildPostProcessPlan(1921U, 1081U, true);
@@ -1218,6 +1284,73 @@ int main() {
     rockets,
     settings
   );
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> fadingRemotePlayers = {};
+  fadingRemotePlayers[0].player = opponent;
+  fadingRemotePlayers[0].visible = true;
+  fadingRemotePlayers[0].bodyFade = lg::remoteBodyFadeAtAge(
+    lg::kDeadBodyFadeDurationSeconds * 0.5F
+  );
+  lg::RenderSettings fadingSettings = settings;
+  fadingSettings.playerModel = 0;
+  fadingSettings.drawRemoteWeapons = false;
+  const std::array<bool, lg::Arena::kHealthPickupCount> fadingPickups = [] {
+    std::array<bool, lg::Arena::kHealthPickupCount> available = {};
+    available.fill(true);
+    return available;
+  }();
+  const lg::Scene3D fadingScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    fadingRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    fadingPickups,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    fadingSettings
+  );
+  const auto fadingBody = std::find_if(
+    fadingScene.staticMeshInstances.begin(),
+    fadingScene.staticMeshInstances.end(),
+    [](const lg::StaticMeshInstance& instance) { return instance.playerBoxBody; }
+  );
+  failures += expect(
+    fadingScene.visibleRemotePlayers == 1U &&
+      fadingScene.remoteBodyModelsBuilt == 1U &&
+      fadingScene.playerOutlinesBuilt == 0U &&
+      fadingScene.outlineMaskDraws.empty() &&
+      fadingBody != fadingScene.staticMeshInstances.end() &&
+      fadingBody->color.alpha > 100U && fadingBody->color.alpha < 200U,
+    "a dead body should keep its model while its alpha fades and its outline is already gone"
+  );
+  fadingRemotePlayers[0].bodyFade = fullyGoneBodyFade;
+  const lg::Scene3D fullyGoneScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    fadingRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    fadingPickups,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    fadingSettings
+  );
+  failures += expect(
+    fullyGoneScene.visibleRemotePlayers == 0U &&
+      fullyGoneScene.remoteBodyModelsBuilt == 0U &&
+      fullyGoneScene.remoteWeaponModelsBuilt == 0U &&
+      fullyGoneScene.contactShadowVertices.empty() &&
+      fullyGoneScene.outlineMaskDraws.empty(),
+    "a fully faded dead body should leave no render or shadow instances"
+  );
   const lg::Scene3D defaultNativeScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -1511,6 +1644,7 @@ int main() {
     sunAndContactShadowScene.lights.shadow.mapSize == 2048U &&
       sunAndContactShadowScene.gltfPlayerModelStats.shadowCasterInstances == 1U &&
       sunAndContactShadowScene.gltfPlayerModelStats.shadowCasterDrawCalls > 0U &&
+      sunAndContactShadowScene.remoteWeaponStats.shadowCasterInstances > 0U &&
       sunAndContactShadowScene.contactShadowVertices.size() == 48U &&
       sunAndContactShadowScene.contactShadowVertices.front().color.alpha <
         baseScene.contactShadowVertices.front().color.alpha &&
@@ -1519,6 +1653,75 @@ int main() {
         contactShadowMaxRadius(baseScene)
       ),
     "true glTF sun shadows should remain active while the fixed-size contact oval uses lower alpha"
+  );
+
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> shadowFadePlayers = {};
+  shadowFadePlayers[0].player = opponent;
+  shadowFadePlayers[0].visible = true;
+  shadowFadePlayers[0].bodyFade = lg::remoteBodyFadeAtAge(
+    lg::kDeadBodyFadeDurationSeconds * 0.5F
+  );
+  lg::RenderSettings shadowFadeSettings = sunShadowSettings;
+  shadowFadeSettings.playerModel = 0;
+  shadowFadeSettings.drawRemoteWeapons = true;
+  shadowFadeSettings.drawPlayerOutlines = false;
+  const lg::Scene3D shadowFadeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    sunShadowArena,
+    player,
+    shadowFadePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    shadowFadeSettings
+  );
+  failures += expect(
+    shadowFadeScene.playerBoxStats.shadowCasterInstances == 0U &&
+      shadowFadeScene.remoteWeaponStats.shadowCasterInstances == 0U &&
+      !shadowFadeScene.staticMeshInstances.empty() &&
+      std::any_of(
+        shadowFadeScene.staticMeshInstances.begin(),
+        shadowFadeScene.staticMeshInstances.end(),
+        [](const lg::StaticMeshInstance& instance) {
+          return instance.playerBoxBody && !instance.castsSunShadow;
+        }
+      ) &&
+      std::any_of(
+        shadowFadeScene.staticMeshInstances.begin(),
+        shadowFadeScene.staticMeshInstances.end(),
+        [](const lg::StaticMeshInstance& instance) {
+          return instance.remotePlayerWeapon && !instance.castsSunShadow;
+        }
+      ),
+    "fading procedural bodies and weapons should leave the sun-shadow pass"
+  );
+
+  lg::RenderSettings gltfShadowFadeSettings = sunShadowSettings;
+  gltfShadowFadeSettings.drawRemoteWeapons = false;
+  const lg::Scene3D gltfShadowFadeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    sunShadowArena,
+    player,
+    shadowFadePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    gltfShadowFadeSettings
+  );
+  failures += expect(
+    !gltfShadowFadeScene.gltfPlayerModelInstances.empty() &&
+      gltfShadowFadeScene.gltfPlayerModelStats.shadowCasterInstances == 0U &&
+      gltfShadowFadeScene.gltfPlayerModelStats.shadowCasterDrawCalls == 0U &&
+      std::all_of(
+        gltfShadowFadeScene.gltfPlayerModelInstances.begin(),
+        gltfShadowFadeScene.gltfPlayerModelInstances.end(),
+        [](const lg::GltfPlayerModelInstance& instance) {
+          return !instance.castsSunShadow;
+        }
+      ),
+    "fading glTF bodies should leave the sun-shadow pass"
   );
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> cappedShadowPlayers = {};
@@ -1780,10 +1983,12 @@ int main() {
       foundUntintedNonClothPrimitive,
     "Worker GLB should load finite primitives with normalized weights and material tint masks"
   );
-  constexpr std::array<std::string_view, 7> presentationClips = {{
+  constexpr std::array<std::string_view, 9> presentationClips = {{
     "RUN_BACK",
     "STRAFE_LEFT",
     "STRAFE_RIGHT",
+    "LEAN_LEFT",
+    "LEAN_RIGHT",
     "START_FORWARD",
     "STOP_FORWARD",
     "LAND_LIGHT",
@@ -1803,6 +2008,71 @@ int main() {
     ),
     "runtime GLB should contain every authored presentation clip"
   );
+  lg::GltfSkinnedModel::PoseScratch workerStrafeLeftScratch;
+  lg::GltfSkinnedModel::PoseScratch workerLeanLeftScratch;
+  lg::GltfSkinnedModel::PoseScratch workerStrafeRightScratch;
+  lg::GltfSkinnedModel::PoseScratch workerLeanRightScratch;
+  std::vector<std::array<float, 16>> workerStrafeLeftPalette;
+  std::vector<std::array<float, 16>> workerLeanLeftPalette;
+  std::vector<std::array<float, 16>> workerStrafeRightPalette;
+  std::vector<std::array<float, 16>> workerLeanRightPalette;
+  const bool workerDirectionalClipsDistinct =
+    workerModel.appendBonePalette(
+      {{"STRAFE_LEFT", 0.25F, 1.0F}},
+      workerStrafeLeftPalette,
+      workerStrafeLeftScratch
+    ) &&
+    workerModel.appendBonePalette(
+      {{"LEAN_LEFT", 0.25F, 1.0F}},
+      workerLeanLeftPalette,
+      workerLeanLeftScratch
+    ) &&
+    workerModel.appendBonePalette(
+      {{"STRAFE_RIGHT", 0.25F, 1.0F}},
+      workerStrafeRightPalette,
+      workerStrafeRightScratch
+    ) &&
+    workerModel.appendBonePalette(
+      {{"LEAN_RIGHT", 0.25F, 1.0F}},
+      workerLeanRightPalette,
+      workerLeanRightScratch
+    );
+  failures += expect(
+    workerDirectionalClipsDistinct &&
+      maxPaletteDelta(workerStrafeLeftPalette, workerLeanLeftPalette) > 0.001F &&
+      maxPaletteDelta(workerStrafeRightPalette, workerLeanRightPalette) > 0.001F,
+    "Worker lean clips should contain poses distinct from the strafe clips"
+  );
+  {
+    lg::GltfSkinnedModel::PoseScratch runScratch;
+    lg::GltfSkinnedModel::PoseScratch additiveScratch;
+    lg::GltfSkinnedModel::PoseScratch fullLayerScratch;
+    std::vector<std::array<float, 16>> runPalette;
+    std::vector<std::array<float, 16>> additivePalette;
+    std::vector<std::array<float, 16>> fullLayerPalette;
+    const bool additiveLeanSampled = workerModel.appendBonePalette(
+      {{"RUN", 0.25F, 1.0F}}, runPalette, runScratch
+    ) && workerModel.appendBonePalette(
+      {{"RUN", 0.25F, 1.0F}},
+      additivePalette,
+      additiveScratch,
+      0.0F,
+      34.0F * 3.14159265358979323846F / 180.0F
+    ) && workerModel.appendBonePalette(
+      {
+        {"RUN", 0.25F, 1.0F},
+        {"LEAN_LEFT", 0.25F, 1.0F, lg::SkinnedModelPoseMask::UpperBody},
+      },
+      fullLayerPalette,
+      fullLayerScratch
+    );
+    failures += expect(
+      additiveLeanSampled &&
+        maxPaletteDelta(runPalette, additivePalette) > 0.001F &&
+        maxPaletteDelta(additivePalette, fullLayerPalette) > 0.001F,
+      "Worker lean should bend the run pose without replacing the upper-body pose"
+    );
+  }
   failures += expect(
     baseScene.gltfPlayerModelStats.staticMeshGpuBytes == primitiveVertexCount * 64U &&
       baseScene.gltfPlayerModelStats.staticIndexGpuBytes == primitiveIndexCount * 4U &&
@@ -2543,27 +2813,48 @@ int main() {
   }
 
   opponent.velocity = lg::yawRight(opponent.viewYawRadians) * 8.0F;
+  lg::RemotePlayerView workerRunRemote;
+  workerRunRemote.player = opponent;
+  workerRunRemote.selectedWeapon = lg::Weapon::LightningGun;
+  workerRunRemote.visible = true;
+  workerRunRemote.presentation.poseLayers[0] = {
+    "STRAFE_LEFT", 0.25F, 1.0F, lg::PlayerPoseLayerMask::FullBody,
+  };
+  workerRunRemote.presentation.poseLayerCount = 1U;
+  workerRunRemote.hasPresentation = true;
+  lg::RemotePlayerView workerLeanRemote = workerRunRemote;
+  workerLeanRemote.presentation.poseLayers[0] = {
+    "STRAFE_LEFT", 0.25F, 1.0F, lg::PlayerPoseLayerMask::FullBody,
+  };
+  workerLeanRemote.presentation.poseLayers[1] = {
+    "LEAN_LEFT", 0.25F, 1.0F, lg::PlayerPoseLayerMask::UpperBody,
+  };
+  workerLeanRemote.presentation.poseLayerCount = 2U;
+  workerLeanRemote.presentation.proceduralLean = 1.0F;
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> workerRunRemotes = {};
+  workerRunRemotes[0] = workerRunRemote;
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> workerLeanRemotes = {};
+  workerLeanRemotes[0] = workerLeanRemote;
   lg::RenderSettings leanSettings = settings;
   leanSettings.enemyLeanScale = 3.0F;
-  const lg::Scene3D leanScene = lg::buildPerspectiveScene(
+  leanSettings.enemyLeanEnabled = false;
+  const lg::Scene3D leanDisabledScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
     player,
-    opponent,
-    inactiveBeam,
+    workerRunRemotes,
     inactiveBeam,
     weaponFires,
     rocketExplosions,
     rockets,
     leanSettings
   );
-  leanSettings.enemyLeanEnabled = false;
-  const lg::Scene3D leanDisabledScene = lg::buildPerspectiveScene(
+  leanSettings.enemyLeanEnabled = true;
+  const lg::Scene3D leanScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
     player,
-    opponent,
-    inactiveBeam,
+    workerLeanRemotes,
     inactiveBeam,
     weaponFires,
     rocketExplosions,
@@ -2575,11 +2866,26 @@ int main() {
       leanDisabledScene.gltfPlayerModelInstances.size() == 1U,
     "disabled enemy lean should keep the camera upright and avoid velocity roll"
   );
+  constexpr std::array<std::size_t, 8> workerLegJoints = {{
+    65U, 66U, 67U, 68U, 69U, 70U, 71U, 72U,
+  }};
+  constexpr std::array<std::size_t, 14> workerUpperBodyJoints = {{
+    3U, 4U, 5U, 6U, 7U, 8U, 9U, 10U, 11U, 12U, 37U, 38U, 39U, 40U,
+  }};
   failures += expect(
     leanScene.gltfPlayerModelInstances.size() == 1U &&
       leanScene.gltfBonePalette.size() == leanDisabledScene.gltfBonePalette.size() &&
-      maxPaletteDelta(leanScene.gltfBonePalette, leanDisabledScene.gltfBonePalette) <= 0.0001F,
-    "Worker should keep its authored body pose when no legacy Duelist lean clip is selected"
+      maxPaletteDeltaAtIndices(
+        leanScene.gltfBonePalette,
+        leanDisabledScene.gltfBonePalette,
+        workerLegJoints
+      ) <= 0.0001F &&
+      maxPaletteDeltaAtIndices(
+        leanScene.gltfBonePalette,
+        leanDisabledScene.gltfBonePalette,
+        workerUpperBodyJoints
+      ) > 0.001F,
+    "Worker horizontal movement should keep STRAFE legs while leaning above the waist"
   );
   opponent.velocity = {};
 
@@ -2650,7 +2956,7 @@ int main() {
       strafeRunSettings
     );
     constexpr std::array<std::size_t, 6> legJoints = {{
-      14U, 15U, 16U, 17U, 18U, 19U,
+      65U, 66U, 67U, 69U, 70U, 71U,
     }};
     const float fullStrafeLegDelta = maxPaletteDeltaAtIndices(
       strafeRunStartScene.gltfBonePalette,
@@ -2853,12 +3159,40 @@ int main() {
       enemyMaskDraw.state.visibility == lg::OutlineVisibility::VisibleOnly &&
       nearlyEqual(enemyMaskDraw.state.widthPixels, settings.enemyOutlineWidth) &&
       nearlyEqual(enemyMaskDraw.state.alpha, settings.enemyOutlineAlpha) &&
+      nearlyEqual(enemyMaskDraw.state.fadeAlpha, 1.0F) &&
       enemyMaskDraw.gltfPlayerModel &&
       enemyMaskDraw.gltfFirstInstance == 0U &&
       enemyMaskDraw.gltfInstanceCount == baseScene.gltfPlayerModelInstances.size() &&
       enemyMaskDraw.vertexCount == 0U &&
       enemyMaskDraw.instanceCount == 0U,
     "enabled enemy outline should reuse the GPU player model instance range as mask input"
+  );
+
+  lg::RenderSettings nonUnitOutlineSettings = settings;
+  nonUnitOutlineSettings.enemyOutlineAlpha = 0.4F;
+  const lg::Scene3D nonUnitOutlineScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    nonUnitOutlineSettings
+  );
+  failures += expect(
+    nonUnitOutlineScene.outlineMaskDraws.size() == 1U &&
+      nearlyEqual(
+        nonUnitOutlineScene.outlineMaskDraws.front().state.alpha,
+        0.4F
+      ) &&
+      nearlyEqual(
+        nonUnitOutlineScene.outlineMaskDraws.front().state.fadeAlpha,
+        1.0F
+      ),
+    "live outline opacity should stay single-applied when configured below one"
   );
 
   lg::RenderSettings outlineDisabledSettings = settings;
@@ -4172,6 +4506,7 @@ int main() {
 
   lg::RenderSettings localMachineGunSettings = settings;
   localMachineGunSettings.localSelectedWeapon = lg::Weapon::MachineGun;
+  localMachineGunSettings.viewModelHandsEnabled = true;
   const lg::Scene3D localMachineGunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4428,7 +4763,8 @@ int main() {
     isViewModelHand
   ));
   failures += expect(
-    lg::viewModelHandPosesAreFinite() &&
+    !lg::RenderSettings{}.viewModelHandsEnabled &&
+      lg::viewModelHandPosesAreFinite() &&
       lg::viewModelHandMeshCount() == 3U &&
       machineGunHandCount == 2U &&
       localMachineGunScene.viewModelStats.sharedHandVertices == 1260U &&
@@ -4436,7 +4772,7 @@ int main() {
       localMachineGunScene.viewModelStats.dynamicVertices == 0U &&
       hiddenHandCount == 0U &&
       handsHiddenScene.viewModelStats.drawCalls == 2U,
-    "hands should use three finite shared static ViewModel meshes and respect their hide control"
+    "hands should remain default-off and use shared static ViewModel meshes when enabled"
   );
   constexpr std::array<lg::MeshHandle, 3> kHandMeshHandles = {{
     lg::MeshHandle::ViewModelRightTriggerGrip,
@@ -4615,6 +4951,7 @@ int main() {
 
   lg::RenderSettings localShotgunSettings = settings;
   localShotgunSettings.localSelectedWeapon = lg::Weapon::Shotgun;
+  localShotgunSettings.viewModelHandsEnabled = true;
   const lg::Scene3D localShotgunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4645,6 +4982,7 @@ int main() {
 
   lg::RenderSettings localSniperSettings = settings;
   localSniperSettings.localSelectedWeapon = lg::Weapon::Railgun;
+  localSniperSettings.viewModelHandsEnabled = true;
   const lg::Scene3D localSniperScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4741,6 +5079,7 @@ int main() {
 
   lg::RenderSettings localRevolverSettings = settings;
   localRevolverSettings.localSelectedWeapon = lg::Weapon::Revolver;
+  localRevolverSettings.viewModelHandsEnabled = true;
   localRevolverSettings.viewModelPresentation.cameraTranslation =
     {0.035F, -0.020F, 0.015F};
   const lg::Scene3D localRevolverScene = lg::buildPerspectiveScene(
@@ -4845,19 +5184,50 @@ int main() {
     localRevolverTracerSettings,
     localRevolverCameraStep
   );
-  const lg::Vec3 expectedLocalRevolverMuzzle =
-    lg::firstPersonRevolverMuzzlePosition(player, localRevolverTracerSettings) +
-    lg::Vec3{0.0F, 0.0F, localRevolverCameraStep};
-  float nearestLocalRevolverTracerVertex = std::numeric_limits<float>::infinity();
-  for (const lg::Vertex3D& vertex : localRevolverTracerScene.translucentVertices) {
-    nearestLocalRevolverTracerVertex = std::min(
-      nearestLocalRevolverTracerVertex,
-      lg::length(vertex.position - expectedLocalRevolverMuzzle)
+  const lg::Vec3 expectedLocalRevolverFireStart = localRevolverFires[0].start;
+  const float nearestLocalRevolverTracerVertex =
+    nearestTranslucentVertexDistance(
+      localRevolverTracerScene,
+      expectedLocalRevolverFireStart
     );
-  }
   failures += expect(
     nearestLocalRevolverTracerVertex < 0.05F,
-    "local revolver beam should start at the rendered muzzle, not its world fire origin"
+    "local revolver beam should start at its captured world fire origin"
+  );
+  lg::PlayerState movedRevolverPlayer = player;
+  movedRevolverPlayer.position += {2.5F, -1.5F, 0.0F};
+  movedRevolverPlayer.viewYawRadians = 0.85F;
+  movedRevolverPlayer.viewPitchRadians = -0.18F;
+  const lg::Scene3D movedLocalRevolverTracerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    movedRevolverPlayer,
+    noLocalRevolverRemotes,
+    inactiveBeam,
+    localRevolverFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    localRevolverTracerSettings,
+    localRevolverCameraStep
+  );
+  const lg::Vec3 movedRevolverMuzzle =
+    lg::firstPersonRevolverMuzzlePosition(
+      movedRevolverPlayer,
+      localRevolverTracerSettings
+    ) + lg::Vec3{0.0F, 0.0F, localRevolverCameraStep};
+  failures += expect(
+    nearestTranslucentVertexDistance(
+      movedLocalRevolverTracerScene,
+      expectedLocalRevolverFireStart
+    ) < 0.05F &&
+      nearestTranslucentVertexDistance(
+        movedLocalRevolverTracerScene,
+        movedRevolverMuzzle
+      ) > 0.25F,
+    "moving and turning after a revolver shot should not move its fired beam"
   );
   std::array<lg::TransientTracer, 1> revolverFlash = {{
     {
@@ -4907,6 +5277,7 @@ int main() {
 
   lg::RenderSettings localRocketLauncherSettings = settings;
   localRocketLauncherSettings.localSelectedWeapon = lg::Weapon::RocketLauncher;
+  localRocketLauncherSettings.viewModelHandsEnabled = true;
   const lg::Scene3D idleRocketLauncherScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4995,6 +5366,53 @@ int main() {
       lg::length(remoteRocketTurnedMuzzle - remoteRocketMechanicalMuzzle) >
         0.01F,
     "remote rocket muzzle helper should follow mechanism motion and pose turns"
+  );
+
+  lg::RenderSettings localGrenadeLauncherSettings = settings;
+  localGrenadeLauncherSettings.localSelectedWeapon =
+    lg::Weapon::GrenadeLauncher;
+  localGrenadeLauncherSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D localGrenadeLauncherScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localGrenadeLauncherSettings
+  );
+  const lg::StaticMeshInstance grenadeLauncherBody = findViewModel(
+    localGrenadeLauncherScene,
+    lg::MeshHandle::RemoteGrenadeLauncher
+  );
+  const std::size_t grenadeLauncherViewModelCount =
+    static_cast<std::size_t>(std::count_if(
+      localGrenadeLauncherScene.staticMeshInstances.begin(),
+      localGrenadeLauncherScene.staticMeshInstances.end(),
+      [](const lg::StaticMeshInstance& instance) {
+        return instance.mesh == lg::MeshHandle::RemoteGrenadeLauncher &&
+          instance.pass == lg::RenderPass::ViewModel;
+      }
+    ));
+  failures += expect(
+    grenadeLauncherBody.mesh == lg::MeshHandle::RemoteGrenadeLauncher &&
+      grenadeLauncherViewModelCount == 1U &&
+      localGrenadeLauncherScene.viewModelStats.drawCalls == 1U &&
+      lg::length(
+        transformPoint(
+          grenadeLauncherBody,
+          lg::grenadeLauncherMuzzleSocket()
+        ) -
+        lg::firstPersonGrenadeLauncherMuzzlePosition(
+          player,
+          localGrenadeLauncherSettings
+        )
+      ) < 0.001F,
+    "first-person grenade launcher should use one model path whose muzzle follows camera motion"
   );
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
@@ -5126,6 +5544,7 @@ int main() {
 
   lg::RenderSettings localPlasmaGunSettings = settings;
   localPlasmaGunSettings.localSelectedWeapon = lg::Weapon::PlasmaGun;
+  localPlasmaGunSettings.viewModelHandsEnabled = true;
   const lg::Scene3D idlePlasmaGunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -5189,6 +5608,35 @@ int main() {
       lg::firstPersonPlasmaGunMuzzlePosition(player, localPlasmaGunSettings)
     ) < 0.001F,
     "first-person plasma projectile origin should match the authored muzzle socket"
+  );
+  lg::RenderSettings swayedPlasmaGunSettings = localPlasmaGunSettings;
+  swayedPlasmaGunSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D swayedPlasmaGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    {},
+    {},
+    swayedPlasmaGunSettings
+  );
+  const lg::StaticMeshInstance swayedPlasmaBody = findViewModel(
+    swayedPlasmaGunScene,
+    lg::MeshHandle::RemotePlasmaGunBody
+  );
+  failures += expect(
+    swayedPlasmaBody.mesh == lg::MeshHandle::RemotePlasmaGunBody &&
+      lg::length(
+        transformPoint(swayedPlasmaBody, lg::plasmaGunMuzzleSocket()) -
+        lg::firstPersonPlasmaGunMuzzlePosition(player, swayedPlasmaGunSettings)
+      ) < 0.001F,
+    "first-person plasma projectile origin should follow the rendered muzzle through camera motion"
   );
   failures += expect(
     lg::length(firingPlasmaCore.modelRow0) <
@@ -5420,10 +5868,11 @@ int main() {
     effectOnlySettings
   );
   failures += expect(
-    hasAnyVertex(remoteRailMuzzleScene) &&
-      maxVertexX(remoteRailMuzzleScene) <
-        remoteRailFires[1].start.x - 0.2F,
-    "remote railgun beam should start from the third-person weapon muzzle"
+    nearestTranslucentVertexDistance(
+      remoteRailMuzzleScene,
+      remoteRailFires[1].start
+    ) < 0.05F,
+    "remote railgun beam should start at its captured world fire origin"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> localRailSmokeFires = {};
@@ -5499,20 +5948,14 @@ int main() {
     cameraRailSmokeSettings,
     cameraStepOffset
   );
-  const lg::Vec3 expectedCameraRailMuzzle =
-    lg::firstPersonSniperRifleMuzzlePosition(player, cameraRailSmokeSettings) +
-    lg::Vec3{0.0F, 0.0F, cameraStepOffset};
-  float nearestCameraRailVertex = std::numeric_limits<float>::infinity();
-  for (const lg::Vertex3D& vertex : cameraRailSmokeScene.translucentVertices) {
-    nearestCameraRailVertex = std::min(
-      nearestCameraRailVertex,
-      lg::length(vertex.position - expectedCameraRailMuzzle)
-    );
-  }
+  const float nearestCameraRailVertex = nearestTranslucentVertexDistance(
+    cameraRailSmokeScene,
+    cameraRailSmokeFires[0].start
+  );
   failures += expect(
     cameraRailSmokeScene.transientVfxStats.activeSniperSmokeTracers == 1U &&
       nearestCameraRailVertex < 0.05F,
-    "local sniper smoke should track the rendered camera and viewmodel socket"
+    "local sniper smoke should keep its captured world fire origin"
   );
 
   lg::RenderSettings fadedRailSmokeSettings = highRailSmokeSettings;
@@ -5656,11 +6099,11 @@ int main() {
       );
   }
   failures += expect(
-    hasAnyVertex(remoteRevolverMuzzleScene) &&
-      hasWarmRevolverTracer &&
-      maxVertexX(remoteRevolverMuzzleScene) <
-        remoteRevolverFires[1].start.x - 0.2F,
-    "remote revolver beam should start from the modeled barrel socket"
+    nearestTranslucentVertexDistance(
+      remoteRevolverMuzzleScene,
+      remoteRevolverFires[1].start
+    ) < 0.05F && hasWarmRevolverTracer,
+    "remote revolver beam should start at its captured world fire origin"
   );
 
   std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> plasmaRockets = {};
@@ -5704,10 +6147,60 @@ int main() {
       plasmaProjectileScene.simpleBatches.size() == 2U,
     "active plasma projectile should produce one core instance, one glow instance, and no legacy vertices"
   );
+  const lg::SimpleRenderInstance* farPlasmaCore = findSimpleMesh(
+    plasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  const lg::SimpleRenderInstance* farPlasmaGlow = findSimpleBillboard(
+    plasmaProjectileScene,
+    lg::BillboardHandle::PlasmaGlow
+  );
+  failures += expect(
+    plasmaDescriptor != nullptr &&
+      farPlasmaCore != nullptr &&
+      farPlasmaGlow != nullptr &&
+      nearlyEqual(farPlasmaCore->scale.x, plasmaDescriptor->coreScale) &&
+      nearlyEqual(farPlasmaGlow->scale.x, plasmaDescriptor->glowScale) &&
+      farPlasmaGlow->color.alpha == plasmaDescriptor->glowColor.alpha,
+    "remote plasma projectiles should keep their full world cue outside the near-view fade"
+  );
   failures += expect(
     plasmaProjectileScene.simpleInstances[0].position.x <
       plasmaRockets[0].position.x - 0.35F,
     "remote plasma projectile instances should render from the plasma gun model"
+  );
+
+  plasmaRockets[0].position =
+    plasmaProjectileScene.camera.position +
+    plasmaProjectileScene.camera.forward * 0.35F;
+  const lg::Scene3D nearRemotePlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    settings
+  );
+  const lg::SimpleRenderInstance* nearRemotePlasmaCore = findSimpleMesh(
+    nearRemotePlasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  const lg::SimpleRenderInstance* nearRemotePlasmaGlow = findSimpleBillboard(
+    nearRemotePlasmaProjectileScene,
+    lg::BillboardHandle::PlasmaGlow
+  );
+  failures += expect(
+    farPlasmaCore != nullptr &&
+      farPlasmaGlow != nullptr &&
+      nearRemotePlasmaCore != nullptr &&
+      nearRemotePlasmaGlow != nullptr &&
+      nearRemotePlasmaCore->scale.x < farPlasmaCore->scale.x * 0.30F &&
+      nearRemotePlasmaGlow->scale.x < farPlasmaGlow->scale.x * 0.30F &&
+      nearRemotePlasmaGlow->color.alpha < farPlasmaGlow->color.alpha * 0.35F,
+    "incoming plasma projectiles should shrink and dim near the camera"
   );
 
   plasmaRockets[0].owner = 0;
@@ -5724,11 +6217,56 @@ int main() {
     plasmaRockets,
     localShotgunWeaponStartSettings
   );
+  const lg::SimpleRenderInstance* localPlasmaCore = findSimpleMesh(
+    localPlasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  const lg::SimpleRenderInstance* localPlasmaGlow = findSimpleBillboard(
+    localPlasmaProjectileScene,
+    lg::BillboardHandle::PlasmaGlow
+  );
   failures += expect(
     localPlasmaProjectileScene.simpleInstances.size() == 2U &&
       localPlasmaProjectileScene.simpleInstances[0].position.z <
-        plasmaRockets[0].position.z - 0.15F,
-    "local plasma projectile instances should render from the first-person weapon muzzle"
+        plasmaRockets[0].position.z - 0.15F &&
+      plasmaDescriptor != nullptr &&
+      localPlasmaCore != nullptr &&
+      localPlasmaGlow != nullptr &&
+      nearlyEqual(localPlasmaCore->scale.x, plasmaDescriptor->coreScale) &&
+      nearlyEqual(localPlasmaGlow->scale.x, plasmaDescriptor->glowScale) &&
+      localPlasmaGlow->color.alpha == plasmaDescriptor->glowColor.alpha,
+    "local plasma projectile launch cues should keep full size at the first-person muzzle"
+  );
+  lg::RenderSettings swayedLocalPlasmaProjectileSettings =
+    localShotgunWeaponStartSettings;
+  swayedLocalPlasmaProjectileSettings.localSelectedWeapon = lg::Weapon::PlasmaGun;
+  swayedLocalPlasmaProjectileSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D swayedLocalPlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    swayedLocalPlasmaProjectileSettings
+  );
+  const lg::SimpleRenderInstance* swayedLocalPlasmaCore = findSimpleMesh(
+    swayedLocalPlasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  failures += expect(
+    swayedLocalPlasmaCore != nullptr &&
+      lg::length(
+        swayedLocalPlasmaCore->position -
+        lg::firstPersonPlasmaGunMuzzlePosition(
+          player,
+          swayedLocalPlasmaProjectileSettings
+        )
+      ) < 0.001F,
+    "local plasma projectile should start at the rendered muzzle through camera motion"
   );
 
   plasmaRockets[0].active = false;
@@ -6195,6 +6733,72 @@ int main() {
     "active grenade projectile should produce one opaque instance with no glow or local light"
   );
 
+  grenadeProjectiles[0].owner = 0;
+  grenadeProjectiles[0].position =
+    player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  lg::RenderSettings localGrenadeProjectileSettings = settings;
+  localGrenadeProjectileSettings.localSelectedWeapon =
+    lg::Weapon::GrenadeLauncher;
+  localGrenadeProjectileSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D localGrenadeProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    grenadeProjectiles,
+    localGrenadeProjectileSettings
+  );
+  const lg::SimpleRenderInstance* localGrenadeCore = findSimpleMesh(
+    localGrenadeProjectileScene,
+    lg::MeshHandle::GrenadeProjectile
+  );
+  failures += expect(
+    localGrenadeCore != nullptr &&
+      lg::length(
+        localGrenadeCore->position -
+        lg::firstPersonGrenadeLauncherMuzzlePosition(
+          player,
+          localGrenadeProjectileSettings
+        )
+      ) < 0.001F,
+    "local grenade projectile should start at the rendered muzzle through camera motion"
+  );
+
+  grenadeProjectiles[0].owner = 1;
+  grenadeProjectiles[0].position =
+    shotgunRemotePlayers[1].player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  shotgunRemotePlayers[1].selectedWeapon = lg::Weapon::GrenadeLauncher;
+  const lg::Scene3D remoteGrenadeProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    grenadeProjectiles,
+    settings
+  );
+  const lg::SimpleRenderInstance* remoteGrenadeCore = findSimpleMesh(
+    remoteGrenadeProjectileScene,
+    lg::MeshHandle::GrenadeProjectile
+  );
+  failures += expect(
+    remoteGrenadeCore != nullptr &&
+      lg::length(
+        remoteGrenadeCore->position -
+        lg::remoteGrenadeLauncherMuzzlePosition(
+          shotgunRemotePlayers[1],
+          settings
+        )
+      ) < 0.001F,
+    "remote grenade projectile should start at the rendered launcher muzzle"
+  );
+
   grenadeProjectiles[0].velocity = {};
   const lg::Scene3D stillGrenadeProjectileScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -6620,8 +7224,87 @@ int main() {
   );
   failures += expect(
     plasmaExplosionScene.transientVfxStats.explosionInstancesSubmitted == 3 &&
-      plasmaExplosionScene.simpleInstances.size() == 3U,
-    "plasma explosion effects should submit a distinct compact three-instance burst"
+      plasmaExplosionScene.simpleInstances.size() == 3U &&
+      findSimpleMesh(plasmaExplosionScene, lg::MeshHandle::ExplosionCore) != nullptr,
+    "distant plasma explosion effects should submit the full three-instance burst"
+  );
+  const lg::SimpleRenderInstance* farPlasmaExplosionFlash = findSimpleBillboard(
+    plasmaExplosionScene,
+    lg::BillboardHandle::ExplosionFlash
+  );
+  const lg::SimpleRenderInstance* farPlasmaExplosionHalo = findSimpleBillboard(
+    plasmaExplosionScene,
+    lg::BillboardHandle::ExplosionHalo
+  );
+  for (std::size_t index = 0; index < 3U; ++index) {
+    explosionEffects[index].position =
+      plasmaExplosionScene.camera.position +
+      plasmaExplosionScene.camera.forward * 0.35F;
+  }
+  const lg::Scene3D nearPlasmaExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 3U),
+    settings
+  );
+  const lg::SimpleRenderInstance* nearPlasmaExplosionFlash = findSimpleBillboard(
+    nearPlasmaExplosionScene,
+    lg::BillboardHandle::ExplosionFlash
+  );
+  const lg::SimpleRenderInstance* nearPlasmaExplosionHalo = findSimpleBillboard(
+    nearPlasmaExplosionScene,
+    lg::BillboardHandle::ExplosionHalo
+  );
+  failures += expect(
+    nearPlasmaExplosionScene.transientVfxStats.activeExplosionEffects == 3U &&
+      nearPlasmaExplosionScene.transientVfxStats.explosionInstancesSubmitted == 2U &&
+      nearPlasmaExplosionScene.transientVfxStats.explosionOpaqueBatches == 0U &&
+      nearPlasmaExplosionScene.simpleInstances.size() == 2U &&
+      findSimpleMesh(nearPlasmaExplosionScene, lg::MeshHandle::ExplosionCore) == nullptr &&
+      farPlasmaExplosionFlash != nullptr &&
+      farPlasmaExplosionHalo != nullptr &&
+      nearPlasmaExplosionFlash != nullptr &&
+      nearPlasmaExplosionHalo != nullptr &&
+      nearPlasmaExplosionFlash->scale.x < farPlasmaExplosionFlash->scale.x * 0.25F &&
+      nearPlasmaExplosionHalo->scale.x < farPlasmaExplosionHalo->scale.x * 0.25F &&
+      nearPlasmaExplosionFlash->color.alpha <
+        farPlasmaExplosionFlash->color.alpha * 0.30F &&
+      nearPlasmaExplosionHalo->color.alpha <
+        farPlasmaExplosionHalo->color.alpha * 0.30F,
+    "near plasma hits should omit the opaque core and keep two small additive cues"
+  );
+  lg::TransientEffect nearPlasmaGoalMarker = explosionEffects[1];
+  nearPlasmaGoalMarker.lifetimeSeconds = 1.0F;
+  nearPlasmaGoalMarker.initialScale = 0.55F;
+  nearPlasmaGoalMarker.finalScale = 0.55F;
+  const lg::Scene3D nearPlasmaGoalMarkerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(&nearPlasmaGoalMarker, 1U),
+    settings
+  );
+  const lg::SimpleRenderInstance* nearPlasmaGoalCore = findSimpleMesh(
+    nearPlasmaGoalMarkerScene,
+    lg::MeshHandle::ExplosionCore
+  );
+  failures += expect(
+    nearPlasmaGoalCore != nullptr &&
+      nearlyEqual(nearPlasmaGoalCore->scale.x, 0.55F),
+    "near-view limits for short plasma hits should not alter long-lived goal markers"
   );
 
   explosionEffects[0] = {

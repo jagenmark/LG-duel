@@ -1770,6 +1770,34 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   return true;
 }
 
+[[nodiscard]] bool convertKillVolumeEntity(
+  const MapEntity& entity,
+  std::vector<ArenaKillVolume>& killVolumes,
+  std::string& error
+) {
+  if (entity.brushes.empty()) {
+    error = "line " + std::to_string(entity.line) +
+      ": trigger_kill requires at least one brush";
+    return false;
+  }
+  for (const MapBrush& brush : entity.brushes) {
+    if (killVolumes.size() >= Arena::kKillVolumeCount) {
+      error = "line " + std::to_string(entity.line) +
+        ": too many trigger_kill brushes";
+      return false;
+    }
+    ArenaWall cuboid;
+    std::string cuboidError;
+    if (!convertCuboidBrush(brush, cuboid, cuboidError)) {
+      error = "line " + std::to_string(brush.line) +
+        ": trigger_kill requires non-degenerate cuboid brushes";
+      return false;
+    }
+    killVolumes.push_back({cuboid.min, cuboid.max});
+  }
+  return true;
+}
+
 void expandBounds(Vec3 point, Vec3& minimum, Vec3& maximum, bool& initialized) {
   if (!initialized) {
     minimum = point;
@@ -1795,6 +1823,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   std::vector<ArenaStaticLight> staticLights;
   std::vector<ArenaJumpPad> jumpPads;
   std::vector<ArenaTeleport> teleports;
+  std::vector<ArenaKillVolume> killVolumes;
   std::vector<ArenaHealthPickup> healthPickups;
   std::vector<TargetPosition> targetPositions;
   ArenaAmbientLight ambientLight;
@@ -2013,6 +2042,11 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       if (!convertJumpPadEntity(entity, targetPositions, jumpPads, error)) {
         return {{}, false, error};
       }
+    } else if (*classname == "trigger_kill") {
+      std::string error;
+      if (!convertKillVolumeEntity(entity, killVolumes, error)) {
+        return {{}, false, error};
+      }
     } else if (healthPickupTypeForClass(*classname, healthPickupType)) {
       if (healthPickups.size() >= Arena::kHealthPickupCount) {
         return {{}, false, "line " + std::to_string(entity.line) + ": too many health pickups"};
@@ -2156,6 +2190,10 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       expandBounds(teleport.max, boundsMin, boundsMax, initialized);
       expandBounds(teleport.destination, boundsMin, boundsMax, initialized);
     }
+    for (const ArenaKillVolume& volume : killVolumes) {
+      expandBounds(volume.min, boundsMin, boundsMax, initialized);
+      expandBounds(volume.max, boundsMin, boundsMax, initialized);
+    }
     for (const ArenaHealthPickup& pickup : healthPickups) {
       expandBounds(pickup.position, boundsMin, boundsMax, initialized);
     }
@@ -2260,6 +2298,10 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     result.arena.teleportCount = teleports.size();
     for (std::size_t index = 0; index < result.arena.teleportCount; ++index) {
       result.arena.teleports[index] = teleports[index];
+    }
+    result.arena.killVolumeCount = killVolumes.size();
+    for (std::size_t index = 0; index < result.arena.killVolumeCount; ++index) {
+      result.arena.killVolumes[index] = killVolumes[index];
     }
     result.arena.healthPickupCount = healthPickups.size();
     for (std::size_t index = 0; index < result.arena.healthPickupCount; ++index) {

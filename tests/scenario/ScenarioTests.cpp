@@ -97,6 +97,26 @@ int testParsing() {
     !weapon.ok && weapon.error.find("unknown weapon") != std::string::npos,
     "unknown weapons should fail");
 
+  std::string ffaJson = validScenarioJson("ffa_mode");
+  const std::string duelMode = R"("game_mode":"duel")";
+  ffaJson.replace(
+    ffaJson.find(duelMode),
+    duelMode.size(),
+    R"("game_mode":"free_for_all")"
+  );
+  const auto ffa = lg::scenario::parseScenarioJson(ffaJson);
+  const auto ffaRoundTrip = ffa.ok
+    ? lg::scenario::parseScenarioJson(
+        lg::dev::writeJson(lg::scenario::scenarioJson(ffa.scenario))
+      )
+    : lg::scenario::ScenarioParseResult{};
+  failures += expect(
+    ffa.ok && ffa.scenario.world.gameMode == lg::GameMode::FreeForAll &&
+      ffaRoundTrip.ok &&
+      ffaRoundTrip.scenario.world.gameMode == lg::GameMode::FreeForAll,
+    "FFA scenario names should parse and round trip"
+  );
+
   std::string badEventJson = validScenarioJson("bad_event");
   const std::string emptyAssertions = R"("assertions":[])";
   const std::size_t assertionsAt = badEventJson.find(emptyAssertions);
@@ -510,7 +530,9 @@ int testServerSetupAndHashes() {
   lg::ScenarioSetup setup;
   setup.seed = 1234;
   setup.serverTick = 17;
+  setup.match.gameMode = lg::GameMode::FreeForAll;
   setup.match.phase = lg::MatchPhase::Live;
+  setup.match.scores[0] = -3;
   setup.players[0].connected = true;
   setup.players[0].ready = true;
   setup.players[0].alive = true;
@@ -534,9 +556,25 @@ int testServerSetupAndHashes() {
   const lg::ScenarioState stateA = gameA.captureScenarioState();
   const lg::ScenarioState stateB = gameB.captureScenarioState();
   failures += expect(
-    stateA.serverTick == 17U && stateA.players[0].player.health == 73 &&
+    stateA.serverTick == 17U &&
+      stateA.match.gameMode == lg::GameMode::FreeForAll &&
+      stateA.match.scores[0] == -3 &&
+      stateA.players[0].player.health == 73 &&
       stateA.players[0].weapon.selectedWeapon == lg::Weapon::Railgun,
-    "capture should keep applied tick, health, and weapon");
+    "capture should keep FFA mode, signed score, tick, health, and weapon");
+
+  lg::ScenarioSetup invalidMode = setup;
+  invalidMode.match.gameMode = static_cast<lg::GameMode>(255);
+  failures += expect(
+    !gameA.applyScenarioSetup(invalidMode, &errorA),
+    "scenario setup should reject a game mode outside the enum range"
+  );
+  lg::ScenarioSetup invalidFfaTeam = setup;
+  invalidFfaTeam.players[0].team = lg::Team::Red;
+  failures += expect(
+    !gameA.applyScenarioSetup(invalidFfaTeam, &errorA),
+    "FFA scenario players should reject team state"
+  );
 
   const std::string hashA = lg::scenario::scenarioStateHash(stateA);
   const std::string hashB = lg::scenario::scenarioStateHash(stateB);
@@ -547,6 +585,13 @@ int testServerSetupAndHashes() {
   failures += expect(
     lg::scenario::scenarioStateHash(changed) != hashA,
     "state hash should change when authoritative health changes");
+  const std::uint32_t firstDamageFeedbackRevision =
+    gameA.snapshot().damageFeedbackRevision;
+  failures += expect(
+    gameA.applyScenarioSetup(setup, &errorA) &&
+      gameA.snapshot().damageFeedbackRevision != firstDamageFeedbackRevision,
+    "a scenario setup should start a new damage-feedback timeline"
+  );
   return failures;
 }
 

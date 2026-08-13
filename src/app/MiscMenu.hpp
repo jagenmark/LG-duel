@@ -19,8 +19,16 @@ enum class MiscMenuRow : std::size_t {
   FrameStats,
   RendererPerformance,
   NetGraph,
+  DamageIndicator,
+  DamageIndicatorReset,
+  DamageIndicatorApply,
   Close,
   Count,
+};
+
+struct MiscMenuDraft {
+  bool pendingDamageIndicator = true;
+  bool originalDamageIndicator = true;
 };
 
 struct MiscMenuItem {
@@ -28,12 +36,27 @@ struct MiscMenuItem {
   std::string value;
   std::string description;
   bool command = false;
+  bool changed = false;
 };
 
 [[nodiscard]] std::vector<MiscMenuItem>
 miscMenuItems(const ConsoleSystem &console);
 
+[[nodiscard]] std::vector<MiscMenuItem>
+miscMenuItems(const ConsoleSystem &console, const MiscMenuDraft &draft);
+
+void syncMiscMenuDraft(MiscMenuDraft &draft, const ConsoleSystem &console);
+
+[[nodiscard]] bool miscMenuDraftChanged(const MiscMenuDraft &draft);
+
+void resetMiscMenuDraft(MiscMenuDraft &draft);
+
+void revertMiscMenuDraft(MiscMenuDraft &draft);
+
+[[nodiscard]] bool applyMiscMenuDraft(ConsoleSystem &console,
+                                      MiscMenuDraft &draft);
+
 [[nodiscard]] bool adjustMiscMenuValue(ConsoleSystem &console, MiscMenuRow row,
-                                       int direction);
+                                       int direction, MiscMenuDraft &draft);
 
 } // namespace lg

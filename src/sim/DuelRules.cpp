@@ -1,6 +1,7 @@
 #include "sim/DuelRules.hpp"
 
 #include <algorithm>
+#include <limits>
 
 namespace lg {
 
@@ -63,16 +64,19 @@ std::optional<std::size_t> duelRoundWinner(
 }
 
 void awardDuelRound(
-  std::array<std::uint16_t, kMaxPlayers>& scores,
+  std::array<PlayerScore, kMaxPlayers>& scores,
   std::size_t winnerIndex
 ) {
-  if (winnerIndex < kMaxPlayers) {
+  if (
+    winnerIndex < kMaxPlayers &&
+    scores[winnerIndex] < std::numeric_limits<PlayerScore>::max()
+  ) {
     ++scores[winnerIndex];
   }
 }
 
 bool hasWonDuel(
-  const std::array<std::uint16_t, kMaxPlayers>& scores,
+  const std::array<PlayerScore, kMaxPlayers>& scores,
   std::size_t playerIndex,
   std::uint16_t roundLimit
 ) {
@@ -82,7 +86,7 @@ bool hasWonDuel(
 }
 
 std::optional<std::size_t> duelScoreLeader(
-  const std::array<std::uint16_t, kMaxPlayers>& scores,
+  const std::array<PlayerScore, kMaxPlayers>& scores,
   const std::array<bool, kMaxPlayers>& connectedPlayers
 ) {
   if (!hasRequiredDuelPlayers(connectedPlayers)) {

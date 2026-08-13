@@ -5,6 +5,7 @@
 #include "app/ClientCvars.hpp"
 #include "app/ConsoleInput.hpp"
 #include "app/DeathCamera.hpp"
+#include "app/GameModeConsole.hpp"
 #include "app/GraphicsProfiles.hpp"
 #include "app/HudPresentation.hpp"
 #include "app/MiscMenu.hpp"
@@ -325,6 +326,17 @@ void copyTextToClipboard(std::string_view text) {
     static_cast<DamageNumbersMode>(console.getInt("r_damage_numbers_mode")),
     console.getFloat("r_damage_numbers_window"),
     console.getFloat("r_damage_numbers_duration"),
+  };
+}
+
+[[nodiscard]] DirectionalDamageHudConfig directionalDamageHudConfig(
+  const ConsoleSystem& console
+) {
+  return {
+    console.getFloat("r_damage_indicator_duration"),
+    console.getFloat("r_damage_indicator_opacity"),
+    console.getFloat("r_damage_indicator_distance"),
+    console.getFloat("r_damage_indicator_scale"),
   };
 }
 
@@ -803,7 +815,16 @@ struct TransientTracerStore {
         ) {
           continue;
         }
-        if (followMuzzle[index]) {
+        // Only the short muzzle-flash cues stay attached to the live weapon.
+        // Fired tracer endpoints are captured when the shot is accepted.
+        if (
+          followMuzzle[index] &&
+          (
+            tracer.style == TracerStyle::MachineGunMuzzleFlash ||
+            tracer.style == TracerStyle::RevolverMuzzleFlash ||
+            tracer.style == TracerStyle::RocketLauncherMuzzleFlash
+          )
+        ) {
           const Vec3 oldStart = tracer.start;
           const Vec3 oldDelta = tracer.end - oldStart;
           const std::size_t playerIndex = followPlayerIndex[index];
@@ -993,7 +1014,7 @@ void spawnMachineGunTracer(
     tracerColor(Weapon::MachineGun, fire.visualSeed),
     fire.visualSeed,
     TracerStyle::MachineGun,
-  }, true, Weapon::MachineGun, fire.visualSeed, playerIndex);
+  }, false, Weapon::MachineGun, fire.visualSeed, playerIndex);
   // The flash shares the tracer's deduplicated fire event and muzzle-follow
   // metadata, so it cannot repeat when the same snapshot is rendered twice.
   store.add({
@@ -1031,7 +1052,6 @@ void spawnShotgunTracers(
   const Arena& arena,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle,
   std::uint8_t playerIndex
 ) {
   const Vec3 forward = normalize(fire.end - fire.start);
@@ -1079,7 +1099,7 @@ void spawnShotgunTracers(
       tracerColor(Weapon::Shotgun, fire.visualSeed + visualIndex),
       fire.visualSeed + visualIndex,
       TracerStyle::Shotgun,
-    }, followLocalMuzzle, Weapon::Shotgun, fire.visualSeed, playerIndex);
+    }, false, Weapon::Shotgun, fire.visualSeed, playerIndex);
   }
 }
 
@@ -1373,7 +1393,6 @@ void consumeTracerWeaponFires(
         arena,
         visualFire,
         visualStart,
-        localEvent,
         eventPlayer
       );
       const bool spawnedSurfaceImpact = spawnWorldSurfaceImpact(
@@ -2467,6 +2486,7 @@ struct MiscMenuState {
   int pressedRow = -1;
   bool scrollbarDragging = false;
   float scrollbarGrabOffsetY = 0.0F;
+  MiscMenuDraft damageIndicatorDraft;
 };
 
 struct LingeringWeaponFire {
@@ -3847,14 +3867,15 @@ void populateMiscMenuRenderState(HudRenderState &hud, const MiscMenuState &menu,
   hud.miscMenuScrollRows = menu.scrollRows;
   hud.miscMenuHoveredRow = menu.hoveredRow;
   hud.miscMenuPressedRow = menu.pressedRow;
-  const std::vector<MiscMenuItem> items = miscMenuItems(console);
+  const std::vector<MiscMenuItem> items =
+      miscMenuItems(console, menu.damageIndicatorDraft);
   hud.miscMenuItems.reserve(items.size());
   for (std::size_t index = 0U; index < items.size(); ++index) {
     hud.miscMenuItems.push_back(HudRenderState::SettingsMenuItem{
         items[index].label,
         items[index].value,
         menu.selectedRow == static_cast<int>(index),
-        false,
+        items[index].changed,
         items[index].command,
     });
   }
@@ -4632,6 +4653,8 @@ std::string gameModeName(GameMode gameMode) {
     return "CLAN ARENA";
   case GameMode::McGuffin:
     return "MCGUFFIN";
+  case GameMode::FreeForAll:
+    return "FREE FOR ALL";
   }
   return "UNKNOWN";
 }
@@ -4698,6 +4721,13 @@ HudRenderState buildHud(
 
   const ClientGame& client = *session.game();
   const ServerSnapshot& snapshot = client.snapshot();
+  populateFreeForAllStanding(
+    hud,
+    snapshot,
+    !session.spectator() && session.playerIndex() < kDuelPlayerCount
+      ? session.playerIndex()
+      : kDuelPlayerCount
+  );
   if (subjectPlayerIndex.has_value() &&
       *subjectPlayerIndex >= kDuelPlayerCount) {
     subjectPlayerIndex.reset();
@@ -4769,7 +4799,7 @@ HudRenderState buildHud(
   }
   if (snapshot.matchPhase != MatchPhase::Live) {
     hud.topLeftLines.push_back("MODE " + gameModeName(snapshot.gameMode));
-    if (snapshot.gameMode != GameMode::Duel) {
+    if (isTeamGameMode(snapshot.gameMode)) {
       hud.topLeftLines.push_back(
         "TEAM " + teamName(snapshot.teams[localPlayerIndex])
       );
@@ -4778,7 +4808,9 @@ HudRenderState buildHud(
   if (showAliveCounts && snapshot.gameMode == GameMode::ClanArena) {
     hud.topRightLines.push_back(aliveCountLine(snapshot));
   }
-  hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
+  if (snapshot.gameMode != GameMode::FreeForAll) {
+    hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
+  }
   if (snapshot.gameMode == GameMode::McGuffin) {
     hud.mcguffinNavigation = selectMcGuffinNavigationTarget(
       snapshot,
@@ -5094,6 +5126,10 @@ int GameApp::run() const {
   bool botStandstillEnabled = false;
   BotAttackMode botAttackMode = BotAttackMode::Off;
   Weapon botWeapon = Weapon::MachineGun;
+  // The snapshot carries the selected fallback weapon but no mode bit. Keep
+  // this client-side request state so querying after `bot_weapon auto` says
+  // what the user selected without extending the game protocol.
+  bool botWeaponAuto = true;
   struct PendingBotCommand {
     BotCommandType type = BotCommandType::None;
     std::int32_t value = 0;
@@ -5157,6 +5193,7 @@ int GameApp::run() const {
     int previousAttack = 0;
     BotAttackMode previousBotAttackMode = BotAttackMode::Off;
     Weapon previousBotWeapon = Weapon::MachineGun;
+    bool previousBotWeaponAuto = true;
     bool previousBotStare = true;
     bool previousBotStandstill = false;
     bool previousBotDodge = false;
@@ -5449,20 +5486,44 @@ int GameApp::run() const {
     }
   );
   console.registerCommand(
-    "bot_weapon",
-    "Set the authoritative weapon used by all training bots: bot_weapon [mg|sg|gl|rl|lg|sr|pg|fg|re|1..9].",
-    [&botWeapon, &queueBotCommand](const std::vector<std::string>& arguments) {
+    "bot_difficulty",
+    "Request normal bot skill: bot_difficulty easy|medium|hard.",
+    [&botAttackMode, &queueBotCommand](const std::vector<std::string>& arguments) {
       if (arguments.size() == 1) {
-        return std::string("bot_weapon = ") +
-          std::string(weaponShortName(botWeapon));
+        return std::string("bot_difficulty = ") + botAttackModeCvarValue(botAttackMode);
       }
       if (arguments.size() != 2) {
-        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
+        return std::string("usage: bot_difficulty easy|medium|hard");
+      }
+      const std::optional<BotAttackMode> mode = parseBotAttackMode(arguments[1]);
+      if (!mode.has_value() || *mode == BotAttackMode::Off) {
+        return std::string("usage: bot_difficulty easy|medium|hard");
+      }
+      return queueBotCommand(PendingBotCommand{
+        BotCommandType::AttackMode, static_cast<std::int32_t>(*mode),
+      });
+    }
+  );
+  console.registerCommand(
+    "bot_weapon",
+    "Force a bot weapon or return to auto choice: bot_weapon [auto|mg|sg|gl|rl|lg|sr|pg|fg|re|1..9].",
+    [&botWeapon, &botWeaponAuto, &queueBotCommand](const std::vector<std::string>& arguments) {
+      if (arguments.size() == 1) {
+        return std::string("bot_weapon = ") +
+          (botWeaponAuto ? "auto" : std::string(weaponShortName(botWeapon)));
+      }
+      if (arguments.size() != 2) {
+        return std::string("usage: bot_weapon auto|mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
+      }
+      if (arguments[1] == "auto") {
+        botWeaponAuto = true;
+        return queueBotCommand(PendingBotCommand{BotCommandType::Weapon, -1});
       }
       const std::optional<Weapon> weapon = parseWeaponToken(arguments[1]);
       if (!weapon.has_value()) {
-        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
+        return std::string("usage: bot_weapon auto|mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
       }
+      botWeaponAuto = false;
       return queueBotCommand(PendingBotCommand{
         BotCommandType::Weapon,
         static_cast<std::int32_t>(*weapon),
@@ -5609,24 +5670,20 @@ int GameApp::run() const {
   );
   console.registerCommand(
     "gamemode",
-    "Select the active gamemode: gamemode <duel|ca|mcguffin>.",
+    "Select the active gamemode: " + std::string(kGameModeConsoleUsage) + ".",
     [&requestGameModePending, &requestedGameMode](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
-        return std::string("usage: gamemode <duel|ca|mcguffin>");
+        return std::string("usage: ") + std::string(kGameModeConsoleUsage);
       }
       std::string value = arguments[1];
       std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
       });
-      if (value == "duel") {
-        requestedGameMode = GameMode::Duel;
-      } else if (value == "ca" || value == "clanarena" || value == "clan_arena") {
-        requestedGameMode = GameMode::ClanArena;
-      } else if (value == "mcg" || value == "mcguffin") {
-        requestedGameMode = GameMode::McGuffin;
-      } else {
-        return std::string("usage: gamemode <duel|ca|mcguffin>");
+      const std::optional<GameMode> parsed = gameModeForConsoleToken(value);
+      if (!parsed.has_value()) {
+        return std::string("usage: ") + std::string(kGameModeConsoleUsage);
       }
+      requestedGameMode = *parsed;
       requestGameModePending = true;
       return std::string("gamemode = ") + gameModeName(requestedGameMode);
     }
@@ -6182,12 +6239,14 @@ int GameApp::run() const {
     input.mouseDeltaX = 0.0F;
     input.mouseDeltaY = 0.0F;
     if (open) {
+      syncMiscMenuDraft(miscMenu.damageIndicatorDraft, console);
       miscMenu.selectedRow = std::clamp(
           miscMenu.selectedRow, 0, static_cast<int>(MiscMenuRow::Count) - 1);
       miscMenu.scrollRows = 0U;
       SDL_SetWindowRelativeMouseMode(window, false);
       SDL_ShowCursor();
     } else {
+      revertMiscMenuDraft(miscMenu.damageIndicatorDraft);
       miscMenu.hoveredRow = -1;
       miscMenu.pressedRow = -1;
       miscMenu.scrollbarDragging = false;
@@ -6298,6 +6357,12 @@ int GameApp::run() const {
   std::array<std::uint32_t, kDuelPlayerCount> lastDamageNumberFeedbackSequences = {};
   std::array<bool, kDuelPlayerCount> hasLastDamageNumberFeedbackSequence = {};
   bool damageNumberStateInitialized = false;
+  DirectionalDamageState directionalDamageState;
+  const ClientGame* directionalDamageGame = nullptr;
+  bool directionalDamageHasBody = false;
+  std::size_t directionalDamageBodyIndex = kDuelPlayerCount;
+  std::uint32_t directionalDamageMapRevision = 0;
+  std::uint32_t directionalDamageTimelineRevision = 0;
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount>
     lastPlayedGrenadeBounceAudioSequences = {};
@@ -6320,6 +6385,7 @@ int GameApp::run() const {
   LocalHitFeedbackDedupeState localHitFeedbackDedupe;
   std::array<int, kDuelPlayerCount> lastRemoteHealth = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteHealth = {};
+  std::array<float, kDuelPlayerCount> remoteDeathFadeAgeSeconds = {};
   std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
@@ -6730,8 +6796,9 @@ int GameApp::run() const {
       pendingBotCommands.push_back(PendingBotCommand{BotCommandType::KickAll, 0});
       pendingBotCommands.push_back(PendingBotCommand{
         BotCommandType::Weapon,
-        static_cast<std::int32_t>(active.previousBotWeapon),
+        active.previousBotWeaponAuto ? -1 : static_cast<std::int32_t>(active.previousBotWeapon),
       });
+      botWeaponAuto = active.previousBotWeaponAuto;
       if (active.previousBotCount > 0) {
         pendingBotCommands.push_back(PendingBotCommand{
           BotCommandType::Add, active.previousBotCount
@@ -7140,6 +7207,7 @@ int GameApp::run() const {
         active.previousAttack = input.attack;
         active.previousBotAttackMode = botAttackMode;
         active.previousBotWeapon = botWeapon;
+        active.previousBotWeaponAuto = botWeaponAuto;
         active.previousBotStare = botStareEnabled;
         active.previousBotStandstill = botStandstillEnabled;
         active.previousBotDodge = botDodgeEnabled;
@@ -7214,6 +7282,7 @@ int GameApp::run() const {
             BotCommandType::Weapon,
             static_cast<std::int32_t>(scenario.actors.weapon),
           });
+          botWeaponAuto = false;
           if (scenario.actors.bots > 0) {
             pendingBotCommands.push_back(PendingBotCommand{BotCommandType::Add, scenario.actors.bots});
           }
@@ -7750,17 +7819,24 @@ int GameApp::run() const {
                 static_cast<std::size_t>(rowCount));
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
             (void)adjustMiscMenuValue(
-                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), -1);
+                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), -1,
+                miscMenu.damageIndicatorDraft);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
             (void)adjustMiscMenuValue(
-                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), 1);
+                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), 1,
+                miscMenu.damageIndicatorDraft);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
-            if (static_cast<MiscMenuRow>(miscMenu.selectedRow) ==
-                MiscMenuRow::Close) {
+            const MiscMenuRow row =
+                static_cast<MiscMenuRow>(miscMenu.selectedRow);
+            if (row == MiscMenuRow::Close) {
               setMiscMenuOpen(false);
+            } else if (row == MiscMenuRow::DamageIndicatorReset) {
+              resetMiscMenuDraft(miscMenu.damageIndicatorDraft);
+            } else if (row == MiscMenuRow::DamageIndicatorApply) {
+              (void)applyMiscMenuDraft(console, miscMenu.damageIndicatorDraft);
             } else {
               (void)adjustMiscMenuValue(
-                  console, static_cast<MiscMenuRow>(miscMenu.selectedRow), 1);
+                  console, row, 1, miscMenu.damageIndicatorDraft);
             }
           }
           break;
@@ -8072,14 +8148,19 @@ int GameApp::run() const {
           } else if (miscMenu.pressedRow >= 0 && miscMenu.pressedRow == row) {
             const int clickedRow = miscMenu.pressedRow;
             miscMenu.pressedRow = -1;
-            if (static_cast<MiscMenuRow>(clickedRow) == MiscMenuRow::Close) {
+            const MiscMenuRow row = static_cast<MiscMenuRow>(clickedRow);
+            if (row == MiscMenuRow::Close) {
               setMiscMenuOpen(false);
+            } else if (row == MiscMenuRow::DamageIndicatorReset) {
+              resetMiscMenuDraft(miscMenu.damageIndicatorDraft);
+            } else if (row == MiscMenuRow::DamageIndicatorApply) {
+              (void)applyMiscMenuDraft(console, miscMenu.damageIndicatorDraft);
             } else {
               const float arrowX =
                   layout.panelX + layout.panelWidth - 28.0F - 9.0F * 18.0F;
               (void)adjustMiscMenuValue(
-                  console, static_cast<MiscMenuRow>(clickedRow),
-                  event.button.x < arrowX + 36.0F ? -1 : 1);
+                  console, row, event.button.x < arrowX + 36.0F ? -1 : 1,
+                  miscMenu.damageIndicatorDraft);
             }
           } else {
             miscMenu.pressedRow = -1;
@@ -8395,6 +8476,9 @@ int GameApp::run() const {
     if (currentPresentationGame == nullptr) {
       presentationView = {};
       presentationViewGame = nullptr;
+      lastRemoteHealth = {};
+      hasLastRemoteHealth = {};
+      remoteDeathFadeAgeSeconds = {};
       pendingLateViewModelMouseDeltaX = 0.0F;
       pendingLateViewModelMouseDeltaY = 0.0F;
       previousFrameUsedPresentationView = usePresentationView;
@@ -8404,6 +8488,9 @@ int GameApp::run() const {
       // reset.
       presentationView = {};
       playerPresentationStates = {};
+      lastRemoteHealth = {};
+      hasLastRemoteHealth = {};
+      remoteDeathFadeAgeSeconds = {};
       viewModelPresentation.reset();
       localWeaponSwitchPresentation.reset();
       remoteWeaponSwitchPresentations = {};
@@ -9140,7 +9227,50 @@ int GameApp::run() const {
       lastDamageNumberFeedbackSequences = {};
       hasLastDamageNumberFeedbackSequence = {};
       damageNumberStateInitialized = false;
+      directionalDamageState.reset();
       audio.resetLightningGunFire();
+    }
+    const bool directionalDamageNowHasBody =
+      currentAudioGame != nullptr &&
+      currentAudioGame->hasSnapshot() &&
+      !session.spectator() &&
+      session.playerIndex() < kDuelPlayerCount;
+    const std::size_t directionalDamageNowBodyIndex =
+      directionalDamageNowHasBody ? session.playerIndex() : kDuelPlayerCount;
+    const std::uint32_t directionalDamageNowMapRevision =
+      currentAudioGame != nullptr && currentAudioGame->hasSnapshot()
+      ? currentAudioGame->snapshot().mapRevision : 0U;
+    const std::uint32_t directionalDamageNowTimelineRevision =
+      currentAudioGame != nullptr && currentAudioGame->hasSnapshot()
+      ? currentAudioGame->snapshot().damageFeedbackRevision : 0U;
+    if (
+      directionalDamageGame != currentAudioGame ||
+      directionalDamageHasBody != directionalDamageNowHasBody ||
+      directionalDamageBodyIndex != directionalDamageNowBodyIndex ||
+      directionalDamageMapRevision != directionalDamageNowMapRevision ||
+      directionalDamageTimelineRevision != directionalDamageNowTimelineRevision
+    ) {
+      directionalDamageState.reset();
+      directionalDamageGame = currentAudioGame;
+      directionalDamageHasBody = directionalDamageNowHasBody;
+      directionalDamageBodyIndex = directionalDamageNowBodyIndex;
+      directionalDamageMapRevision = directionalDamageNowMapRevision;
+      directionalDamageTimelineRevision = directionalDamageNowTimelineRevision;
+    }
+    if (directionalDamageNowHasBody) {
+      const ServerSnapshot& damageSnapshot = currentAudioGame->snapshot();
+      const DamageTakenEventRing& events =
+        damageSnapshot.damageTakenEvents[directionalDamageNowBodyIndex];
+      const DirectionalDamageHudConfig config =
+        directionalDamageHudConfig(console);
+      const OrderedDirectionalDamageEvents incomingEvents =
+        orderedUnseenDirectionalDamageEvents(events, directionalDamageState);
+      for (std::size_t index = 0; index < incomingEvents.count; ++index) {
+        directionalDamageState.addIncomingDamageEvent(
+          incomingEvents.events[index],
+          config
+        );
+      }
     }
     if (
       audioAvailable &&
@@ -9836,6 +9966,33 @@ int GameApp::run() const {
         renderPlayer = visualPlayer;
       }
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+        const int currentRemoteHealth =
+          renderSnapshot.players[playerIndex].health;
+        const bool hadLastRemoteHealth = hasLastRemoteHealth[playerIndex];
+        const int previousRemoteHealth = lastRemoteHealth[playerIndex];
+        if (!renderSnapshot.participatingPlayers[playerIndex]) {
+          remoteDeathFadeAgeSeconds[playerIndex] = 0.0F;
+          hasLastRemoteHealth[playerIndex] = false;
+        } else if (currentRemoteHealth > 0) {
+          remoteDeathFadeAgeSeconds[playerIndex] = 0.0F;
+        } else if (
+          !hasLastRemoteHealth[playerIndex] ||
+          lastRemoteHealth[playerIndex] > 0
+        ) {
+          remoteDeathFadeAgeSeconds[playerIndex] = 0.0F;
+        } else {
+          remoteDeathFadeAgeSeconds[playerIndex] = std::min(
+            kDeadBodyFadeDurationSeconds,
+            remoteDeathFadeAgeSeconds[playerIndex] +
+              std::max(0.0F, elapsed.count())
+          );
+        }
+        lastRemoteHealth[playerIndex] = currentRemoteHealth;
+        hasLastRemoteHealth[playerIndex] =
+          renderSnapshot.participatingPlayers[playerIndex];
+
+        // Hide and reset only the body that owns the active first-person
+        // camera. A followed player is not the connected local body.
         if (suppressRemoteBodyForPresentation(renderViewOwnership, playerIndex)) {
           playerPresentationStates[playerIndex] = {};
           remoteWeaponSwitchPresentations[playerIndex].reset();
@@ -9879,6 +10036,16 @@ int GameApp::run() const {
           renderSnapshot.playerNames[playerIndex],
           renderAnimationTimeSeconds,
         };
+        renderRemotePlayers[playerIndex].bodyFade =
+          currentRemoteHealth <= 0
+            ? remoteBodyFadeAtAge(remoteDeathFadeAgeSeconds[playerIndex])
+            : RemoteBodyFade{};
+        renderRemotePlayers[playerIndex].visible =
+          renderRemotePlayers[playerIndex].bodyFade.visible;
+        if (!renderRemotePlayers[playerIndex].visible) {
+          playerPresentationStates[playerIndex] = {};
+          continue;
+        }
         PlayerPresentationConfig presentationConfig;
         presentationConfig.leanScale = teammate
           ? console.getFloat("r_teammate_lean_scale")
@@ -9904,11 +10071,8 @@ int GameApp::run() const {
           );
         renderRemotePlayers[playerIndex].selectedWeapon =
           renderRemotePlayers[playerIndex].weaponSwitchPresentation.displayedWeapon;
-        const int currentRemoteHealth =
-          renderSnapshot.players[playerIndex].health;
         if (
-          hasLastRemoteHealth[playerIndex] &&
-          currentRemoteHealth < lastRemoteHealth[playerIndex]
+          hadLastRemoteHealth && currentRemoteHealth < previousRemoteHealth
         ) {
           lastRemoteDamageTime[playerIndex] = now;
           hasLastRemoteDamageTime[playerIndex] = true;
@@ -10310,28 +10474,9 @@ int GameApp::run() const {
           lingeringRailBeam.fire.weapon == Weapon::Railgun &&
           now < lingeringRailBeam.expiresAt
         ) {
-          // The cue follows the rendered socket and uses the server trace's
-          // direction and length. It never affects hits, damage, or state.
-          const Vec3 liveStart = playerIndex == renderLocalPlayerIndex
-            ? (
-              currentRenderSettings.showOwnWeapons
-                ? firstPersonSniperRifleMuzzlePosition(
-                    renderPlayer,
-                    currentRenderSettings
-                  )
-                : hiddenWeaponVisualOrigin(renderPlayer)
-            )
-            : (
-              playerIndex < renderRemotePlayers.size() &&
-                renderRemotePlayers[playerIndex].visible
-                ? remoteSniperRifleMuzzlePosition(
-                    renderRemotePlayers[playerIndex],
-                    currentRenderSettings
-                  )
-                : lingeringRailBeam.sourceFire.start
-            );
-          lingeringRailBeam.fire.start = liveStart;
-          currentFire.start = liveStart;
+          // The fire start was captured from the rendered muzzle when this
+          // event began. Keep it fixed while only the fade and smoke shape
+          // continue to animate.
           const float ageSeconds = std::chrono::duration<float>(
             now - lingeringRailBeam.startedAt
           ).count();
@@ -10384,19 +10529,6 @@ int GameApp::run() const {
         );
         currentRenderSettings.revolverCylinderRotationRadians =
           (completedSteps + smoothIndexT) * (kTwoPi / 6.0F);
-        const float ageSeconds = std::chrono::duration<float>(
-          now - lingeringRailBeam.startedAt
-        ).count();
-        if (revolverTracerPresentation(ageSeconds).followMuzzle) {
-          const Vec3 followedStart = currentRenderSettings.showOwnWeapons
-            ? firstPersonRevolverMuzzlePosition(
-                renderPlayer,
-                currentRenderSettings
-              )
-            : hiddenWeaponVisualOrigin(renderPlayer);
-          lingeringRailBeam.fire.start = followedStart;
-          currentFire.start = followedStart;
-        }
       }
     }
     const bool sniperAdsRequested =
@@ -10512,6 +10644,10 @@ int GameApp::run() const {
     damageNumberState.update(
       outerFrameElapsed.count(),
       damageNumbersConfig(console)
+    );
+    directionalDamageState.update(
+      outerFrameElapsed.count(),
+      directionalDamageHudConfig(console)
     );
     updateKillFeedState(killFeedState, outerFrameElapsed.count());
     if (session.game() != nullptr && session.game()->hasSnapshot()) {
@@ -10691,6 +10827,17 @@ int GameApp::run() const {
     hud.sniperScopeAmount = sniperAdsAmount;
     hud.previousWeapon = renderedWeaponSwitch.outgoingWeapon;
     hud.damageNumbers = damageNumberState.presentation();
+    const bool damageIndicatorsEnabled =
+      console.getBool("r_damage_indicator") &&
+      !session.spectator() &&
+      session.game() != nullptr &&
+      session.game()->hasSnapshot() &&
+      session.playerIndex() < kDuelPlayerCount;
+    hud.directionalDamage = directionalDamageState.presentation(
+      renderPlayer.viewYawRadians,
+      directionalDamageHudConfig(console),
+      damageIndicatorsEnabled
+    );
     hud.killFeedLines = killFeedPresentation(killFeedState);
     if (console.getBool("cl_showfps")) {
       hud.fpsText = std::to_string(static_cast<int>(
@@ -11026,7 +11173,9 @@ int GameApp::run() const {
       populateScoreboard(
         hud,
         session.game()->snapshot(),
-        hudSubjectPlayerIndex.value_or(kDuelPlayerCount)
+        !session.spectator() && session.playerIndex() < kDuelPlayerCount
+          ? session.playerIndex()
+          : kDuelPlayerCount
       );
     }
     if (

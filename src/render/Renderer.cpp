@@ -2787,7 +2787,8 @@ void ensureSkyLoaded(
   SDL_GPUTextureFormat colorFormat = SDL_GPU_TEXTUREFORMAT_INVALID,
   bool depthOnly = false,
   const char* fragmentShaderPath = "instanced_color.frag.spv",
-  FragmentResourceLayout fragmentLayout = instancedColorFragmentLayout()
+  FragmentResourceLayout fragmentLayout = instancedColorFragmentLayout(),
+  bool enableColorBlend = false
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -2830,7 +2831,16 @@ void ensureSkyLoaded(
   colorTarget.format = colorFormat == SDL_GPU_TEXTUREFORMAT_INVALID
     ? SDL_GetGPUSwapchainTextureFormat(device, window)
     : colorFormat;
-  colorTarget.blend_state.enable_blend = false;
+  colorTarget.blend_state.src_color_blendfactor =
+    SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+  colorTarget.blend_state.dst_color_blendfactor =
+    SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+  colorTarget.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+  colorTarget.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+  colorTarget.blend_state.dst_alpha_blendfactor =
+    SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+  colorTarget.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+  colorTarget.blend_state.enable_blend = enableColorBlend && !depthOnly;
 
   SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
   createInfo.vertex_shader = vertexShader;
@@ -2873,7 +2883,8 @@ void ensureSkyLoaded(
   SDL_GPUTextureFormat colorFormat = SDL_GPU_TEXTUREFORMAT_INVALID,
   bool depthOnly = false,
   const char* fragmentShaderPath = "material_weapon.frag.spv",
-  FragmentResourceLayout fragmentLayout = {3U, 1U}
+  FragmentResourceLayout fragmentLayout = {3U, 1U},
+  bool enableColorBlend = false
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device, "material_mesh_instance.vert.spv", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1
@@ -2911,6 +2922,16 @@ void ensureSkyLoaded(
   colorTarget.format = colorFormat == SDL_GPU_TEXTUREFORMAT_INVALID
     ? SDL_GetGPUSwapchainTextureFormat(device, window)
     : colorFormat;
+  colorTarget.blend_state.src_color_blendfactor =
+    SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+  colorTarget.blend_state.dst_color_blendfactor =
+    SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+  colorTarget.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+  colorTarget.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+  colorTarget.blend_state.dst_alpha_blendfactor =
+    SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+  colorTarget.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+  colorTarget.blend_state.enable_blend = enableColorBlend && !depthOnly;
   SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
   createInfo.vertex_shader = vertexShader;
   createInfo.fragment_shader = fragmentShader;
@@ -3026,7 +3047,8 @@ void ensureSkyLoaded(
   SDL_GPUTextureFormat colorFormat = SDL_GPU_TEXTUREFORMAT_INVALID,
   bool depthOnly = false,
   const char* fragmentShaderPath = "gltf_player_model.frag.spv",
-  FragmentResourceLayout fragmentLayout = {4U, 1U}
+  FragmentResourceLayout fragmentLayout = {4U, 1U},
+  bool enableColorBlend = false
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -3093,7 +3115,17 @@ void ensureSkyLoaded(
     : colorFormat == SDL_GPU_TEXTUREFORMAT_INVALID
       ? SDL_GetGPUSwapchainTextureFormat(device, window)
       : colorFormat;
-  colorTarget.blend_state.enable_blend = false;
+  colorTarget.blend_state.src_color_blendfactor =
+    SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+  colorTarget.blend_state.dst_color_blendfactor =
+    SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+  colorTarget.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+  colorTarget.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+  colorTarget.blend_state.dst_alpha_blendfactor =
+    SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+  colorTarget.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+  colorTarget.blend_state.enable_blend =
+    enableColorBlend && !outlineMask && !depthOnly;
 
   SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
   createInfo.vertex_shader = vertexShader;
@@ -3378,14 +3410,22 @@ void destroyGpuSceneColorPipelines(
     window,
     depthFormat,
     SDL_GPU_SAMPLECOUNT_1,
-    colorFormat
+    colorFormat,
+    false,
+    "instanced_color.frag.spv",
+    instancedColorFragmentLayout(),
+    true
   );
   pipelines.materialMesh = createGpuMaterialMeshPipeline3D(
     device,
     window,
     depthFormat,
     SDL_GPU_SAMPLECOUNT_1,
-    colorFormat
+    colorFormat,
+    false,
+    "material_weapon.frag.spv",
+    {3U, 1U},
+    true
   );
   pipelines.staticViewModel = createGpuStaticMeshPipeline3D(
     device,
@@ -3407,7 +3447,11 @@ void destroyGpuSceneColorPipelines(
     false,
     depthFormat,
     SDL_GPU_SAMPLECOUNT_1,
-    colorFormat
+    colorFormat,
+    false,
+    "gltf_player_model.frag.spv",
+    {4U, 1U},
+    true
   );
   pipelines.gltfPlayerFlat = createGpuGltfPlayerModelPipeline(
     device,
@@ -3418,7 +3462,8 @@ void destroyGpuSceneColorPipelines(
     colorFormat,
     false,
     "gltf_player_model_flat.frag.spv",
-    {2U, 1U}
+    {2U, 1U},
+    true
   );
   pipelines.instancedGlow = createGpuInstancedPipeline3D(
     device,
@@ -6209,7 +6254,8 @@ void drawStaticMeshBatches(
   const Scene3D& scene,
   RenderPass passFilter,
   bool bindMaterialEnvironment = true,
-  const SDL_GPUTextureSamplerBinding* simplePointShadowBinding = nullptr
+  const SDL_GPUTextureSamplerBinding* simplePointShadowBinding = nullptr,
+  bool shadowCastersOnly = false
 ) {
   if (
     resources == nullptr ||
@@ -6227,33 +6273,66 @@ void drawStaticMeshBatches(
     if (mesh == nullptr || mesh->vertexBuffer == nullptr || mesh->vertexCount == 0U) {
       continue;
     }
-    SDL_BindGPUGraphicsPipeline(
-      pass,
-      mesh->materialLit ? materialPipeline : pipeline
-    );
-    if (mesh->materialLit && bindMaterialEnvironment) {
-      const SDL_GPUTextureSamplerBinding environmentBinding = {
-        resources->weaponEnvironment,
-        resources->weaponEnvironmentSampler,
-      };
-      SDL_BindGPUFragmentSamplers(pass, 0, &environmentBinding, 1);
-    } else if (!mesh->materialLit && simplePointShadowBinding != nullptr) {
-      SDL_BindGPUFragmentSamplers(
+    const auto drawRange = [&](std::uint32_t firstInstance,
+                               std::uint32_t instanceCount) {
+      if (instanceCount == 0U) {
+        return;
+      }
+      SDL_BindGPUGraphicsPipeline(
+        pass,
+        mesh->materialLit ? materialPipeline : pipeline
+      );
+      if (mesh->materialLit && bindMaterialEnvironment) {
+        const SDL_GPUTextureSamplerBinding environmentBinding = {
+          resources->weaponEnvironment,
+          resources->weaponEnvironmentSampler,
+        };
+        SDL_BindGPUFragmentSamplers(pass, 0, &environmentBinding, 1);
+      } else if (!mesh->materialLit && simplePointShadowBinding != nullptr) {
+        SDL_BindGPUFragmentSamplers(
+          pass,
+          0,
+          simplePointShadowBinding,
+          1
+        );
+      }
+      const std::array<SDL_GPUBufferBinding, 2> bindings = {{
+        {mesh->vertexBuffer, 0},
+        {
+          resources->staticInstances.buffer,
+          firstInstance * static_cast<Uint32>(sizeof(GpuStaticInstance)),
+        },
+      }};
+      SDL_BindGPUVertexBuffers(
         pass,
         0,
-        simplePointShadowBinding,
-        1
+        bindings.data(),
+        static_cast<Uint32>(bindings.size())
       );
+      SDL_DrawGPUPrimitives(pass, mesh->vertexCount, instanceCount, 0, 0);
+    };
+    if (!shadowCastersOnly) {
+      drawRange(batch.firstInstance, batch.instanceCount);
+      continue;
     }
-    const std::array<SDL_GPUBufferBinding, 2> bindings = {{
-      {mesh->vertexBuffer, 0},
-      {
-        resources->staticInstances.buffer,
-        batch.firstInstance * static_cast<Uint32>(sizeof(GpuStaticInstance)),
-      },
-    }};
-    SDL_BindGPUVertexBuffers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
-    SDL_DrawGPUPrimitives(pass, mesh->vertexCount, batch.instanceCount, 0, 0);
+    std::uint32_t runFirst = batch.firstInstance;
+    std::uint32_t runCount = 0U;
+    for (
+      std::uint32_t index = batch.firstInstance;
+      index < batch.firstInstance + batch.instanceCount;
+      ++index
+    ) {
+      if (scene.staticMeshInstances[index].castsSunShadow) {
+        if (runCount == 0U) {
+          runFirst = index;
+        }
+        ++runCount;
+      } else {
+        drawRange(runFirst, runCount);
+        runCount = 0U;
+      }
+    }
+    drawRange(runFirst, runCount);
   }
 }
 
@@ -6299,7 +6378,8 @@ void drawGltfPlayerModelBatches(
   SDL_GPUGraphicsPipeline* pipeline,
   GpuGltfPlayerResources* resources,
   const Scene3D& scene,
-  bool bindAuthoredMaterialTextures = false
+  bool bindAuthoredMaterialTextures = false,
+  bool shadowCastersOnly = false
 ) {
   if (
     pass == nullptr ||
@@ -6348,29 +6428,57 @@ void drawGltfPlayerModelBatches(
     ) {
       continue;
     }
-    const std::array<SDL_GPUBufferBinding, 2> vertexBindings = {{
-      {primitive.vertexBuffer, 0},
-      {
-        resources->instanceBuffer,
-        batch.firstInstance * static_cast<Uint32>(sizeof(GpuGltfPlayerInstance)),
-      },
-    }};
-    const SDL_GPUBufferBinding indexBinding = {primitive.indexBuffer, 0};
-    SDL_BindGPUVertexBuffers(
-      pass,
-      0,
-      vertexBindings.data(),
-      static_cast<Uint32>(vertexBindings.size())
-    );
-    SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-    SDL_DrawGPUIndexedPrimitives(
-      pass,
-      primitive.indexCount,
-      batch.instanceCount,
-      0,
-      0,
-      0
-    );
+    const auto drawRange = [&](std::uint32_t firstInstance,
+                               std::uint32_t instanceCount) {
+      if (instanceCount == 0U) {
+        return;
+      }
+      const std::array<SDL_GPUBufferBinding, 2> vertexBindings = {{
+        {primitive.vertexBuffer, 0},
+        {
+          resources->instanceBuffer,
+          firstInstance * static_cast<Uint32>(sizeof(GpuGltfPlayerInstance)),
+        },
+      }};
+      const SDL_GPUBufferBinding indexBinding = {primitive.indexBuffer, 0};
+      SDL_BindGPUVertexBuffers(
+        pass,
+        0,
+        vertexBindings.data(),
+        static_cast<Uint32>(vertexBindings.size())
+      );
+      SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+      SDL_DrawGPUIndexedPrimitives(
+        pass,
+        primitive.indexCount,
+        instanceCount,
+        0,
+        0,
+        0
+      );
+    };
+    if (!shadowCastersOnly) {
+      drawRange(batch.firstInstance, batch.instanceCount);
+      continue;
+    }
+    std::uint32_t runFirst = batch.firstInstance;
+    std::uint32_t runCount = 0U;
+    for (
+      std::uint32_t index = batch.firstInstance;
+      index < batch.firstInstance + batch.instanceCount;
+      ++index
+    ) {
+      if (scene.gltfPlayerModelInstances[index].castsSunShadow) {
+        if (runCount == 0U) {
+          runFirst = index;
+        }
+        ++runCount;
+      } else {
+        drawRange(runFirst, runCount);
+        runCount = 0U;
+      }
+    }
+    drawRange(runFirst, runCount);
   }
 }
 
@@ -8850,15 +8958,19 @@ void appendCommandBatches(
         simpleResources,
         perspectiveScene,
         RenderPass::OpaqueWorld,
-        false
+        false,
+        nullptr,
+        true
       );
-      // Shadow draws reuse the uploaded body instances and bone rows. The
-      // draw helper only binds ranges; it does not skin or stage CPU data.
+      // Shadow depth has no alpha output, so skip any remote visual that has
+      // started fading instead of letting it cast a full-strength shadow.
       drawGltfPlayerModelBatches(
         shadowPass,
         sunShadowGltfPipeline,
         gltfPlayerResources,
-        perspectiveScene
+        perspectiveScene,
+        false,
+        true
       );
       SDL_EndGPURenderPass(shadowPass);
       gpuTiming.endPass(commandBuffer, GpuTimedPass::SunShadow);
@@ -10136,7 +10248,7 @@ void appendCommandBatches(
             : draw.state.group == OutlineGroup::Teammate ? 0.5F : 0.0F,
           0.0F,
           0.0F,
-          0.0F,
+          std::clamp(draw.state.fadeAlpha, 0.0F, 1.0F),
         }};
         SDL_PushGPUFragmentUniformData(
           commandBuffer,
@@ -10564,15 +10676,17 @@ void appendCommandBatches(
 [[nodiscard]] SDL_FColor remoteModelColor(
   const RenderSettings& settings,
   float enemyHitAmount,
-  bool teammate
+  bool teammate,
+  float fadeAlpha = 1.0F
 ) {
   const float hitAmount = std::clamp(enemyHitAmount, 0.0F, 1.0F);
+  const float modelAlpha = std::clamp(fadeAlpha, 0.0F, 1.0F);
   if (teammate) {
     return {
       static_cast<float>(settings.teammateRed) / 255.0F,
       static_cast<float>(settings.teammateGreen) / 255.0F,
       static_cast<float>(settings.teammateBlue) / 255.0F,
-      std::clamp(settings.teammateAlpha, 0.0F, 1.0F),
+      std::clamp(settings.teammateAlpha, 0.0F, 1.0F) * modelAlpha,
     };
   }
   return {
@@ -10585,13 +10699,14 @@ void appendCommandBatches(
     static_cast<float>(
       blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount)
     ) / 255.0F,
-    std::clamp(settings.enemyAlpha, 0.0F, 1.0F),
+    std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * modelAlpha,
   };
 }
 
 [[nodiscard]] SDL_FColor remoteOutlineColor(
   const RenderSettings& settings,
-  bool teammate
+  bool teammate,
+  float fadeAlpha = 1.0F
 ) {
   return {
     static_cast<float>(
@@ -10607,7 +10722,7 @@ void appendCommandBatches(
       teammate ? settings.teammateOutlineAlpha : settings.enemyOutlineAlpha,
       0.0F,
       1.0F
-    ),
+    ) * std::clamp(fadeAlpha, 0.0F, 1.0F),
   };
 }
 
@@ -11133,7 +11248,7 @@ void drawPerspectiveWorld(
   SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
   for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
     const RemotePlayerView& remote = remotePlayers[remoteIndex];
-    if (!remote.visible) {
+    if (!remote.visible || !remote.bodyFade.visible) {
       continue;
     }
     if (!remoteRenderVisible[remoteIndex]) {
@@ -11158,8 +11273,11 @@ void drawPerspectiveWorld(
       // old approximate geometry fallback for diagnostics and compatibility.
       const float legacyWorldOutlineWidth =
         outlineWidth * kLegacyOutlineWorldUnitsPerPixel;
-      const SDL_FColor outlineColor =
-        remoteOutlineColor(settings, remote.teammate);
+      const SDL_FColor outlineColor = remoteOutlineColor(
+        settings,
+        remote.teammate,
+        remote.bodyFade.outlineAlpha
+      );
       SDL_SetRenderDrawColor(
         renderer,
         static_cast<Uint8>(outlineColor.r * 255.0F),
@@ -11205,7 +11323,12 @@ void drawPerspectiveWorld(
         remotePlayer.position.y + remotePlayer.bounds.radius,
         remotePlayer.position.z + remotePlayer.bounds.halfHeight,
       },
-      remoteModelColor(settings, remote.enemyHitAmount, remote.teammate)
+      remoteModelColor(
+        settings,
+        remote.enemyHitAmount,
+        remote.teammate,
+        remote.bodyFade.modelAlpha
+      )
     );
   }
 
@@ -11338,7 +11461,7 @@ void drawPerspectiveWorld(
       );
     };
   for (const RemotePlayerView& remote : remotePlayers) {
-    if (remote.visible) {
+    if (remote.visible && remote.player.health > 0) {
       drawBeam(remote.lightningGun, false);
     }
   }
@@ -12291,7 +12414,11 @@ void Renderer::render(
           gpuWindow,
           depthFormat,
           desiredSampleCount,
-          colorFormat
+          colorFormat,
+          false,
+          "instanced_color.frag.spv",
+          instancedColorFragmentLayout(),
+          true
         );
       SDL_GPUGraphicsPipeline* replacementMaterial =
         createGpuMaterialMeshPipeline3D(
@@ -12299,7 +12426,11 @@ void Renderer::render(
           gpuWindow,
           depthFormat,
           desiredSampleCount,
-          colorFormat
+          colorFormat,
+          false,
+          "material_weapon.frag.spv",
+          {3U, 1U},
+          true
         );
       SDL_GPUGraphicsPipeline* replacementGltf =
         createGpuGltfPlayerModelPipeline(
@@ -12308,7 +12439,11 @@ void Renderer::render(
           false,
           depthFormat,
           desiredSampleCount,
-          colorFormat
+          colorFormat,
+          false,
+          "gltf_player_model.frag.spv",
+          {4U, 1U},
+          true
         );
       SDL_GPUGraphicsPipeline* replacementGltfFlat =
         createGpuGltfPlayerModelPipeline(
@@ -12320,7 +12455,8 @@ void Renderer::render(
           colorFormat,
           false,
           "gltf_player_model_flat.frag.spv",
-          {2U, 1U}
+          {2U, 1U},
+          true
         );
       SDL_GPUGraphicsPipeline* replacementGlow =
         createGpuInstancedPipeline3D(

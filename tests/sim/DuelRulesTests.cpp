@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <string_view>
 
 namespace {
@@ -79,13 +80,20 @@ int main() {
     "an incomplete duel roster should not produce a round winner"
   );
 
-  std::array<std::uint16_t, lg::kMaxPlayers> scores = {};
+  std::array<lg::PlayerScore, lg::kMaxPlayers> scores = {};
   scores[2] = 9;
   lg::awardDuelRound(scores, 2);
   failures += expect(
     scores[2] == 10,
     "awarding a duel round should increment its winner"
   );
+  scores[2] = std::numeric_limits<lg::PlayerScore>::max();
+  lg::awardDuelRound(scores, 2);
+  failures += expect(
+    scores[2] == std::numeric_limits<lg::PlayerScore>::max(),
+    "awarding a duel round should saturate at the score maximum"
+  );
+  scores[2] = 10;
   failures += expect(
     lg::hasWonDuel(scores, 2, 10),
     "a player reaching the round limit should win the duel"
