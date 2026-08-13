@@ -27,11 +27,12 @@ In **Settings > Branches > Branch protection rules**, add or edit the rule for
 
 ## Optional PR checks
 
-`performance-smoke` still runs on every pull request, but it is not a required
-status check. Keep it out of the required-check list so a hosted-runner timing
-result cannot block a merge. It must still fail on tool errors and hard packet
-or queue-limit failures. A `NOT_COMPARABLE` result remains useful evidence and
-does not block the pull request.
+`performance-smoke` runs when a pull request has the `performance-smoke` label,
+or when a maintainer starts the PR verification workflow by hand. It is not a
+required status check. Keep it out of the required-check list so a hosted-runner
+timing result cannot block a merge. When it runs, tool errors and hard packet or
+queue-limit failures still fail the job. A `NOT_COMPARABLE` result remains useful
+evidence and does not fail the job.
 
 `live-client-server-smoke` checks the real client, UDP server, input path, and
 snapshot path with the fallback renderer. Keep it visible at first. Make it a
