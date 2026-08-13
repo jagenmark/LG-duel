@@ -58,6 +58,26 @@ int main() {
   (void)lg::adjustMiscMenuValue(console, lg::MiscMenuRow::NetGraph, -1);
   failures += expect(console.getInt("cl_netgraph") == 2,
                      "netgraph should wrap from off to expanded");
+  failures += expect(
+      console.getBool("r_damage_indicator"),
+      "directional damage should default on");
+  (void)lg::adjustMiscMenuValue(console, lg::MiscMenuRow::DamageIndicator, 1);
+  failures += expect(
+      !console.getBool("r_damage_indicator"),
+      "damage direction should toggle off from the F11 menu");
+  items = lg::miscMenuItems(console);
+  failures += expect(
+      items[static_cast<std::size_t>(lg::MiscMenuRow::DamageIndicator)].label ==
+          "Damage direction" &&
+        items[static_cast<std::size_t>(lg::MiscMenuRow::DamageIndicator)].value ==
+          "Off" &&
+        !items[static_cast<std::size_t>(lg::MiscMenuRow::DamageIndicator)]
+           .description.empty(),
+      "F11 should show the live damage-direction toggle and help text");
+  (void)lg::adjustMiscMenuValue(console, lg::MiscMenuRow::DamageIndicator, -1);
+  failures += expect(
+      console.getBool("r_damage_indicator"),
+      "damage direction should toggle back on from the F11 menu");
   failures +=
       expect(!lg::adjustMiscMenuValue(console, lg::MiscMenuRow::Close, 1),
              "close row should not change a cvar");

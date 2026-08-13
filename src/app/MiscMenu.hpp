@@ -19,6 +19,7 @@ enum class MiscMenuRow : std::size_t {
   FrameStats,
   RendererPerformance,
   NetGraph,
+  DamageIndicator,
   Close,
   Count,
 };

@@ -384,6 +384,11 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_damage_numbers_damage_color` | bool | `0` | bool | Ingen direkt | When enabled, damage numbers blend from the configured color toward red as damage increases. Headshots are shown as bold numeric text with a red accent instead of a `HEADSHOT` label. |
 | `r_damage_numbers_offset_x` | float | `0` | `-400..400` | Ingen direkt | Horizontal screen offset from the projected world-space damage anchor. |
 | `r_damage_numbers_offset_y` | float | `-46` | `-400..400` | Ingen direkt | Vertical screen offset from the projected world-space damage anchor. |
+| `r_damage_indicator` | bool | `1` | bool | Ingen direkt | Shows the directional damage warning as a restrained crescent at the screen edge. The F11 tools menu toggles the same archived cvar. |
+| `r_damage_indicator_duration` | float | `0.8` | `0.05..3` seconds | Ingen direkt | Lifetime of each directional damage warning. |
+| `r_damage_indicator_opacity` | float | `0.85` | `0..1` | Ingen direkt | Maximum opacity of each warning. |
+| `r_damage_indicator_distance` | float | `24` | `24..800` pixels | Ingen direkt | Inset of the warning from the screen edge. |
+| `r_damage_indicator_scale` | float | `1` | `0.25..4` | Ingen direkt | Scale of the warning arc and its line width. |
 
 ### 3.9 Motståndarmodell och träfffärg
 

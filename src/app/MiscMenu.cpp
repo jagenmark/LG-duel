@@ -131,6 +131,12 @@ std::vector<MiscMenuItem> miscMenuItems(const ConsoleSystem &console) {
           false,
       },
       {
+          "Damage direction",
+          onOff(console.getBool("r_damage_indicator")),
+          "Shows a restrained warning arc at the screen edge when damage comes from a direction.",
+          false,
+      },
+      {
           "Close",
           "Esc",
           "Closes this menu.",
@@ -185,6 +191,10 @@ bool adjustMiscMenuValue(ConsoleSystem &console, MiscMenuRow row,
   case MiscMenuRow::NetGraph:
     setInt(console, "cl_netgraph",
            wrappedValue(console.getInt("cl_netgraph"), direction, 3));
+    return true;
+  case MiscMenuRow::DamageIndicator:
+    setBool(console, "r_damage_indicator",
+            !console.getBool("r_damage_indicator"));
     return true;
   case MiscMenuRow::Close:
   case MiscMenuRow::Count:

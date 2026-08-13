@@ -149,7 +149,8 @@ struct IncomingDirectionalDamageEvent {
 struct DirectionalDamageHudConfig {
   float durationSeconds = 0.8F;
   float maxOpacity = 0.85F;
-  float distancePixels = 112.0F;
+  // Inset of the screen-edge warning from the final viewport border.
+  float distancePixels = 24.0F;
   float scale = 1.0F;
   float mergeAngleRadians = 0.45F;
 };
@@ -166,7 +167,7 @@ struct DirectionalDamageIndicator {
 
 struct DirectionalDamagePresentation {
   bool enabled = true;
-  float distancePixels = 112.0F;
+  float distancePixels = 24.0F;
   float scale = 1.0F;
   std::array<DirectionalDamageIndicator, 4> indicators = {};
 };

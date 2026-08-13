@@ -196,23 +196,53 @@ std::size_t centerLineCount(const lg::DrawList2D& drawList) {
   return count;
 }
 
-bool hasLineEndingAt(
+bool hasLineNearEdge(
   const lg::DrawList2D& drawList,
   lg::RenderColor color,
-  float x,
-  float y
+  int edge,
+  float width,
+  float height
 ) {
   for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
     if (const auto* line = std::get_if<lg::Line2D>(&command)) {
-      if (
-        line->color.red == color.red &&
-        line->color.green == color.green &&
-        line->color.blue == color.blue &&
-        std::fabs(line->end.x - x) < 0.01F &&
-        std::fabs(line->end.y - y) < 0.01F
-      ) {
+      if (line->color.red != color.red ||
+          line->color.green != color.green ||
+          line->color.blue != color.blue) {
+        continue;
+      }
+      const float minimumX = std::min(line->start.x, line->end.x);
+      const float maximumX = std::max(line->start.x, line->end.x);
+      const float minimumY = std::min(line->start.y, line->end.y);
+      const float maximumY = std::max(line->start.y, line->end.y);
+      if ((edge == 0 && maximumY < 60.0F) ||
+          (edge == 1 && minimumX > width - 60.0F) ||
+          (edge == 2 && minimumY > height - 60.0F) ||
+          (edge == 3 && maximumX < 60.0F)) {
         return true;
       }
+    }
+  }
+  return false;
+}
+
+bool hasLineNearCenter(
+  const lg::DrawList2D& drawList,
+  lg::RenderColor color,
+  float centerX,
+  float centerY,
+  float radius
+) {
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    const auto* line = std::get_if<lg::Line2D>(&command);
+    if (line == nullptr || line->color.red != color.red ||
+        line->color.green != color.green || line->color.blue != color.blue) {
+      continue;
+    }
+    if (std::fabs(line->start.x - centerX) < radius &&
+        std::fabs(line->start.y - centerY) < radius &&
+        std::fabs(line->end.x - centerX) < radius &&
+        std::fabs(line->end.y - centerY) < radius) {
+      return true;
     }
   }
   return false;
@@ -773,7 +803,7 @@ int main() {
     lg::RenderSettings directionalSettings;
     directionalSettings.crosshairEnabled = false;
     lg::HudRenderState directionalHud;
-    directionalHud.directionalDamage.distancePixels = 100.0F;
+    directionalHud.directionalDamage.distancePixels = 24.0F;
     directionalHud.directionalDamage.indicators = {{
       {true, 1, 0.0F, 1.0F, 1.0F, true, false},
       {true, 2, -kHalfPi, 1.0F, 1.0F, true, false},
@@ -785,11 +815,14 @@ int main() {
     );
     constexpr lg::RenderColor directionalColor = {255, 76, 70, 255};
     failures += expect(
-      hasLineEndingAt(directionalUi, directionalColor, 640.0F, 260.0F) &&
-        hasLineEndingAt(directionalUi, directionalColor, 740.0F, 360.0F) &&
-        hasLineEndingAt(directionalUi, directionalColor, 640.0F, 460.0F) &&
-        hasLineEndingAt(directionalUi, directionalColor, 540.0F, 360.0F),
-      "directional damage should place cardinal chevrons around the crosshair"
+      hasLineNearEdge(directionalUi, directionalColor, 0, 1280.0F, 720.0F) &&
+        hasLineNearEdge(directionalUi, directionalColor, 1, 1280.0F, 720.0F) &&
+        hasLineNearEdge(directionalUi, directionalColor, 2, 1280.0F, 720.0F) &&
+        hasLineNearEdge(directionalUi, directionalColor, 3, 1280.0F, 720.0F) &&
+        !hasLineNearCenter(
+          directionalUi, directionalColor, 640.0F, 360.0F, 180.0F
+        ),
+      "directional damage should place large arcs on the matching screen edges"
     );
 
     directionalHud.directionalDamage.indicators = {{
@@ -800,9 +833,24 @@ int main() {
     );
     constexpr lg::RenderColor selfDamageColor = {255, 186, 66, 255};
     failures += expect(
-      countLinesWithColor(selfDamageUi, selfDamageColor) == 1U &&
+      countLinesWithColor(selfDamageUi, selfDamageColor) > 10U &&
+        hasLineNearEdge(selfDamageUi, selfDamageColor, 0, 1280.0F, 720.0F) &&
         countLinesWithColor(selfDamageUi, directionalColor) == 0U,
-      "self damage should use a distinct short-bar HUD style"
+      "self damage should use a distinct screen-edge arc color"
+    );
+
+    directionalHud.directionalDamage.indicators = {{
+      {true, 7, 0.0F, 1.0F, 1.0F, false, false},
+    }};
+    const lg::DrawList2D neutralDamageUi = lg::buildScreenUi(
+      1280, 720, opponent, directionalSettings, directionalHud, {}
+    );
+    failures += expect(
+      hasLineNearEdge(neutralDamageUi, directionalColor, 0, 1280.0F, 720.0F) &&
+        !hasLineNearCenter(
+          neutralDamageUi, directionalColor, 640.0F, 360.0F, 180.0F
+        ),
+      "directionless damage should use a neutral top-edge arc"
     );
 
     directionalHud.directionalDamage.enabled = false;
