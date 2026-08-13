@@ -2006,6 +2006,23 @@ int main() {
         ) > compensated.players[1].bounds.radius,
       "LG should replicate the exact current and historical bounds used by the trace"
     );
+    const lg::DamageTakenEvent* compensatedDamage =
+      damageTakenEventFor(compensated, 1, lg::Weapon::LightningGun);
+    const std::uint8_t rewoundBearing = quantizedDamageBearing(
+      compensated.lightningGuns[0].rewoundTargetPosition,
+      compensated.lightningGuns[0].start
+    );
+    const std::uint8_t currentBearing = quantizedDamageBearing(
+      compensated.lightningGuns[0].currentTargetPosition,
+      compensated.lightningGuns[0].start
+    );
+    failures += expect(
+      compensatedDamage != nullptr &&
+        rewoundBearing != currentBearing &&
+        lg::damageTakenDirectionValid(*compensatedDamage) &&
+        compensatedDamage->direction256 == rewoundBearing,
+      "lag-compensated damage feedback should encode the rewound hit bearing"
+    );
 
     attack.sequence = 1;
     transport.sendCommand(lg::CommandPacket{0, attack, false, 0});

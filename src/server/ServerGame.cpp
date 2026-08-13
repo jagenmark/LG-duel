@@ -843,6 +843,7 @@ void ServerGame::tick(float fixedDt) {
   std::array<std::size_t, kDuelPlayerCount> lightningTargets = {};
   std::array<std::size_t, kDuelPlayerCount> freezeTargets = {};
   std::array<std::size_t, kDuelPlayerCount> weaponTargets = {};
+  std::array<Vec3, kDuelPlayerCount> hitTargetPositions = {};
   lightningTargets.fill(kDuelPlayerCount);
   freezeTargets.fill(kDuelPlayerCount);
   weaponTargets.fill(kDuelPlayerCount);
@@ -991,6 +992,7 @@ void ServerGame::tick(float fixedDt) {
         ? combatPlayers[targetIndex]
         : historyFrame.players[targetIndex];
       target.health = combatPlayers[targetIndex].health;
+      hitTargetPositions[attackerIndex] = target.position;
     }
     if (
       command.weapon == Weapon::LightningGun ||
@@ -1305,7 +1307,12 @@ void ServerGame::tick(float fixedDt) {
       snapshot_.lightningGuns[attackerIndex].knockbackImpulse,
       Weapon::LightningGun,
       snapshot_.lightningGuns[attackerIndex].headshot,
-      {true, snapshot_.lightningGuns[attackerIndex].start}
+      {
+        true,
+        snapshot_.lightningGuns[attackerIndex].start,
+        true,
+        hitTargetPositions[attackerIndex],
+      }
     );
     applyDamageAndKnockback(
       attackerIndex,
@@ -1314,7 +1321,12 @@ void ServerGame::tick(float fixedDt) {
       snapshot_.weaponFires[attackerIndex].knockbackImpulse,
       snapshot_.weaponFires[attackerIndex].weapon,
       snapshot_.weaponFires[attackerIndex].headshot,
-      {true, snapshot_.weaponFires[attackerIndex].start}
+      {
+        true,
+        snapshot_.weaponFires[attackerIndex].start,
+        true,
+        hitTargetPositions[attackerIndex],
+      }
     );
     applyDamageAndKnockback(
       attackerIndex,
@@ -1323,7 +1335,12 @@ void ServerGame::tick(float fixedDt) {
       {},
       Weapon::FreezeGun,
       snapshot_.lightningGuns[attackerIndex].headshot,
-      {true, snapshot_.lightningGuns[attackerIndex].start}
+      {
+        true,
+        snapshot_.lightningGuns[attackerIndex].start,
+        true,
+        hitTargetPositions[attackerIndex],
+      }
     );
   }
 
@@ -3698,6 +3715,9 @@ void ServerGame::applyDamageAndKnockback(
   }
 
   if (damageApplied > 0) {
+    const Vec3 hitVictimPosition = context.hasVictimPosition
+      ? context.victimPosition
+      : target.position;
     const std::uint32_t sequence =
       nextNonZeroSequence(damageTakenSequences_[targetIndex]);
     damageTakenSequences_[targetIndex] = sequence;
@@ -3707,7 +3727,7 @@ void ServerGame::applyDamageAndKnockback(
     DamageTakenEvent& event = ring.events[eventSlot];
     event.sequence = sequence;
     event.direction256 = context.hasSourcePosition
-      ? quantizeDamageBearing(target.position, context.sourcePosition)
+      ? quantizeDamageBearing(hitVictimPosition, context.sourcePosition)
       : 0U;
     event.presentationDamage = static_cast<std::uint8_t>(
       std::min(damageApplied, 255)
@@ -3717,10 +3737,13 @@ void ServerGame::applyDamageAndKnockback(
         std::isfinite(context.sourcePosition.x) &&
         std::isfinite(context.sourcePosition.y) &&
         std::isfinite(context.sourcePosition.z) &&
-        ((context.sourcePosition.x - target.position.x) *
-           (context.sourcePosition.x - target.position.x) +
-         (context.sourcePosition.y - target.position.y) *
-           (context.sourcePosition.y - target.position.y)) > 0.00000001F) {
+        std::isfinite(hitVictimPosition.x) &&
+        std::isfinite(hitVictimPosition.y) &&
+        std::isfinite(hitVictimPosition.z) &&
+        ((context.sourcePosition.x - hitVictimPosition.x) *
+           (context.sourcePosition.x - hitVictimPosition.x) +
+         (context.sourcePosition.y - hitVictimPosition.y) *
+           (context.sourcePosition.y - hitVictimPosition.y)) > 0.00000001F) {
       event.metadata |= kDamageTakenDirectionValid;
     }
     if (attackerIndex == targetIndex) {
@@ -4267,8 +4290,8 @@ void ServerGame::simulateRockets(float fixedDt) {
         rocket.weapon,
         false,
         playerIndex == directTarget
-          ? DamageContext{true, directImpactPosition}
-          : DamageContext{true, splashExplosionPosition}
+          ? DamageContext{true, directImpactPosition, true, player.position}
+          : DamageContext{true, splashExplosionPosition, true, player.position}
       );
     }
   }

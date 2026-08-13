@@ -189,6 +189,8 @@ private:
   struct DamageContext {
     bool hasSourcePosition = false;
     Vec3 sourcePosition = {};
+    bool hasVictimPosition = false;
+    Vec3 victimPosition = {};
   };
 
   void receiveCommands();
