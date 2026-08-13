@@ -4989,6 +4989,35 @@ int main() {
     ) < 0.001F,
     "first-person plasma projectile origin should match the authored muzzle socket"
   );
+  lg::RenderSettings swayedPlasmaGunSettings = localPlasmaGunSettings;
+  swayedPlasmaGunSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D swayedPlasmaGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    {},
+    {},
+    swayedPlasmaGunSettings
+  );
+  const lg::StaticMeshInstance swayedPlasmaBody = findViewModel(
+    swayedPlasmaGunScene,
+    lg::MeshHandle::RemotePlasmaGunBody
+  );
+  failures += expect(
+    swayedPlasmaBody.mesh == lg::MeshHandle::RemotePlasmaGunBody &&
+      lg::length(
+        transformPoint(swayedPlasmaBody, lg::plasmaGunMuzzleSocket()) -
+        lg::firstPersonPlasmaGunMuzzlePosition(player, swayedPlasmaGunSettings)
+      ) < 0.001F,
+    "first-person plasma projectile origin should follow the rendered muzzle through camera motion"
+  );
   failures += expect(
     lg::length(firingPlasmaCore.modelRow0) <
       lg::length(idlePlasmaCore.modelRow0) &&
@@ -5523,6 +5552,37 @@ int main() {
       localPlasmaProjectileScene.simpleInstances[0].position.z <
         plasmaRockets[0].position.z - 0.15F,
     "local plasma projectile instances should render from the first-person weapon muzzle"
+  );
+  lg::RenderSettings swayedLocalPlasmaProjectileSettings =
+    localShotgunWeaponStartSettings;
+  swayedLocalPlasmaProjectileSettings.localSelectedWeapon = lg::Weapon::PlasmaGun;
+  swayedLocalPlasmaProjectileSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D swayedLocalPlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    swayedLocalPlasmaProjectileSettings
+  );
+  const lg::SimpleRenderInstance* swayedLocalPlasmaCore = findSimpleMesh(
+    swayedLocalPlasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  failures += expect(
+    swayedLocalPlasmaCore != nullptr &&
+      lg::length(
+        swayedLocalPlasmaCore->position -
+        lg::firstPersonPlasmaGunMuzzlePosition(
+          player,
+          swayedLocalPlasmaProjectileSettings
+        )
+      ) < 0.001F,
+    "local plasma projectile should start at the rendered muzzle through camera motion"
   );
 
   plasmaRockets[0].active = false;

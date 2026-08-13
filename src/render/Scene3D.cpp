@@ -4278,8 +4278,10 @@ Vec3 firstPersonPlasmaGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
+    viewModelPlayer,
     settings.weaponPosition,
     settings.viewModelPresentation
   );
