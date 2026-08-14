@@ -618,7 +618,6 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   largeHealthPickupAmount_ = config.largeHealthPickupAmount;
   smallHealthPickupCooldownTicks_ = config.smallHealthPickupCooldownTicks;
   largeHealthPickupCooldownTicks_ = config.largeHealthPickupCooldownTicks;
-  rebuildBotNavigation();
 }
 
 void ServerGame::tick(float fixedDt) {

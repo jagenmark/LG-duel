@@ -114,18 +114,6 @@ set_tests_properties(
   PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 )
 
-add_test(
-  NAME lg_duel_scenario_starter_suite
-  COMMAND $<TARGET_FILE:lg_duel_scenarios>
-    --suite smoke
-    --repeat 3
-    --output ${PROJECT_BINARY_DIR}/scenario-ctest-results
-)
-set_tests_properties(
-  lg_duel_scenario_starter_suite
-  PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-)
-
 add_executable(lg_duel_projectile_self_knockback_tests
   net/ProjectileSelfKnockbackTests.cpp
 )

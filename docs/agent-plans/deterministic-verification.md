@@ -1020,8 +1020,11 @@ linux-build-and-tests
 windows-build-and-tests
 deterministic-scenarios
 protocol-and-packet-budgets
-performance-smoke
 ```
+
+Keep `performance-smoke` as an optional pull-request evidence check. Do not
+add it to the required branch-protection checks; hosted-runner timing results
+must not block a merge.
 
 Do not attempt to change repository branch-protection settings unless the available tooling explicitly supports it and the task authorizes that change.
 
