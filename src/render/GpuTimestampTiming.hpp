@@ -13,6 +13,7 @@ namespace lg {
 
 enum class GpuTimedPass : std::uint8_t {
   SunShadow,
+  WorldIndirectCull,
   MainScene,
   ViewModel,
   Bloom,
@@ -34,6 +35,8 @@ inline constexpr std::size_t kGpuTimedPassCount =
   switch (pass) {
   case GpuTimedPass::SunShadow:
     return "sun_shadow";
+  case GpuTimedPass::WorldIndirectCull:
+    return "world_indirect_cull";
   case GpuTimedPass::MainScene:
     return "main_scene";
   case GpuTimedPass::ViewModel:

@@ -131,6 +131,7 @@ struct FrameSample {
   std::uint32_t worldCulledChunks = 0;
   std::uint32_t worldVisibilityTestedNodes = 0;
   double worldVisibilityQueryMilliseconds = 0.0;
+  double worldGpuIndirectCpuMilliseconds = 0.0;
   bool worldGpuIndirect = false;
   std::uint32_t worldGpuIndirectCommands = 0;
   std::uint32_t worldGpuIndirectMaterialGroups = 0;

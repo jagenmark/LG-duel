@@ -1784,6 +1784,8 @@ struct FrameTimeHistory {
     renderDiagnostics.worldVisibilityTestedNodes;
   sample.worldVisibilityQueryMilliseconds =
     renderDiagnostics.worldVisibilityQueryMilliseconds;
+  sample.worldGpuIndirectCpuMilliseconds =
+    renderDiagnostics.worldGpuIndirectCpuMilliseconds;
   sample.worldGpuIndirect = renderDiagnostics.worldGpuIndirect;
   sample.worldGpuIndirectCommands = renderDiagnostics.worldGpuIndirectCommands;
   sample.worldGpuIndirectMaterialGroups =
@@ -7424,6 +7426,8 @@ int GameApp::run() const {
           sample.worldVisibilityTestedNodes = render.worldVisibilityTestedNodes;
           sample.worldVisibilityQueryMilliseconds =
             render.worldVisibilityQueryMilliseconds;
+          sample.worldGpuIndirectCpuMilliseconds =
+            render.worldGpuIndirectCpuMilliseconds;
           sample.worldGpuIndirect = render.worldGpuIndirect;
           sample.worldGpuIndirectCommands = render.worldGpuIndirectCommands;
           sample.worldGpuIndirectMaterialGroups =

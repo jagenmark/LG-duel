@@ -1454,30 +1454,115 @@ def create_baseline(
 
 
 MATERIAL_KEYS = ("backend", "resolution", "window_mode", "vsync", "frame_cap", "fov", "presentation_cvars")
+WORLD_MODE_SCENARIOS = frozenset({
+    "overkill-static-flythrough",
+    "overkill-static-flythrough-bvh-off",
+    "overkill-static-flythrough-gpu-indirect",
+})
+WORLD_MODE_BASELINE = "overkill-static-flythrough"
+WORLD_MODE_SELECTOR_CVARS = frozenset({
+    "r_world_frustum_cull",
+    "r_world_gpu_indirect",
+})
+WORLD_MODE_CONTRACT_KEYS = frozenset({
+    "world_frustum_cull",
+    "world_gpu_indirect",
+})
+COMPARISON_ENVIRONMENT_KEYS = (
+    "os", "cpu", "architecture", "logical_cores", "renderer",
+    "protocol_version", "control_protocol_version", "gpu_name", "gpu_type",
+    "graphics_driver_name", "graphics_driver_version", "vulkan_api_version",
+    "vulkan_metadata_status", "software_renderer", "gpu_verification_state",
+    "gpu_verified", "build_metadata_status", "build_type", "cmake_generator",
+    "compiler", "compiler_path", "compiler_version", "compile_time_options",
+    "sdl_configuration", "observed_resolution", "selected_present_mode",
+    "benchmark_version", "gpu_timing_instrumentation_version", "build_mode",
+)
 
 
-def _comparison_mismatch(baseline: dict[str, Any], result: dict[str, Any]) -> list[str]:
+def _is_world_mode_result(result: dict[str, Any]) -> bool:
+    scenario = result.get("scenario", {})
+    return isinstance(scenario, dict) and scenario.get("name") in WORLD_MODE_SCENARIOS
+
+
+def _without_world_mode_cvars(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: item for key, item in value.items()
+        if key not in WORLD_MODE_SELECTOR_CVARS
+    }
+
+
+def _normalized_world_mode_scenario(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    for key in ("name", "labels", "residual_nondeterminism"):
+        normalized.pop(key, None)
+    normalized["cvars"] = _without_world_mode_cvars(normalized.get("cvars", {}))
+    return normalized
+
+
+def _normalized_world_mode_settings(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    normalized["presentation_cvars"] = _without_world_mode_cvars(
+        normalized.get("presentation_cvars", {})
+    )
+    contract = normalized.get("graphics_contract")
+    if isinstance(contract, dict):
+        contract = dict(contract)
+        effective = contract.get("effective_cvars")
+        contract["effective_cvars"] = _without_world_mode_cvars(effective)
+        for key in WORLD_MODE_CONTRACT_KEYS:
+            contract.pop(key, None)
+        normalized["graphics_contract"] = contract
+    return normalized
+
+
+def _comparison_mismatch(
+    baseline: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    allow_world_mode_selectors: bool = False,
+) -> list[str]:
     reasons = []
+    world_mode = (
+        allow_world_mode_selectors and
+        _is_world_mode_result(baseline) and
+        _is_world_mode_result(result)
+    )
     if baseline.get("schema_version") != result.get("schema_version"):
         reasons.append("result schema version")
-    if baseline.get("scenario_hash") != result.get("scenario_hash"):
+    if not world_mode and baseline.get("scenario_hash") != result.get("scenario_hash"):
         reasons.append("scenario hash")
     if baseline.get("map_content_hash") != result.get("map_content_hash"):
         reasons.append("map content hash")
     if baseline.get("deterministic_checksum") != result.get("deterministic_checksum"):
         reasons.append("deterministic checksum")
     base_scenario, new_scenario = baseline.get("scenario", {}), result.get("scenario", {})
-    for key in ("name", "schema_version", "expected_benchmark_version"):
-        if base_scenario.get(key) != new_scenario.get(key):
-            reasons.append(f"scenario {key}")
-    for key in MATERIAL_KEYS:
-        if baseline.get("settings", {}).get(key) != result.get("settings", {}).get(key):
-            reasons.append(key)
+    if world_mode:
+        if _normalized_world_mode_scenario(base_scenario) != _normalized_world_mode_scenario(new_scenario):
+            reasons.append("scenario settings")
+        if _normalized_world_mode_settings(baseline.get("settings", {})) != _normalized_world_mode_settings(result.get("settings", {})):
+            reasons.append("settings")
+    else:
+        for key in ("name", "schema_version", "expected_benchmark_version"):
+            if base_scenario.get(key) != new_scenario.get(key):
+                reasons.append(f"scenario {key}")
+        for key in MATERIAL_KEYS:
+            if baseline.get("settings", {}).get(key) != result.get("settings", {}).get(key):
+                reasons.append(key)
     base_env, new_env = baseline.get("environment", {}), result.get("environment", {})
-    for key in ("build_mode", "renderer", "protocol_version", "gpu_name", "graphics_driver_version", "vulkan_api_version",
-                "observed_resolution", "selected_present_mode"):
+    for key in COMPARISON_ENVIRONMENT_KEYS:
         if base_env.get(key) != new_env.get(key):
             reasons.append(key)
+    base_git, new_git = baseline.get("git", {}), result.get("git", {})
+    for key in ("commit", "dirty"):
+        if base_git.get(key) != new_git.get(key):
+            reasons.append(f"git {key}")
     return sorted(set(reasons))
 
 
@@ -1545,6 +1630,115 @@ def compare_results(baseline_ref: str | Path, result_ref: str | Path, *, thresho
     return comparison
 
 
+def compare_world_mode_results(
+    result_refs: Iterable[str | Path],
+    *,
+    threshold_percent: float = 3.0,
+    tail_threshold_percent: float = 3.0,
+) -> dict[str, Any]:
+    references = list(result_refs)
+    if len(references) != len(WORLD_MODE_SCENARIOS):
+        raise BenchmarkError(
+            "compare-modes needs exactly three --result references"
+        )
+    results = [load_result(reference, detailed=True) for reference in references]
+    names = [result.get("scenario", {}).get("name") for result in results]
+    if set(names) != WORLD_MODE_SCENARIOS or len(set(names)) != len(names):
+        return {
+            "classification": "invalid",
+            "valid": False,
+            "mismatches": [
+                "results must contain the three overkill static-world modes"
+            ],
+            "results": [str(reference) for reference in references],
+        }
+
+    by_name = dict(zip(names, results, strict=True))
+    baseline = by_name[WORLD_MODE_BASELINE]
+    mode_comparisons: dict[str, Any] = {}
+    classifications: list[str] = []
+    for name in sorted(WORLD_MODE_SCENARIOS - {WORLD_MODE_BASELINE}):
+        result = by_name[name]
+        mismatches = _comparison_mismatch(
+            baseline,
+            result,
+            allow_world_mode_selectors=True,
+        )
+        if mismatches:
+            mode_comparisons[name] = {
+                "classification": "invalid",
+                "valid": False,
+                "mismatches": mismatches,
+                "baseline": baseline["artifact_path"],
+                "result": result["artifact_path"],
+            }
+            classifications.append("invalid")
+            continue
+        if not baseline.get("aggregate", {}).get("valid") or not result.get("aggregate", {}).get("valid"):
+            mode_comparisons[name] = {
+                "classification": "invalid",
+                "valid": False,
+                "mismatches": ["invalid benchmark run"],
+                "baseline": baseline["artifact_path"],
+                "result": result["artifact_path"],
+            }
+            classifications.append("invalid")
+            continue
+
+        metric_results: dict[str, Any] = {}
+        metric_classifications: list[str] = []
+        base_metrics = baseline["aggregate"].get("metrics", {})
+        new_metrics = result["aggregate"].get("metrics", {})
+        for metric in sorted(set(base_metrics) & set(new_metrics)):
+            classification, details = classify_metric(
+                base_metrics[metric],
+                new_metrics[metric],
+                threshold_percent=threshold_percent,
+                tail_threshold_percent=tail_threshold_percent,
+            )
+            metric_results[metric] = details
+            metric_classifications.append(classification)
+        if not metric_classifications:
+            overall = "invalid"
+        elif "regression" in metric_classifications:
+            overall = "regression"
+        elif all(value == "improvement" for value in metric_classifications):
+            overall = "improvement"
+        else:
+            overall = "inconclusive"
+        mode_comparisons[name] = {
+            "classification": overall,
+            "valid": overall != "invalid",
+            "metrics": metric_results,
+            "baseline": baseline["artifact_path"],
+            "result": result["artifact_path"],
+            "threshold_percent": threshold_percent,
+            "tail_threshold_percent": tail_threshold_percent,
+        }
+        classifications.append(overall)
+
+    if "invalid" in classifications:
+        overall = "invalid"
+    elif "regression" in classifications:
+        overall = "regression"
+    elif classifications and all(value == "improvement" for value in classifications):
+        overall = "improvement"
+    else:
+        overall = "inconclusive"
+    comparison = {
+        "classification": overall,
+        "valid": overall != "invalid",
+        "baseline": baseline["artifact_path"],
+        "mode_comparisons": mode_comparisons,
+        "threshold_percent": threshold_percent,
+        "tail_threshold_percent": tail_threshold_percent,
+    }
+    comparison_path = Path(by_name["overkill-static-flythrough-gpu-indirect"]["artifact_path"]).parent / "mode-comparison.json"
+    comparison["comparison_path"] = str(comparison_path)
+    _write_json(comparison_path, comparison)
+    return comparison
+
+
 EXIT_CODES = {"pass": 0, "improvement": 0, "regression": 2, "invalid": 3, "error": 3, "inconclusive": 4}
 
 
@@ -1553,6 +1747,15 @@ def human_output(value: dict[str, Any]) -> str:
         lines = [f"Benchmark comparison: {value['classification']}"]
         if value.get("mismatches"):
             lines.append("Not comparable: " + ", ".join(value["mismatches"]))
+        for name, details in value.get("mode_comparisons", {}).items():
+            line = f"  {name}: {details['classification']}"
+            median = details.get("metrics", {}).get("frame_ms", {}).get("statistics", {}).get("median", {})
+            delta = median.get("percent")
+            if delta is not None:
+                line += f" ({delta:+.2f}% median frame_ms)"
+            if details.get("mismatches"):
+                line += " [" + ", ".join(details["mismatches"]) + "]"
+            lines.append(line)
         for metric, details in value.get("metrics", {}).items():
             median = details.get("statistics", {}).get("median", {})
             delta = median.get("percent")
@@ -1610,6 +1813,13 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--result", required=True)
     compare.add_argument("--threshold-percent", type=float, default=3.0)
     compare.add_argument("--tail-threshold-percent", type=float, default=3.0)
+    compare_modes = commands.add_parser("compare-modes")
+    compare_modes.add_argument(
+        "--result", action="append", required=True,
+        help="repeat three times with the CPU-BVH, CPU-no-cull, and GPU-indirect results",
+    )
+    compare_modes.add_argument("--threshold-percent", type=float, default=3.0)
+    compare_modes.add_argument("--tail-threshold-percent", type=float, default=3.0)
     report = commands.add_parser("report")
     report.add_argument("--result", required=True)
     report.add_argument("--detailed", action="store_true")
@@ -1653,6 +1863,13 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     if args.command == "compare":
         result = compare_results(args.baseline, args.result, threshold_percent=args.threshold_percent,
                                  tail_threshold_percent=args.tail_threshold_percent)
+        return result, EXIT_CODES[result["classification"]]
+    if args.command == "compare-modes":
+        result = compare_world_mode_results(
+            args.result,
+            threshold_percent=args.threshold_percent,
+            tail_threshold_percent=args.tail_threshold_percent,
+        )
         return result, EXIT_CODES[result["classification"]]
     if args.command == "report":
         return load_result(args.result, detailed=args.detailed), 0

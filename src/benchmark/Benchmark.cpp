@@ -724,6 +724,11 @@ dev::JsonValue resultJson(
       return sample.worldVisibilityQueryMilliseconds;
     }
   );
+  worldVisibility.object["gpu_indirect_cpu_ms"] = visibilityMetric(
+    [](const FrameSample& sample) {
+      return sample.worldGpuIndirectCpuMilliseconds;
+    }
+  );
   worldVisibility.object["gpu_indirect_frames"] =
     dev::JsonValue::numberValue(static_cast<double>(std::count_if(
       samples.begin(),
@@ -759,6 +764,17 @@ dev::JsonValue resultJson(
     context.actualWidth == scenario.width && context.actualHeight == scenario.height
   );
   validity.object["supported_workload"] = dev::JsonValue::booleanValue(!scenario.unsupportedEffectFixture);
+  const auto gpuIndirectCvar = scenario.cvars.find("r_world_gpu_indirect");
+  const bool gpuIndirectRequested =
+    gpuIndirectCvar != scenario.cvars.end() && gpuIndirectCvar->second == "1";
+  validity.object["gpu_indirect"] = dev::JsonValue::booleanValue(
+    !gpuIndirectRequested ||
+    (!samples.empty() && std::all_of(
+      samples.begin(),
+      samples.end(),
+      [](const FrameSample& sample) { return sample.worldGpuIndirect; }
+    ))
+  );
   root.object["validity"] = std::move(validity);
   dev::JsonValue warnings = dev::JsonValue::arrayValue(); for (const std::string& warning : context.warnings) warnings.array.push_back(dev::JsonValue::stringValue(warning)); root.object["warnings"] = std::move(warnings);
   dev::JsonValue screenshots = dev::JsonValue::arrayValue(); for (const std::string& path : context.screenshotPaths) screenshots.array.push_back(dev::JsonValue::stringValue(path)); root.object["screenshots"] = std::move(screenshots);
@@ -959,6 +975,9 @@ dev::JsonValue frameTimelineJson(
       dev::JsonValue::numberValue(sample.animationMilliseconds);
     cpu.object["world_visibility"] =
       dev::JsonValue::numberValue(sample.worldVisibilityMilliseconds);
+    cpu.object["world_gpu_indirect_cpu"] = dev::JsonValue::numberValue(
+      sample.worldGpuIndirectCpuMilliseconds
+    );
     cpu.object["render_instance_construction"] = dev::JsonValue::numberValue(
       sample.renderInstanceConstructionMilliseconds
     );
@@ -1025,6 +1044,9 @@ dev::JsonValue frameTimelineJson(
       dev::JsonValue::numberValue(sample.worldVisibilityTestedNodes);
     workload.object["world_visibility_query_ms"] =
       dev::JsonValue::numberValue(sample.worldVisibilityQueryMilliseconds);
+    workload.object["world_gpu_indirect_cpu_ms"] = dev::JsonValue::numberValue(
+      sample.worldGpuIndirectCpuMilliseconds
+    );
     workload.object["world_gpu_indirect"] =
       dev::JsonValue::booleanValue(sample.worldGpuIndirect);
     workload.object["world_gpu_indirect_commands"] =
@@ -1103,6 +1125,7 @@ bool writeArtifacts(
     "uploaded_vertices,rendered_triangles,world_draws,world_submitted_triangles,"
     "world_submitted_ranges,world_total_chunks,world_visible_chunks,"
     "world_culled_chunks,world_visibility_tested_nodes,world_visibility_query_ms,"
+    "world_gpu_indirect_cpu_ms,"
     "world_gpu_indirect,world_gpu_indirect_commands,"
     "world_gpu_indirect_material_groups,"
     "visible_players,projectiles,effects,lights,particles,transparent_effects,"
@@ -1159,6 +1182,7 @@ bool writeArtifacts(
       << ',' << s.worldVisibleChunks << ',' << s.worldCulledChunks
       << ',' << s.worldVisibilityTestedNodes
       << ',' << s.worldVisibilityQueryMilliseconds
+      << ',' << s.worldGpuIndirectCpuMilliseconds
       << ',' << (s.worldGpuIndirect ? 1 : 0)
       << ',' << s.worldGpuIndirectCommands
       << ',' << s.worldGpuIndirectMaterialGroups

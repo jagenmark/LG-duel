@@ -8020,6 +8020,7 @@ void appendCommandBatches(
   diagnostics.worldCulledChunks = 0;
   diagnostics.worldVisibilityTestedNodes = 0;
   diagnostics.worldVisibilityQueryMilliseconds = 0.0F;
+  diagnostics.worldGpuIndirectCpuMilliseconds = 0.0F;
   diagnostics.worldGpuIndirect = false;
   diagnostics.worldGpuIndirectCommands = 0;
   diagnostics.worldGpuIndirectMaterialGroups = 0;
@@ -8645,6 +8646,13 @@ void appendCommandBatches(
     }
     bool worldGpuIndirectActive = false;
     if (worldMesh != nullptr) {
+      const bool worldGpuIndirectRequested =
+        settings.worldGpuIndirect && worldIndirectCullPipeline != nullptr;
+      RenderClock::time_point worldGpuIndirectCpuStart = {};
+      if (worldGpuIndirectRequested) {
+        worldGpuIndirectCpuStart = RenderClock::now();
+        gpuTiming.beginPass(commandBuffer, GpuTimedPass::WorldIndirectCull);
+      }
       RenderClock::time_point visibilityStart = {};
       if (
         settings.benchmarkTimingEnabled ||
@@ -8653,16 +8661,18 @@ void appendCommandBatches(
       ) {
         visibilityStart = RenderClock::now();
       }
-      if (
-        settings.worldGpuIndirect &&
-        worldIndirectCullPipeline != nullptr &&
+      const bool worldGpuIndirectDispatched =
+        worldGpuIndirectRequested &&
         dispatchStaticWorldIndirectCull(
           commandBuffer,
           worldIndirectCullPipeline,
           *worldMesh,
           perspectiveScene.camera
-        )
-      ) {
+        );
+      if (worldGpuIndirectRequested) {
+        gpuTiming.endPass(commandBuffer, GpuTimedPass::WorldIndirectCull);
+      }
+      if (worldGpuIndirectDispatched) {
         worldGpuIndirectActive = true;
         // Keep the CPU visibility state in the full-world state for code that
         // inspects it, without paying for the BVH query on this path.
@@ -8685,6 +8695,12 @@ void appendCommandBatches(
         settings.worldGpuIndirect
       ) {
         visibilityEnd = RenderClock::now();
+      }
+      if (worldGpuIndirectRequested) {
+        diagnostics.worldGpuIndirectCpuMilliseconds = millisecondsBetween(
+          worldGpuIndirectCpuStart,
+          visibilityEnd
+        );
       }
       if (settings.worldFrustumCull && !worldGpuIndirectActive) {
         diagnostics.worldVisibilityQueryMilliseconds =
@@ -13157,6 +13173,7 @@ void Renderer::render(
   lastFrameDiagnostics_.worldCulledChunks = 0;
   lastFrameDiagnostics_.worldVisibilityTestedNodes = 0;
   lastFrameDiagnostics_.worldVisibilityQueryMilliseconds = 0.0F;
+  lastFrameDiagnostics_.worldGpuIndirectCpuMilliseconds = 0.0F;
   lastFrameDiagnostics_.worldGpuIndirect = false;
   lastFrameDiagnostics_.worldGpuIndirectCommands = 0;
   lastFrameDiagnostics_.worldGpuIndirectMaterialGroups = 0;

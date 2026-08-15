@@ -139,6 +139,8 @@ dev::JsonValue benchmarkRenderPassDiagnostics(
     dev::JsonValue::numberValue(diagnostics.worldDrawCalls);
   world.object["gpu_indirect"] =
     dev::JsonValue::booleanValue(diagnostics.worldGpuIndirect);
+  world.object["gpu_indirect_cpu_ms"] =
+    dev::JsonValue::numberValue(diagnostics.worldGpuIndirectCpuMilliseconds);
   world.object["gpu_indirect_commands"] =
     dev::JsonValue::numberValue(diagnostics.worldGpuIndirectCommands);
   world.object["gpu_indirect_material_groups"] =

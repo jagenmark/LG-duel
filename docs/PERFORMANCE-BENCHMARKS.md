@@ -263,8 +263,14 @@ flag. The PowerShell wrapper owns the supported CLI contract:
 .\scripts\lg-benchmark.ps1 run --scenario eyetoeye-match-load --graphics-profile Low --repetitions 5 --json
 .\scripts\lg-benchmark.ps1 baseline-create --scenario eyetoeye-static-baseline --name gpu-driver-current --repetitions 5
 .\scripts\lg-benchmark.ps1 compare --baseline gpu-driver-current --result build/benchmarks/eyetoeye-static-baseline/<run-group> --threshold-percent 5 --tail-threshold-percent 8
+.\scripts\lg-benchmark.ps1 compare-modes --result build/benchmarks/overkill-static-flythrough/<run-group> --result build/benchmarks/overkill-static-flythrough-bvh-off/<run-group> --result build/benchmarks/overkill-static-flythrough-gpu-indirect/<run-group>
 .\scripts\lg-benchmark.ps1 report --result build/benchmarks/eyetoeye-static-baseline/<run-group> --detailed
 ```
+
+`compare-modes` accepts only the three named Overkill static-world results. It
+allows their mode name, scenario hash, labels, notes, and the two culling cvars
+to differ. It still requires the map, camera, presentation settings, graphics
+contract, build, host, backend, driver, resolution, and Git state to match.
 
 Rendered benchmarks use their own local session. The defaults are UDP server
 port `28960`, TCP control port `28961`, and launcher state at

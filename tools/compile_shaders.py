@@ -49,11 +49,12 @@ def shaderc_library() -> Path | str:
     for candidate in candidates:
         if candidate.is_file():
             return candidate
-    system_library = ctypes.util.find_library("shaderc_shared")
-    if system_library:
-        return system_library
+    for library_name in ("shaderc_shared", "shaderc"):
+        system_library = ctypes.util.find_library(library_name)
+        if system_library:
+            return system_library
     raise RuntimeError(
-        "shaderc shared library was not found. Install the Vulkan SDK, "
+        "shaderc library was not found. Install the Vulkan SDK, "
         "system shaderc, or Blender, then rerun tools/compile_shaders.py."
     )
 

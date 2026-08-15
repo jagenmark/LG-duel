@@ -43,6 +43,7 @@ struct PerfSample {
   std::uint32_t worldCulledChunks = 0;
   std::uint32_t worldVisibilityTestedNodes = 0;
   float worldVisibilityQueryMilliseconds = 0.0F;
+  float worldGpuIndirectCpuMilliseconds = 0.0F;
   bool worldGpuIndirect = false;
   std::uint32_t worldGpuIndirectCommands = 0;
   std::uint32_t worldGpuIndirectMaterialGroups = 0;

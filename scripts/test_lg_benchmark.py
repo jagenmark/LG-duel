@@ -286,6 +286,100 @@ class BenchmarkTests(unittest.TestCase):
         result["environment"]["build_mode"] = "debug"
         self.assertIn("build_mode", lg_benchmark._comparison_mismatch(baseline, result))
 
+    def _world_mode_artifact(
+        self, root: Path, name: str, median: float, *, gpu: int, world_cull: int
+    ) -> dict:
+        result = self._artifact(root, name, median, scenario_hash=name)
+        result["scenario"].update({
+            "name": name,
+            "map": "overkill_import",
+            "cvars": {
+                "r_world_frustum_cull": world_cull,
+                "r_world_gpu_indirect": gpu,
+                "r_texture_filter": 2,
+            },
+        })
+        result["settings"].update({
+            "fov": 105.0,
+            "render_scale": 1.0,
+            "graphics_contract": {
+                "profile": "Default",
+                "world_frustum_cull": str(world_cull),
+                "world_gpu_indirect": str(gpu),
+                "effective_cvars": {
+                    "r_world_frustum_cull": str(world_cull),
+                    "r_world_gpu_indirect": str(gpu),
+                    "r_texture_filter": "2",
+                },
+            },
+            "presentation_cvars": {
+                "r_world_frustum_cull": world_cull,
+                "r_world_gpu_indirect": gpu,
+                "r_texture_filter": 2,
+            },
+        })
+        result["environment"].update({
+            "gpu_name": "Intel Graphics",
+            "gpu_type": "integrated",
+            "graphics_driver_name": "Mesa",
+            "graphics_driver_version": "1",
+            "vulkan_api_version": "1.4",
+            "observed_resolution": [1280, 720],
+        })
+        result["git"] = {"commit": "same", "dirty": False}
+        return result
+
+    def test_world_mode_comparison_allows_only_culling_selectors(self) -> None:
+        baseline = self._world_mode_artifact(
+            Path("root"), "overkill-static-flythrough", 10, gpu=0, world_cull=1
+        )
+        result = self._world_mode_artifact(
+            Path("root"), "overkill-static-flythrough-gpu-indirect", 10,
+            gpu=1, world_cull=0,
+        )
+        self.assertEqual(
+            lg_benchmark._comparison_mismatch(
+                baseline, result, allow_world_mode_selectors=True
+            ),
+            [],
+        )
+        result["settings"]["presentation_cvars"]["r_texture_filter"] = 1
+        self.assertIn(
+            "settings",
+            lg_benchmark._comparison_mismatch(
+                baseline, result, allow_world_mode_selectors=True
+            ),
+        )
+
+    def test_compare_world_modes_requires_three_guarded_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results = root / "results"
+            modes = {
+                "overkill-static-flythrough": (10, 0, 1),
+                "overkill-static-flythrough-bvh-off": (10.1, 0, 0),
+                "overkill-static-flythrough-gpu-indirect": (9.9, 1, 0),
+            }
+            references = []
+            for name, (median, gpu, world_cull) in modes.items():
+                directory = results / name
+                directory.mkdir(parents=True)
+                (directory / "aggregate.json").write_text(
+                    json.dumps(self._world_mode_artifact(
+                        root, name, median, gpu=gpu, world_cull=world_cull
+                    )),
+                    encoding="utf-8",
+                )
+                references.append(directory)
+            with mock.patch.object(lg_benchmark, "RESULT_ROOT", results):
+                comparison = lg_benchmark.compare_world_mode_results(references)
+            self.assertTrue(comparison["valid"])
+            self.assertIn(
+                "overkill-static-flythrough-gpu-indirect",
+                comparison["mode_comparisons"],
+            )
+            self.assertTrue((results / "overkill-static-flythrough-gpu-indirect" / "mode-comparison.json").is_file())
+
     def test_benchmark_cli_defaults_to_release_with_debug_opt_in(self) -> None:
         parser = lg_benchmark.build_parser()
         release = parser.parse_args(["run", "--scenario", "eyetoeye-static-baseline"])
