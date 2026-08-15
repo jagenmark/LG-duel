@@ -137,9 +137,11 @@ def main() -> None:
     stale_outputs: list[Path] = []
     try:
         for source_path in sorted(SHADER_DIR.glob("*.*")):
-            kind = 0 if source_path.suffix == ".vert" else (
-                1 if source_path.suffix == ".frag" else None
-            )
+            kind = {
+                ".vert": 0,   # shaderc_glsl_vertex_shader
+                ".frag": 1,   # shaderc_glsl_fragment_shader
+                ".comp": 2,   # shaderc_glsl_compute_shader
+            }.get(source_path.suffix)
             if kind is None:
                 continue
             source = expand_shader_source(source_path).encode("utf-8")

@@ -1784,6 +1784,10 @@ struct FrameTimeHistory {
     renderDiagnostics.worldVisibilityTestedNodes;
   sample.worldVisibilityQueryMilliseconds =
     renderDiagnostics.worldVisibilityQueryMilliseconds;
+  sample.worldGpuIndirect = renderDiagnostics.worldGpuIndirect;
+  sample.worldGpuIndirectCommands = renderDiagnostics.worldGpuIndirectCommands;
+  sample.worldGpuIndirectMaterialGroups =
+    renderDiagnostics.worldGpuIndirectMaterialGroups;
   sample.gpuDepthBits = renderDiagnostics.gpuDepthBits;
   sample.worldLoadedTextures = renderDiagnostics.worldLoadedTextures;
   sample.worldMissingTextures = renderDiagnostics.worldMissingTextures;
@@ -2048,17 +2052,28 @@ void appendPerfHudLines(
     latest.worldDuplicateTrianglesCulled
   );
   hud.topLeftLines.emplace_back(text);
-  std::snprintf(
-    text,
-    sizeof(text),
-    "world BVH: chunks %u/%u | culled %u | nodes %u | ranges %u | query %.3f ms",
-    latest.worldVisibleChunks,
-    latest.worldTotalChunks,
-    latest.worldCulledChunks,
-    latest.worldVisibilityTestedNodes,
-    latest.worldSubmittedRanges,
-    latest.worldVisibilityQueryMilliseconds
-  );
+  if (latest.worldGpuIndirect) {
+    std::snprintf(
+      text,
+      sizeof(text),
+      "world GPU: command slots %u | material groups %u | ranges %u",
+      latest.worldGpuIndirectCommands,
+      latest.worldGpuIndirectMaterialGroups,
+      latest.worldSubmittedRanges
+    );
+  } else {
+    std::snprintf(
+      text,
+      sizeof(text),
+      "world BVH: chunks %u/%u | culled %u | nodes %u | ranges %u | query %.3f ms",
+      latest.worldVisibleChunks,
+      latest.worldTotalChunks,
+      latest.worldCulledChunks,
+      latest.worldVisibilityTestedNodes,
+      latest.worldSubmittedRanges,
+      latest.worldVisibilityQueryMilliseconds
+    );
+  }
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
     text,
@@ -4023,6 +4038,7 @@ RenderSettings renderSettings(
   settings.uiFont = console.getString("r_ui_font");
   settings.frustumCullRemotePlayers = console.getBool("r_frustum_cull");
   settings.worldFrustumCull = console.getBool("r_world_frustum_cull");
+  settings.worldGpuIndirect = console.getBool("r_world_gpu_indirect");
   // SDL_Renderer does not consume Scene3D translucent geometry. Keep the
   // diagnostic fallback honest and avoid building an overlay it cannot show.
   settings.showCollision = collisionDebugSupported
@@ -7408,6 +7424,10 @@ int GameApp::run() const {
           sample.worldVisibilityTestedNodes = render.worldVisibilityTestedNodes;
           sample.worldVisibilityQueryMilliseconds =
             render.worldVisibilityQueryMilliseconds;
+          sample.worldGpuIndirect = render.worldGpuIndirect;
+          sample.worldGpuIndirectCommands = render.worldGpuIndirectCommands;
+          sample.worldGpuIndirectMaterialGroups =
+            render.worldGpuIndirectMaterialGroups;
           sample.visiblePlayers = render.visibleRemotePlayers;
           sample.projectileCount = render.projectilesRendered;
           sample.effectCount = render.activeTransientEffects;
@@ -11671,7 +11691,8 @@ int GameApp::run() const {
           (resultDirectory / "simulation-ticks.csv").string()
         );
         dev::JsonValue effectiveCvars = dev::JsonValue::objectValue();
-        constexpr std::array<std::string_view, 9> kBenchmarkGraphicsContractCvars{{
+        constexpr std::array<std::string_view, 11> kBenchmarkGraphicsContractCvars{{
+          "r_world_frustum_cull", "r_world_gpu_indirect",
           "r_antialiasing", "r_sun_shadows", "r_contact_shadows",
           "r_material_quality", "r_ambient_grounding", "r_player_rim",
           "r_atmosphere_grade", "r_bloom", "r_render_scale",

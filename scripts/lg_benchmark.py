@@ -58,6 +58,8 @@ SDL_CONFIGURATION_OPTIONS = {
 _BENCHMARK_SCOPE_LOCK = threading.RLock()
 
 GRAPHICS_CONTRACT_CVARS = {
+    "r_world_frustum_cull": "world_frustum_cull",
+    "r_world_gpu_indirect": "world_gpu_indirect",
     "r_antialiasing": "anti_aliasing",
     "r_sun_shadows": "sun_shadow_quality",
     "r_contact_shadows": "contact_shadows",

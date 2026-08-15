@@ -31,7 +31,7 @@ Packet encode/decode:
 
 ## Caching And Batching
 
-- Static world GPU cache: `StaticWorldMesh` in `Renderer.cpp`, keyed by `arenaStaticWorldFingerprint()`. Its renderer-owned triangle-chunk BVH is independent of the authoritative collision broadphase. The current direct-draw query is experimental and defaults off because the checked-in Overkill flythrough does not yet show an aggregate win; future GPU-driven visibility or map PVS can consume the same chunks.
+- Static world GPU cache: `StaticWorldMesh` in `Renderer.cpp`, keyed by `arenaStaticWorldFingerprint()`. Its renderer-owned triangle-chunk BVH is independent of the authoritative collision broadphase. `r_world_frustum_cull` keeps the CPU query path, while the guarded `r_world_gpu_indirect` prototype tests the same chunk AABBs in compute and writes one indirect command per chunk for the main-camera depth/color passes. The GPU path does not read commands back; benchmark results report command slots and material groups, while MainScene timestamps show GPU cost when available.
 - Static textures are loaded from disk and uploaded to GPU resources, not embedded in per-frame packets.
 - Snapshot map data is revision-gated by `mapRevision` and `hasArena`.
 - Transient combat events use bounded arrays plus short retention windows instead of unbounded event logs.
@@ -84,7 +84,10 @@ values empty. Submit/acquire time must not be reported as GPU execution time.
 GPU timestamps do not measure present, compositor, scanout, queue wait, GPU
 memory, or presentation latency. Record backend, selected present mode, map
 hash, resolution, settings, timestamp details, SDL identity, and fallback
-state; compare only compatible results. See
+state; compare only compatible results. For GPU-generated world commands, compare
+the CPU control and GPU mode on each target class. An Intel Core Ultra 7 258V
+iGPU must be treated as its own low-power GPU target, not as a stand-in for a
+discrete GPU. See
 [Performance benchmarks](../PERFORMANCE-BENCHMARKS.md) for the full GPU scope,
 scenario fields, warmup boundaries, bot/effect limits, captures, repetition,
 validity checks, and interpretation.

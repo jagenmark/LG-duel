@@ -116,6 +116,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_vsync", "Deprecated compatibility alias: 1 maps to r_present_mode 0, 0 maps to r_present_mode 2.", true, archivedClient, {}, {}});
   console.registerCvar({"r_frustum_cull", "Cull remote player geometry outside the first-person camera frustum.", true, archivedClient, {}, {}});
   console.registerCvar({"r_world_frustum_cull", "Experimentally cull cached static-world chunks outside the first-person camera frustum on the GPU renderer.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_world_gpu_indirect", "Prototype: use a compute shader to cull static-world chunks and write indirect draws; 0 keeps the CPU path.", false, archivedClient, {}, {}});
   console.registerCvar({"r_show_collision", "Collision debug overlay: 0 off, 1 all, 2 visible solids, 3 playerclip, 4 weapclip, 5 triggers.", 0, archivedClient, 0.0F, 5.0F});
   console.registerCvar({"r_texture_filter", "World texture filtering: 0 nearest, 1 bilinear with mipmaps, 2 trilinear with mipmaps.", 2, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_texture_anisotropy", "World texture anisotropic filtering level; clamped to 1, 2, 4, 8, or 16.", 8, archivedClient, 1.0F, 16.0F});

@@ -40,6 +40,7 @@
   "cvars": {
     "r_frustum_cull": 1,
     "r_world_frustum_cull": 1,
+    "r_world_gpu_indirect": 0,
     "r_show_weapons": 1,
     "r_player_model": 1,
     "r_draw_player_outlines": 1,

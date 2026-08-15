@@ -52,6 +52,7 @@ class BenchmarkTests(unittest.TestCase):
 
     def test_graphics_contract_requires_native_effective_cvars(self) -> None:
         effective = {
+            "r_world_frustum_cull": "0", "r_world_gpu_indirect": "0",
             "r_antialiasing": "1", "r_sun_shadows": "2",
             "r_contact_shadows": "1", "r_material_quality": "1",
             "r_ambient_grounding": "2",
@@ -560,6 +561,7 @@ class BenchmarkTests(unittest.TestCase):
                                     "p95_ms": 12, "p99_ms": 14, "max_ms": 15, "stddev_ms": 0.2},
                         "validity": {"map": True, "completed": True, "frame_count": True},
                         "effective_cvars": {
+                            "r_world_frustum_cull": "0", "r_world_gpu_indirect": "0",
                             "r_antialiasing": "1", "r_sun_shadows": "2",
                             "r_contact_shadows": "1", "r_material_quality": "1",
                             "r_ambient_grounding": "2",

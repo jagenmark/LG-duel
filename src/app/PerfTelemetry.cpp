@@ -137,6 +137,12 @@ dev::JsonValue benchmarkRenderPassDiagnostics(
   dev::JsonValue world = dev::JsonValue::objectValue();
   world.object["draw_calls"] =
     dev::JsonValue::numberValue(diagnostics.worldDrawCalls);
+  world.object["gpu_indirect"] =
+    dev::JsonValue::booleanValue(diagnostics.worldGpuIndirect);
+  world.object["gpu_indirect_commands"] =
+    dev::JsonValue::numberValue(diagnostics.worldGpuIndirectCommands);
+  world.object["gpu_indirect_material_groups"] =
+    dev::JsonValue::numberValue(diagnostics.worldGpuIndirectMaterialGroups);
   world.object["sky_draw_calls"] =
     dev::JsonValue::numberValue(diagnostics.skyDrawCalls);
   dev::JsonValue ambient = dev::JsonValue::objectValue();
