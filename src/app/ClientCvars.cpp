@@ -124,6 +124,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_draw_remote_players", "Draw remote player body models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_show_weapons", "Draw local first-person weapon models.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_weapon_switch_animation", "Animate local and remote weapon presentation switches.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_viewmodel_hands", "Draw experimental first-person gloved hands and forearms.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_dev_camera_draw_connected_body", "Draw the connected player body from the development camera for presentation checks.", false, CvarFlag::None, {}, {}});
   console.registerCvar({"r_weapon_pos", "First-person weapon position: 0 center, 1 wide right, 2 wide left.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_combat_effects", "Combat effects quality: 0 off, 1 low, 2 full.", 2, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_muzzle_light_intensity", "Presentation-only muzzle light intensity.", 2.4F, archivedClient, 0.0F, 12.0F});
@@ -191,10 +194,10 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_damage_numbers_damage_color", "Blend damage numbers from the configured color toward red as damage increases.", false, archivedClient, {}, {}});
   console.registerCvar({"r_damage_numbers_offset_x", "Damage number horizontal screen offset from the projected world anchor.", 0.0F, archivedClient, -400.0F, 400.0F});
   console.registerCvar({"r_damage_numbers_offset_y", "Damage number vertical screen offset from the projected world anchor.", -46.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_damage_indicator", "Draw directional damage indicators.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_damage_indicator", "Draw the directional damage warning at the screen edge.", true, archivedClient, {}, {}});
   console.registerCvar({"r_damage_indicator_duration", "Directional damage indicator lifetime in seconds.", 0.8F, archivedClient, 0.05F, 3.0F});
   console.registerCvar({"r_damage_indicator_opacity", "Directional damage indicator maximum opacity.", 0.85F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_damage_indicator_distance", "Directional damage indicator distance from the crosshair in pixels.", 112.0F, archivedClient, 24.0F, 800.0F});
+  console.registerCvar({"r_damage_indicator_distance", "Directional damage warning inset from the screen edge in pixels.", 24.0F, archivedClient, 24.0F, 800.0F});
   console.registerCvar({"r_damage_indicator_scale", "Directional damage indicator scale.", 1.0F, archivedClient, 0.25F, 4.0F});
   console.registerCvar({"r_enemy_r", "Enemy model red channel.", 224, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});

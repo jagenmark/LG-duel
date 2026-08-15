@@ -128,6 +128,7 @@ class ConversionTests(unittest.TestCase):
                 entity("item_health_large", '"origin" "4 4 4"'),
                 entity("target_position", '"targetname" "jump_target"\n"origin" "8 8 32"'),
                 entity("trigger_push", '"target" "jump_target"', cube("common/trigger")),
+                entity("trigger_hurt", '"dmg" "9999"\n"spawnflags" "12"', cube("common/trigger")),
                 entity("trigger_teleport", '"target" "tele_dest"', cube("common/trigger")),
                 entity("misc_teleporter_dest", '"targetname" "tele_dest"\n"origin" "9 9 9"'),
             ]
@@ -137,6 +138,10 @@ class ConversionTests(unittest.TestCase):
         self.assertIn('"classname" "func_group"', output)
         self.assertEqual(2, output.count('"classname" "lg_spawn"'))
         self.assertIn('"classname" "trigger_jumppad"', output)
+        self.assertIn('"classname" "trigger_kill"', output)
+        self.assertIn('"lg_source_classname" "trigger_hurt"', output)
+        self.assertIn('"dmg" "9999"', output)
+        self.assertIn('"spawnflags" "12"', output)
         self.assertIn('"classname" "trigger_teleport"', output)
         self.assertIn('"classname" "target_position"', output)
         self.assertIn('"classname" "item_health_small"', output)
@@ -146,11 +151,44 @@ class ConversionTests(unittest.TestCase):
         self.assertIn("Tiny3/Stone/Stone_14-128x128", output)
         self.assertIn("Tiny3/Metal/Metal_04-128x128", output)
         self.assertEqual(1, report["gameplay"]["converted"]["jump_pads"])
+        self.assertEqual(1, report["gameplay"]["source_trigger_hurt"])
+        self.assertEqual(1, report["gameplay"]["converted"]["kill_volumes"])
         self.assertEqual(1, report["gameplay"]["source_teleports"])
         self.assertEqual(1, report["gameplay"]["converted"]["teleports"])
         self.assertEqual(
             q3._sha256(output.encode("utf-8")),
             report["outputs"]["candidate_map"]["sha256"],
+        )
+
+    def test_nonlethal_or_stateful_hurt_triggers_stay_unsupported(self):
+        sloped_brush = """{
+( -1 -1 0 ) ( -1 1 0 ) ( -1 1 1.5 ) common/trigger 0 0 0 1 1
+( 1 -1 0 ) ( 1 -1 0.5 ) ( 1 1 0.5 ) common/trigger 0 0 0 1 1
+( -1 -1 0 ) ( 1 -1 0 ) ( 1 -1 0.5 ) common/trigger 0 0 0 1 1
+( -1 1 0 ) ( -1 1 1.5 ) ( 1 1 0.5 ) common/trigger 0 0 0 1 1
+( -1 -1 0 ) ( -1 1 0 ) ( 1 1 0 ) common/trigger 0 0 0 1 1
+( -1 -1 1.5 ) ( 1 -1 0.5 ) ( 1 1 0.5 ) common/trigger 0 0 0 1 1
+}"""
+        raw = "\n".join(
+            [
+                entity("worldspawn", brushes=cube()),
+                entity("trigger_hurt", '"dmg" "5"', cube("common/trigger")),
+                entity("trigger_hurt", '"dmg" "9999"\n"spawnflags" "1"', cube("common/trigger")),
+                entity("trigger_hurt", '"dmg" "9999"\n"spawnflags" "12"'),
+                entity(
+                    "trigger_hurt",
+                    '"dmg" "9999"\n"spawnflags" "12"',
+                    sloped_brush,
+                ),
+            ]
+        )
+        output, report = q3.convert(raw, "hurt-semantics.map", self.bsp)
+        self.assertNotIn('"classname" "trigger_kill"', output)
+        self.assertEqual(
+            4,
+            report["conversion"]["omitted_entities"][
+                "trigger_hurt:nonlethal_or_unsupported"
+            ],
         )
 
     def test_ambiguous_jump_target_is_reported_and_not_mapped(self):

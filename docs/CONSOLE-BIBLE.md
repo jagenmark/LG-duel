@@ -116,6 +116,9 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_viewmodel_landing_scale` | float | `0.65` | `0..2` | None | Archive | Scale for airborne float and landing compression. `0` disables only jump/landing response. |
 | `cl_camera_position_response` | float | `0` | `0..0.15` | None | Archive | Optional extremely subtle translation-only camera response derived from presentation motion. Default `0` is exactly neutral; no camera rotation is ever added. |
 | `r_player_model` | int | `1` | `0..1` | None | Archive | Remote player body renderer. `0` uses legacy boxes and `1` uses the Quaternius Worker GLB default. The Duelist asset stays archived and is not a runtime option. |
+| `r_weapon_switch_animation` | bool | `1` | bool | None | Archive | Enables the deterministic 0.16-second first-person drop/hidden-swap/raise presentation and the inverse third-person arm lift. It never changes weapon authority or fire timing. |
+| `r_viewmodel_hands` | bool | `0` | bool | None | Archive | Enables the experimental first-person hand preview in the ViewModel pass. It is off by default and opt-in. |
+| `r_dev_camera_draw_connected_body` | bool | `0` | bool | None | Session | Draws the connected player through the third-person Worker path only while the development camera is active. This supports fixed-camera switch checks and never changes normal camera ownership. |
 | `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
 | `cl_health_style` | int | `0` | `0..2` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra med dynamisk färg, `2` crosshair-nära HP vänster och ammo höger. |
 | `cl_speed_size` | float | `1.5` | `0.5..6` | Ingen | Arkiv | Textskala för speed-indikatorn under crosshair. |
@@ -384,6 +387,11 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_damage_numbers_damage_color` | bool | `0` | bool | Ingen direkt | When enabled, damage numbers blend from the configured color toward red as damage increases. Headshots are shown as bold numeric text with a red accent instead of a `HEADSHOT` label. |
 | `r_damage_numbers_offset_x` | float | `0` | `-400..400` | Ingen direkt | Horizontal screen offset from the projected world-space damage anchor. |
 | `r_damage_numbers_offset_y` | float | `-46` | `-400..400` | Ingen direkt | Vertical screen offset from the projected world-space damage anchor. |
+| `r_damage_indicator` | bool | `1` | bool | Ingen direkt | Shows the directional damage warning as a restrained crescent at the screen edge. The F11 tools menu toggles the same archived cvar. |
+| `r_damage_indicator_duration` | float | `0.8` | `0.05..3` seconds | Ingen direkt | Lifetime of each directional damage warning. |
+| `r_damage_indicator_opacity` | float | `0.85` | `0..1` | Ingen direkt | Maximum opacity of each warning. |
+| `r_damage_indicator_distance` | float | `24` | `24..800` pixels | Ingen direkt | Inset of the warning from the screen edge. |
+| `r_damage_indicator_scale` | float | `1` | `0.25..4` | Ingen direkt | Scale of the warning arc and its line width. |
 
 ### 3.9 Motståndarmodell och träfffärg
 
@@ -512,7 +520,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `player <name>` | string, `1..20` bytes/tecken i nuvarande ASCII-användning | Sätter, arkiverar och replikerar spelarnamn via `cl_player_name`. Flera ord tillåts. Returnerar `name = ...`. |
 | `ready` | inga argument | Togglar ready under väntfasen. Defaultbindning `F3`. |
 | `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. Alla spelare får använda kommandot. |
-| `gamemode <mode>` | `duel`, `ca`, `clanarena`, `mcg`, or `mcguffin` | Selects the mode during warmup. McGuffin requires a compatible active map. |
+| `gamemode <mode>` | `duel`, `ca`, `clanarena`, `mcg`, `mcguffin`, or `ffa` | Selects the mode during warmup. Free For All has a fixed ten-minute limit and ends at 100 points; enemy kills give `+1`, while self-kills give `-1`. McGuffin requires a compatible active map. |
 | `team <team>` | `red`, `blue`, `none`, `unassigned`, `spectator`, or `spec` | Selects a team during warmup. `spectator` releases the authoritative player body while retaining the connection; during warmup a spectator can claim a free body with `team red`, `team blue`, or `team none`. Clan Arena and McGuffin players must choose Red or Blue before `ready`. |
 | `bot_weapon [mg\|sg\|gl\|rl\|lg\|sr\|pg\|fg\|re\|1..9]` | Optional weapon token | Shows or changes the server-authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). `rg` remains an alias for `sr`. Normal weapon-switch and pullout rules still apply. |
 | `connect <host> [port]` | host string; port `1..65535` | Ansluter till server. |
@@ -684,7 +692,7 @@ automatiskt.
 | `sv_playerlimit` | int | `2` | `1..16` | No direct equivalent | Number of connected players required for match flow to begin. |
 | `sv_countdown` | float | `5` | `0..60` sekunder | Ingen exakt standard | Countdown före live round. Movement är aktiv; weapons är låsta under countdown. |
 | `sv_roundend` | float | `5` | `0..30` sekunder | Ingen direkt | Delay efter round innan respawn/nästa countdown. |
-| `sv_respawn_delay` | float | `2` | `0..30` seconds | General server rule | Death-respawn delay used by modes with live respawning, including McGuffin. Zero respawns immediately. Elimination modes ignore it. |
+| `sv_respawn_delay` | float | `2` | `0..30` seconds | General server rule | Death-respawn delay used by modes with live respawning, including Free For All and McGuffin. Zero respawns immediately. Elimination modes ignore it. |
 | `sv_mcg_scorelimit` | int | `100` | `1..1000` points | Diabotical: 100 | Points required to win a McGuffin round. |
 | `sv_mcg_points_per_second` | int | `1` | `1..20` points/s | Provisional | Installed-objective scoring rate. |
 | `sv_mcg_carry_points_per_second` | int | `1` | `1..20` points/s | Provisional | Unbanked carry-credit accumulation rate. |
@@ -785,6 +793,15 @@ ready
 Under warmup visas valt spelläge och eget lag på HUD:en. I Clan Arena färgas
 spelarnamnen på scoreboarden efter rött eller blått lag. Ojämna lag är tillåtna,
 alla anslutna spelare måste ha valt lag och vara redo, med minst en spelare i vardera laget.
+
+Free For All:
+
+```text
+gamemode ffa
+ready
+```
+
+Free For All använder inga lag. Varje annan levande deltagare är en fiende.
 
 Server:
 

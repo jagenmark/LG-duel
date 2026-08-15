@@ -5,6 +5,11 @@ repository secrets. Runs for an older commit on the same pull request stop when
 a new commit arrives. Each job has a time limit and uploads its JSON, JUnit,
 logs, and other evidence even when a check fails.
 
+The main Linux and Windows CTest steps run two independent test programs at a
+time. Tests that open UDP sockets use system-assigned ports, and tests that write
+files use separate paths, so this keeps the same checks while cutting idle CPU
+time.
+
 ## Required checks
 
 In **Settings > Branches > Branch protection rules**, add or edit the rule for
@@ -21,10 +26,18 @@ In **Settings > Branches > Branch protection rules**, add or edit the rule for
    - `windows-build-and-tests`
    - `deterministic-scenarios`
    - `protocol-and-packet-budgets`
-   - `performance-smoke`
 8. **Require conversation resolution before merging**.
 9. **Do not allow bypassing the above settings**.
 10. Turn off force pushes and branch deletion.
+
+## Optional PR checks
+
+`performance-smoke` runs when a pull request has the `performance-smoke` label,
+or when a maintainer starts the PR verification workflow by hand. It is not a
+required status check. Keep it out of the required-check list so a hosted-runner
+timing result cannot block a merge. When it runs, tool errors and hard packet or
+queue-limit failures still fail the job. A `NOT_COMPARABLE` result remains useful
+evidence and does not fail the job.
 
 `live-client-server-smoke` checks the real client, UDP server, input path, and
 snapshot path with the fallback renderer. Keep it visible at first. Make it a

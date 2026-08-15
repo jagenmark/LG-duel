@@ -113,6 +113,21 @@ int main() {
         "r_display_gamma = 1.25",
     "display gamma should default neutral and enforce its endpoints"
   );
+  failures += expect(
+    console.getBool("r_damage_indicator") &&
+      console.getFloat("r_damage_indicator_distance") == 24.0F &&
+      std::find(
+        initialArchivedConfig.begin(),
+        initialArchivedConfig.end(),
+        "set r_damage_indicator 1"
+      ) != initialArchivedConfig.end() &&
+      std::find(
+        initialArchivedConfig.begin(),
+        initialArchivedConfig.end(),
+        "set r_damage_indicator_distance 24"
+      ) != initialArchivedConfig.end(),
+    "screen-edge damage warning should default on, hug the border, and persist"
+  );
   const std::vector<std::string> displayGammaArchivedConfig =
     console.archivedConfigLines();
   failures += expect(
@@ -626,6 +641,22 @@ int main() {
       console.execute("r_show_weapons 0") == "r_show_weapons = 0" &&
       !console.getBool("r_show_weapons"),
     "local first-person weapon rendering should be toggleable"
+  );
+  failures += expect(
+    console.execute("r_weapon_switch_animation") ==
+        "r_weapon_switch_animation = 1 (default 1)" &&
+      console.execute("r_weapon_switch_animation 0") ==
+        "r_weapon_switch_animation = 0" &&
+      !console.getBool("r_weapon_switch_animation") &&
+      console.execute("r_viewmodel_hands") == "r_viewmodel_hands = 0 (default 0)" &&
+      console.execute("r_viewmodel_hands 1") == "r_viewmodel_hands = 1" &&
+      console.getBool("r_viewmodel_hands") &&
+      console.execute("r_dev_camera_draw_connected_body") ==
+        "r_dev_camera_draw_connected_body = 0 (default 0)" &&
+      console.execute("r_dev_camera_draw_connected_body 1") ==
+        "r_dev_camera_draw_connected_body = 1" &&
+      console.getBool("r_dev_camera_draw_connected_body"),
+    "weapon presentation and development-camera proof controls should stay separate"
   );
   failures += expect(
     console.execute("r_weapon_pos") == "r_weapon_pos = 0 (default 0)" &&

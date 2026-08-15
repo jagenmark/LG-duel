@@ -1811,7 +1811,8 @@ bool GltfSkinnedModel::appendBonePalette(
   std::span<const SkinnedModelPoseRequest> poses,
   std::vector<std::array<float, 16>>& out,
   PoseScratch& scratch,
-  float upperBodyAimPitchRadians
+  float upperBodyAimPitchRadians,
+  float armatureSpaceSideLeanRadians
 ) const {
   if (!loaded_) {
     return false;
@@ -1924,6 +1925,47 @@ bool GltfSkinnedModel::appendBonePalette(
       scratch.globalMatrices,
       scratch.resolved
     );
+  }
+
+  const float sideLean = std::clamp(
+    armatureSpaceSideLeanRadians,
+    -0.78539816F,
+    0.78539816F
+  );
+  if (std::fabs(sideLean) > 0.0001F) {
+    const auto abdomen = std::find_if(
+      nodes_.begin(), nodes_.end(),
+      [](const Node& node) { return node.name == "Abdomen"; }
+    );
+    if (abdomen != nodes_.end()) {
+      const int abdomenIndex = static_cast<int>(abdomen - nodes_.begin());
+      const Matrix4& abdomenGlobal =
+        scratch.globalMatrices[static_cast<std::size_t>(abdomenIndex)];
+      const float pivotX = abdomenGlobal.values[3];
+      const float pivotY = abdomenGlobal.values[7];
+      // Blender +Y, used to author the accepted lean, exports as glTF -Z.
+      const float cosine = std::cos(-sideLean);
+      const float sine = std::sin(-sideLean);
+      Matrix4 aroundPivot;
+      aroundPivot.values = {
+        cosine, -sine, 0.0F, pivotX - cosine * pivotX + sine * pivotY,
+        sine, cosine, 0.0F, pivotY - sine * pivotX - cosine * pivotY,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F,
+      };
+      for (std::size_t index = 0; index < nodes_.size(); ++index) {
+        int ancestor = static_cast<int>(index);
+        while (ancestor >= 0 && ancestor != abdomenIndex) {
+          ancestor = nodes_[static_cast<std::size_t>(ancestor)].parent;
+        }
+        if (ancestor == abdomenIndex) {
+          scratch.globalMatrices[index] = multiply(
+            aroundPivot,
+            scratch.globalMatrices[index]
+          );
+        }
+      }
+    }
   }
 
   const std::size_t firstOut = out.size();

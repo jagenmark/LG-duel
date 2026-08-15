@@ -40,10 +40,17 @@ void main() {
   vec4 dilated = texelFetch(outlineDilation, pixel, 0);
   int selectedGroup = groupFromValue(dilated.r);
   float coverage = clamp(dilated.g, 0.0, 1.0);
+  float fadeAlpha = clamp(dilated.a, 0.0, 1.0);
   if (selectedGroup == 1) {
-    outColor = vec4(outline.enemyColor.rgb, outline.enemyColor.a * coverage);
+    outColor = vec4(
+      outline.enemyColor.rgb,
+      outline.enemyColor.a * coverage * fadeAlpha
+    );
   } else if (selectedGroup == 2) {
-    outColor = vec4(outline.teammateColor.rgb, outline.teammateColor.a * coverage);
+    outColor = vec4(
+      outline.teammateColor.rgb,
+      outline.teammateColor.a * coverage * fadeAlpha
+    );
   } else {
     discard;
   }

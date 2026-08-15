@@ -179,6 +179,10 @@ public:
       writeU8(static_cast<std::uint8_t>(value >> 8U));
   }
 
+  bool writeI16(std::int16_t value) {
+    return writeU16(std::bit_cast<std::uint16_t>(value));
+  }
+
   bool writeU32(std::uint32_t value) {
     return writeU16(static_cast<std::uint16_t>(value)) &&
       writeU16(static_cast<std::uint16_t>(value >> 16U));
@@ -249,6 +253,14 @@ public:
     }
     value = static_cast<std::uint16_t>(low) |
       (static_cast<std::uint16_t>(high) << 8U);
+    return true;
+  }
+  bool readI16(std::int16_t& value) {
+    std::uint16_t encoded = 0;
+    if (!readU16(encoded)) {
+      return false;
+    }
+    value = std::bit_cast<std::int16_t>(encoded);
     return true;
   }
 
@@ -810,7 +822,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     (packet.playerIndex < kDuelPlayerCount ||
      packet.playerIndex == kNoAssignedPlayer) &&
     weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
-    requestedGameMode <= static_cast<std::uint8_t>(GameMode::McGuffin) &&
+    requestedGameMode <= static_cast<std::uint8_t>(GameMode::FreeForAll) &&
     requestedTeam <= static_cast<std::uint8_t>(Team::Blue) &&
     weaponSwitchingMode <= static_cast<std::uint8_t>(WeaponSwitchingMode::Crazy) &&
     botCommand <= static_cast<std::uint8_t>(BotCommandType::Weapon) &&
@@ -2043,8 +2055,8 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
-  for (std::uint16_t score : snapshot.scores) {
-    if (!writer.writeU16(score)) {
+  for (PlayerScore score : snapshot.scores) {
+    if (!writer.writeI16(score)) {
       return false;
     }
   }
@@ -2409,8 +2421,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       return false;
     }
   }
-  for (std::uint16_t& score : decoded.scores) {
-    if (!reader.readU16(score)) {
+  for (PlayerScore& score : decoded.scores) {
+    if (!reader.readI16(score)) {
       return false;
     }
   }

@@ -69,13 +69,16 @@ The Python conversion stage:
 - replaces reviewed, explicitly dropped clip brushes with validated derived
   convex collision hulls while retaining the source locator and adaptation ID;
 - converts clean brush teleports whose target has one unambiguous destination;
+- converts clean, cuboid, always-on Q3 `trigger_hurt` brushes with at least
+  1000 damage into instant `trigger_kill` world-death volumes;
 - supports a deliberate ordered selection of 2–32 spawns instead of relying on source order;
 - writes deterministic JSON and Markdown reports next to the candidate.
 
 `config/q3-import/overkill.json` is the reviewed adaptation for Overkill. It
 retains all 32 source deathmatch spawns in their source order, reconstructs the important arches, bridge curves, and
-teleporter pad, restores and marks the authored teleport route, supplies reviewed
-sun/static lighting in place of unavailable BSP lightmaps, and maps broad source
+teleporter pad, restores and marks the authored teleport route and pit kill
+volumes, supplies reviewed sun/static lighting in place of unavailable BSP
+lightmaps, and maps broad source
 shader families onto four original LG-Duel texture roles. It also selects the
 `crimson-sunset` client sky. Adaptation choices and
 their resulting geometry counts are preserved in the generated reports.

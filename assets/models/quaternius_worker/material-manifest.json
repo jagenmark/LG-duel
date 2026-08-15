@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "model": "quaternius_worker.glb",
-  "model_sha256": "368445c36b4c7da7bdec8f677cfecb6c5a34d575caac59ff4b721a5cd85f22db",
+  "model_sha256": "5ac9184b9a6181e9f71aeac45c23ce81cb11aa7b9ab80cf49f5ec4465d7f7a0f",
   "opaque": true,
   "uv_mode": "material_cell",
   "albedo_mode": "replace",

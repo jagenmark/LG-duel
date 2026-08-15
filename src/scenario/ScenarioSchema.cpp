@@ -209,6 +209,7 @@ template <typename Integer>
   if (value == "duel") return GameMode::Duel;
   if (value == "clan_arena") return GameMode::ClanArena;
   if (value == "mcguffin") return GameMode::McGuffin;
+  if (value == "free_for_all" || value == "ffa") return GameMode::FreeForAll;
   return std::nullopt;
 }
 
@@ -318,7 +319,7 @@ template <typename Integer>
   if (!stringValue(value.find("game_mode"), mode, "world.game_mode", error)) return false;
   const std::optional<GameMode> parsedMode = parseGameMode(mode);
   if (!parsedMode) {
-    error = "world.game_mode: must be duel, clan_arena, or mcguffin";
+    error = "world.game_mode: must be duel, clan_arena, mcguffin, or free_for_all";
     return false;
   }
   output.gameMode = *parsedMode;
@@ -1455,6 +1456,7 @@ std::string_view gameModeName(GameMode mode) {
   case GameMode::Duel: return "duel";
   case GameMode::ClanArena: return "clan_arena";
   case GameMode::McGuffin: return "mcguffin";
+  case GameMode::FreeForAll: return "free_for_all";
   }
   return "unknown";
 }

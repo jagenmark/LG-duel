@@ -95,6 +95,42 @@ int main() {
     ) == lg::Weapon::Railgun,
     "followed-player switch and ready presentation should use the target's selected weapon"
   );
+  const lg::PresentationViewOwnership localOwnership =
+    lg::presentationViewOwnership({}, 0, false, true);
+  const lg::PresentationViewOwnership followedOwnership =
+    lg::presentationViewOwnership(observer, lg::kNoAssignedPlayer, true, true);
+  const lg::PresentationViewOwnership teammateFollowOwnership =
+    lg::presentationViewOwnership(spectate, 0, false, true);
+  lg::DeathCameraDecision deathPosition;
+  deathPosition.mode = lg::DeathCameraMode::DeathPosition;
+  const lg::PresentationViewOwnership deathOwnership =
+    lg::presentationViewOwnership(deathPosition, 0, false, true);
+  failures += expect(
+    localOwnership.connectedBody == 0 &&
+      localOwnership.cameraSubject == 0 &&
+      localOwnership.hiddenWorldBody == 0 &&
+      localOwnership.viewModelSubject == 0 &&
+      localOwnership.showViewModel &&
+      lg::suppressRemoteBodyForPresentation(localOwnership, 0) &&
+      followedOwnership.connectedBody == std::nullopt &&
+      followedOwnership.cameraSubject == 2 &&
+      followedOwnership.hiddenWorldBody == 2 &&
+      followedOwnership.viewModelSubject == 2 &&
+      followedOwnership.showViewModel &&
+      lg::suppressRemoteBodyForPresentation(followedOwnership, 2) &&
+      !lg::suppressRemoteBodyForPresentation(followedOwnership, 1) &&
+      teammateFollowOwnership.connectedBody == 0 &&
+      teammateFollowOwnership.cameraSubject == 1 &&
+      teammateFollowOwnership.hiddenWorldBody == 1 &&
+      teammateFollowOwnership.viewModelSubject == 1 &&
+      lg::suppressRemoteBodyForPresentation(teammateFollowOwnership, 1) &&
+      !lg::suppressRemoteBodyForPresentation(teammateFollowOwnership, 0) &&
+      deathOwnership.connectedBody == 0 &&
+      deathOwnership.hiddenWorldBody == 0 &&
+      deathOwnership.viewModelSubject == std::nullopt &&
+      !deathOwnership.showViewModel,
+    "local, followed, and death views should keep body and viewmodel ownership distinct"
+  );
   failures += expect(
     lg::presentationSubjectIndex(observer, lg::kNoAssignedPlayer, true) == 2 &&
       !lg::presentationSubjectIndex(

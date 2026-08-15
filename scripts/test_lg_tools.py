@@ -1869,7 +1869,9 @@ class LgToolTests(unittest.TestCase):
             "        simpleResources,\n"
             "        perspectiveScene,\n"
             "        RenderPass::OpaqueWorld,\n"
-            "        false\n"
+            "        false,\n"
+            "        nullptr,\n"
+            "        true\n"
             "      );"
         )
         self.assertIn(shadow_call, renderer)

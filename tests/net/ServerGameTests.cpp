@@ -337,6 +337,10 @@ int main() {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     latestSnapshot(transport);
+    failures += expect(
+      server.botNavigationBuildCount() == 1U,
+      "server startup should build bot navigation once"
+    );
 
     lg::Arena arena;
     arena.spawnCount = lg::Arena::kSpawnCount;
@@ -882,6 +886,81 @@ int main() {
     failures += expect(
       mapSnapshot.mapRevision == initialRevision + 1,
       "invalid client map names should be ignored"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+    server.setMapDirectory("maps");
+    failures += expect(
+      server.loadRequestedMap("overkill_import"),
+      "overkill pit death test should load the real imported map"
+    );
+
+    lg::ScenarioSetup setup;
+    setup.seed = 73;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.players[0].connected = true;
+    setup.players[0].ready = true;
+    setup.players[0].alive = true;
+    setup.players[0].health = 100;
+    setup.players[0].position = server.arena().spawnPositions[0];
+    setup.players[0].position.z += kDefaultPlayerHalfHeight;
+    setup.players[0].onGround = true;
+    setup.players[1].connected = true;
+    setup.players[1].ready = true;
+    setup.players[1].alive = true;
+    setup.players[1].health = 100;
+    setup.players[1].position = {-6.4F, -21.6F, -12.5F};
+    setup.players[1].velocity = {0.0F, 0.0F, -20.0F};
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "overkill pit death scenario should apply"
+    );
+    lg::replay::ReplayRollingBufferConfig replayConfig;
+    failures += expect(
+      server.beginRollingReplay(replayConfig, &setupError),
+      "overkill pit death scenario should start replay capture"
+    );
+
+    lg::ServerSnapshot snapshot = server.snapshot();
+    for (int tick = 0; tick < 64 && snapshot.players[1].health > 0; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.players[1].health == 0 &&
+        snapshot.players[1].position.z > server.arena().min.z + 2.0F,
+      "falling into an overkill pit should kill before the arena low bound"
+    );
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
+        snapshot.roundWinner == 0 && snapshot.scores[0] == 1,
+      "an overkill pit death should award the Duel round to the survivor"
+    );
+    failures += expect(
+      !snapshot.fragEvents[0].active && !snapshot.fragEvents[1].active,
+      "an overkill pit death should not emit a player weapon frag"
+    );
+    bool hasWeaponCredit = false;
+    for (const lg::RoundCombatStats& stats : snapshot.roundCombatStats) {
+      for (const lg::WeaponCombatStats& weapon : stats.weapons) {
+        hasWeaponCredit = hasWeaponCredit || weapon.damageDealt > 0;
+      }
+    }
+    failures += expect(
+      !hasWeaponCredit,
+      "an overkill pit death should not add player weapon damage"
+    );
+    const std::optional<lg::replay::ReplayLethalEvent> lethal =
+      server.latestReplayLethal();
+    failures += expect(
+      lethal.has_value() && lethal->kind == lg::replay::LethalKind::World &&
+        lethal->victim == 1 && lethal->killer == lg::replay::kNoReplayPlayer,
+      "an overkill pit death should enter replay data as a world lethal"
     );
   }
 

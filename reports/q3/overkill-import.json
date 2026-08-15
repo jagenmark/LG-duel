@@ -35948,6 +35948,7 @@
       "convex_brushes": 1024,
       "health_pickups": 32,
       "jump_pads": 48,
+      "kill_volumes": 32,
       "lights": 96,
       "spawns": 32,
       "teleports": 16,
@@ -35983,7 +35984,6 @@
       "team_CTF_blueplayer:unsupported": 8,
       "team_CTF_redplayer:unsupported": 9,
       "team_dom_point:unsupported": 3,
-      "trigger_hurt:unsupported": 3,
       "trigger_multiple:unsupported": 3,
       "weapon_grenadelauncher:unsupported": 1,
       "weapon_hmg:unsupported": 1,
@@ -35999,9 +35999,10 @@
     "placeholder_materials": [],
     "projected_counts": {
       "convex_brushes": 994,
-      "entities": 2075,
+      "entities": 2078,
       "health_pickups": 16,
       "jump_pads": 5,
+      "kill_volumes": 3,
       "lights": 11,
       "spawns": 32,
       "teleports": 1,
@@ -36132,6 +36133,7 @@
     "converted": {
       "health_pickups": 16,
       "jump_pads": 5,
+      "kill_volumes": 3,
       "lights": 11,
       "spawns": 32,
       "sun_lights": 1,
@@ -36142,6 +36144,7 @@
     "source_lights": 0,
     "source_spawns": 32,
     "source_teleports": 1,
+    "source_trigger_hurt": 3,
     "source_trigger_push": 5
   },
   "geometry": {
@@ -36369,8 +36372,8 @@
   "outputs": {
     "candidate_map": {
       "name": "overkill_import.map",
-      "sha256": "3bb85c0bf7fe4b704fcc4414ea5e9be003149dff1b0658e8b74a9c9338a4f50f",
-      "size": 1742534
+      "sha256": "66a264f0a7c9972abcc49adc7fb06f53e35a03cd6a0da2d3dc0b9f32b041d469",
+      "size": 1744334
     }
   },
   "schema_version": 2,

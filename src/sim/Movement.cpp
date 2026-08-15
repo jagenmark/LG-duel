@@ -303,30 +303,16 @@ struct StepMoveResult {
   );
 }
 
-[[nodiscard]] bool playerOverlapsTrigger(
-  const PlayerState& player,
-  Vec3 minimum,
-  Vec3 maximum
-) {
-  const float closestX = clamp(player.position.x, minimum.x, maximum.x);
-  const float closestY = clamp(player.position.y, minimum.y, maximum.y);
-  const float deltaX = player.position.x - closestX;
-  const float deltaY = player.position.y - closestY;
-  const bool overlapsPlanar =
-    (deltaX * deltaX) + (deltaY * deltaY) <=
-      (player.bounds.radius * player.bounds.radius);
-  const float playerMinZ = player.position.z - player.bounds.halfHeight;
-  const float playerMaxZ = player.position.z + player.bounds.halfHeight;
-  return overlapsPlanar &&
-    playerMaxZ >= minimum.z &&
-    playerMinZ <= maximum.z;
-}
-
 [[nodiscard]] bool playerOverlapsJumpPad(
   const PlayerState& player,
   const ArenaJumpPad& jumpPad
 ) {
-  return playerOverlapsTrigger(player, jumpPad.min, jumpPad.max);
+  return playerTouchesTriggerVolume(
+    player.bounds,
+    player.position,
+    jumpPad.min,
+    jumpPad.max
+  );
 }
 
 [[nodiscard]] Vec3 ballisticLaunchVelocity(
@@ -391,7 +377,12 @@ void applyJumpPads(
 void applyTeleports(PlayerState& player, const Arena& arena) {
   for (std::size_t index = 0; index < arena.teleportCount; ++index) {
     const ArenaTeleport& teleport = arena.teleports[index];
-    if (!playerOverlapsTrigger(player, teleport.min, teleport.max)) {
+    if (!playerTouchesTriggerVolume(
+          player.bounds,
+          player.position,
+          teleport.min,
+          teleport.max
+        )) {
       continue;
     }
     // Trigger volumes are evaluated after collision movement on both the

@@ -32,11 +32,21 @@ namespace {
 using SocketHandle = SOCKET;
 constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
 void closeSocket(SocketHandle socket) { if (socket != kInvalidSocket) closesocket(socket); }
+void interruptSocket(SocketHandle socket) {
+  if (socket != kInvalidSocket) {
+    (void)shutdown(socket, SD_BOTH);
+  }
+}
 [[nodiscard]] std::string socketError() { return std::to_string(WSAGetLastError()); }
 #else
 using SocketHandle = int;
 constexpr SocketHandle kInvalidSocket = -1;
 void closeSocket(SocketHandle socket) { if (socket != kInvalidSocket) close(socket); }
+void interruptSocket(SocketHandle socket) {
+  if (socket != kInvalidSocket) {
+    (void)shutdown(socket, SHUT_RDWR);
+  }
+}
 [[nodiscard]] std::string socketError() { return std::to_string(errno); }
 #endif
 
@@ -275,6 +285,10 @@ bool DevControlServer::start(std::uint16_t port, std::string& error) {
 void DevControlServer::stop() {
   const bool wasActive = impl_->active.exchange(false);
   if (wasActive) {
+    // Closing a listening socket from another thread does not reliably wake
+    // accept() on POSIX. Interrupt it first so the control thread can join
+    // during normal client shutdown.
+    interruptSocket(impl_->listener);
     closeSocket(impl_->listener);
     impl_->listener = kInvalidSocket;
     std::shared_ptr<SharedRequest> current;

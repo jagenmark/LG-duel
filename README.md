@@ -19,7 +19,7 @@ LG Duel currently includes:
 * Shared client/server movement, collision, combat, and map structures.
 * UDP protocol with versioned command packets, command bundles, snapshots, ping/pong, connect, and disconnect packets.
 * Local movement prediction, authoritative reconciliation, and buffered remote interpolation.
-* Hitscan and projectile weapons, duel and clan-arena rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
+* Hitscan and projectile weapons, Duel, Clan Arena, Free For All, and McGuffin rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
 * First-person 3D SDL rendering with an SDL_GPU path for cached static world rendering, dynamic effects, player/weapon/projectile presentation, and a 2D HUD/UI overlay.
 * Restricted Quake/TrenchBroom `.map` arena loading.
 
@@ -203,6 +203,9 @@ Teleport volumes use `trigger_teleport` brushes whose `target` names a
 `target_position`. The target supplies the exit position and facing. The
 managed map tools expose teleports as one typed object, so callers do not write
 raw target links.
+
+Instant world-death zones use non-solid cuboid `trigger_kill` brushes. They
+end a life on first touch without crediting a player weapon or frag event.
 
 Brush texture names are preserved as material ids and replicated to clients.
 Referenced textures must exist under `textures/`; for example a TrenchBroom

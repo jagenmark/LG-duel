@@ -461,7 +461,7 @@ int ServerApp::run() const {
       std::string scoreText;
       for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
         if (!scoreText.empty()) {
-          scoreText += "-";
+          scoreText += ",";
         }
         scoreText += std::to_string(snapshot.scores[index]);
       }

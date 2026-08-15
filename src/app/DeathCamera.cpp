@@ -174,4 +174,37 @@ Weapon presentationSubjectWeapon(
     : fallback;
 }
 
+PresentationViewOwnership presentationViewOwnership(
+  const DeathCameraDecision& decision,
+  std::size_t localPlayerIndex,
+  bool dedicatedSpectator,
+  bool weaponsEnabled
+) {
+  PresentationViewOwnership result;
+  if (!dedicatedSpectator && localPlayerIndex < kDuelPlayerCount) {
+    result.connectedBody = localPlayerIndex;
+  }
+  result.cameraSubject = presentationSubjectIndex(
+    decision,
+    localPlayerIndex,
+    dedicatedSpectator
+  );
+  result.hiddenWorldBody = result.cameraSubject;
+  const bool firstPersonSubjectVisible =
+    decision.mode != DeathCameraMode::DeathPosition &&
+    result.cameraSubject.has_value();
+  if (firstPersonSubjectVisible) {
+    result.viewModelSubject = result.cameraSubject;
+  }
+  result.showViewModel = weaponsEnabled && firstPersonSubjectVisible;
+  return result;
+}
+
+bool suppressRemoteBodyForPresentation(
+  const PresentationViewOwnership& ownership,
+  std::size_t playerIndex
+) {
+  return ownership.hiddenWorldBody == playerIndex;
+}
+
 } // namespace lg

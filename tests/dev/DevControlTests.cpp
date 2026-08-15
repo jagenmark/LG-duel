@@ -120,6 +120,27 @@ int main() {
     "phase capture should accept an exact local surface-impact frame"
   );
   failures += expect(
+    parseRequest(
+      R"({"operation":"arm_phase_capture","name":"local-out","phase":"local_weapon_switch_outgoing"})"
+    ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"local-apex","phase":"local_weapon_switch_apex"})"
+      ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"local-in","phase":"local_weapon_switch_incoming"})"
+      ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"remote-out","phase":"remote_weapon_switch_outgoing"})"
+      ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"remote-apex","phase":"remote_weapon_switch_apex"})"
+      ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"remote-in","phase":"remote_weapon_switch_incoming"})"
+      ).ok,
+    "phase capture should accept bounded local and remote switch frames"
+  );
+  failures += expect(
     !parseRequest(
       R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"idle"})"
     ).ok &&
@@ -284,6 +305,20 @@ int main() {
     !disabledServer.running() && disabledServer.port() == 0,
     "developer control should be disabled until explicitly started"
   );
+
+  lg::dev::DevControlServer activeServer;
+  std::string controlError;
+  failures += expect(
+    activeServer.start(0, controlError),
+    "developer control should start on an ephemeral port"
+  );
+  if (activeServer.running()) {
+    activeServer.stop();
+    failures += expect(
+      !activeServer.running() && activeServer.port() == 0,
+      "developer control should stop without waiting on accept"
+    );
+  }
 
   const std::filesystem::path pngPath =
     std::filesystem::temp_directory_path() / "lg-duel-dev-control-test.png";
