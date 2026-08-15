@@ -238,7 +238,10 @@ the frame-median and p95 budgets without excessive material-range inflation.
 `r_world_gpu_indirect` is also experimental and defaults off. Compare the GPU
 descriptor with both CPU descriptors on the same host, SDL_GPU backend, driver,
 power state, resolution, and camera path. Use CPU frame totals and world command
-encoding for CPU cost, and the recorded MainScene GPU timestamp for GPU cost.
+encoding for CPU cost. In GPU mode, include the CPU dispatch/setup metric
+`world_gpu_indirect_cpu_ms`, the compute timestamp
+`world_indirect_cull_gpu_ms`, and the recorded MainScene GPU timestamp when
+assessing total cost.
 Do not treat an Intel Core Ultra 7 258V iGPU result as a discrete-GPU result;
 it is a valid low-power target and must have its own threshold and report.
 

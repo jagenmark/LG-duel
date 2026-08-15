@@ -326,6 +326,38 @@ class BenchmarkTests(unittest.TestCase):
             "vulkan_api_version": "1.4",
             "observed_resolution": [1280, 720],
         })
+        result["map_content_hash"] = 1
+        result["aggregate"]["metrics"].update({
+            "world_draws": {
+                "median": 5 if gpu else 5,
+                "mean": 5,
+                "p95": 5,
+                "p99": 5,
+                "max": 5,
+                "cv_percent": 1.0,
+            },
+            "world_gpu_indirect_cpu_ms": {
+                "median": 0.004 if gpu else 0.0,
+                "mean": 0.004 if gpu else 0.0,
+                "p95": 0.01 if gpu else 0.0,
+                "p99": 0.01 if gpu else 0.0,
+                "max": 0.02 if gpu else 0.0,
+                "cv_percent": 1.0,
+            },
+            "world_indirect_cull_gpu_ms": {
+                "median": 0.02,
+                "mean": 0.02,
+                "p95": 0.02,
+                "p99": 0.02,
+                "max": 0.02,
+                "cv_percent": 1.0,
+            },
+        })
+        for key in lg_benchmark.COMPARISON_ENVIRONMENT_KEYS:
+            result["environment"].setdefault(key, {
+                "compile_time_options": {},
+                "sdl_configuration": {},
+            }.get(key, "same"))
         result["git"] = {"commit": "same", "dirty": False}
         return result
 
@@ -349,6 +381,15 @@ class BenchmarkTests(unittest.TestCase):
             lg_benchmark._comparison_mismatch(
                 baseline, result, allow_world_mode_selectors=True
             ),
+        )
+        self.assertEqual(
+            lg_benchmark._world_mode_selector_values(baseline),
+            lg_benchmark.WORLD_MODE_SELECTOR_VALUES["overkill-static-flythrough"],
+        )
+        self.assertTrue(
+            lg_benchmark._missing_world_mode_metadata(
+                self._artifact(Path("root"), "missing", 10)
+            )
         )
 
     def test_compare_world_modes_requires_three_guarded_results(self) -> None:
@@ -377,6 +418,14 @@ class BenchmarkTests(unittest.TestCase):
             self.assertIn(
                 "overkill-static-flythrough-gpu-indirect",
                 comparison["mode_comparisons"],
+            )
+            gpu_comparison = comparison["mode_comparisons"][
+                "overkill-static-flythrough-gpu-indirect"
+            ]
+            self.assertNotIn("world_draws", gpu_comparison["metrics"])
+            self.assertIn(
+                "world_indirect_cull_gpu_ms",
+                gpu_comparison["gpu_only_metrics"],
             )
             self.assertTrue((results / "overkill-static-flythrough-gpu-indirect" / "mode-comparison.json").is_file())
 

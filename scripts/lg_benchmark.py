@@ -1460,6 +1460,20 @@ WORLD_MODE_SCENARIOS = frozenset({
     "overkill-static-flythrough-gpu-indirect",
 })
 WORLD_MODE_BASELINE = "overkill-static-flythrough"
+WORLD_MODE_SELECTOR_VALUES = {
+    "overkill-static-flythrough": {
+        "r_world_frustum_cull": "1",
+        "r_world_gpu_indirect": "0",
+    },
+    "overkill-static-flythrough-bvh-off": {
+        "r_world_frustum_cull": "0",
+        "r_world_gpu_indirect": "0",
+    },
+    "overkill-static-flythrough-gpu-indirect": {
+        "r_world_frustum_cull": "0",
+        "r_world_gpu_indirect": "1",
+    },
+}
 WORLD_MODE_SELECTOR_CVARS = frozenset({
     "r_world_frustum_cull",
     "r_world_gpu_indirect",
@@ -1478,6 +1492,63 @@ COMPARISON_ENVIRONMENT_KEYS = (
     "sdl_configuration", "observed_resolution", "selected_present_mode",
     "benchmark_version", "gpu_timing_instrumentation_version", "build_mode",
 )
+WORLD_MODE_TIMING_METRIC_DIRECTIONS = {
+    "frame_ms": "lower",
+    "total_render_cpu_ms": "lower",
+    "gpu_primary_command_buffer_ms": "lower",
+    "main_scene_gpu_ms": "lower",
+    "world_visibility_ms": "lower",
+    "world_visibility_query_ms": "lower",
+    "world_command_encoding_ms": "lower",
+}
+WORLD_MODE_GPU_ONLY_METRICS = (
+    "world_gpu_indirect_cpu_ms",
+    "world_indirect_cull_gpu_ms",
+)
+
+
+def _missing_world_mode_metadata(result: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    if not isinstance(result.get("scenario_hash"), str) or not result["scenario_hash"]:
+        missing.append("scenario hash")
+    map_hash = result.get("map_content_hash")
+    if isinstance(map_hash, bool) or not isinstance(map_hash, int) or map_hash <= 0:
+        missing.append("map content hash")
+    deterministic_checksum = result.get("deterministic_checksum")
+    if deterministic_checksum is not None and not isinstance(
+        deterministic_checksum, (int, str)
+    ):
+        missing.append("deterministic checksum")
+    environment = result.get("environment")
+    if not isinstance(environment, dict):
+        missing.append("environment")
+    else:
+        for key in COMPARISON_ENVIRONMENT_KEYS:
+            if key not in environment or environment[key] is None:
+                missing.append(f"environment {key}")
+    git = result.get("git")
+    if not isinstance(git, dict):
+        missing.append("git metadata")
+    else:
+        for key in ("commit", "dirty"):
+            if key not in git or git[key] is None:
+                missing.append(f"git {key}")
+    return missing
+
+
+def _world_mode_selector_values(result: dict[str, Any]) -> dict[str, str]:
+    scenario = result.get("scenario", {})
+    cvars = scenario.get("cvars", {}) if isinstance(scenario, dict) else {}
+    if not isinstance(cvars, dict):
+        return {}
+    values: dict[str, str] = {}
+    for key in WORLD_MODE_SELECTOR_CVARS:
+        value = cvars.get(key)
+        if isinstance(value, bool):
+            values[key] = "1" if value else "0"
+        elif value is not None:
+            values[key] = str(value)
+    return values
 
 
 def _is_world_mode_result(result: dict[str, Any]) -> bool:
@@ -1522,6 +1593,16 @@ def _normalized_world_mode_settings(value: Any) -> Any:
     return normalized
 
 
+def _world_mode_comparison_checksum(result: dict[str, Any]) -> str:
+    payload = {
+        "scenario": _normalized_world_mode_scenario(result.get("scenario", {})),
+        "map_content_hash": result.get("map_content_hash"),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
 def _comparison_mismatch(
     baseline: dict[str, Any],
     result: dict[str, Any],
@@ -1540,7 +1621,10 @@ def _comparison_mismatch(
         reasons.append("scenario hash")
     if baseline.get("map_content_hash") != result.get("map_content_hash"):
         reasons.append("map content hash")
-    if baseline.get("deterministic_checksum") != result.get("deterministic_checksum"):
+    if world_mode:
+        if _world_mode_comparison_checksum(baseline) != _world_mode_comparison_checksum(result):
+            reasons.append("deterministic checksum")
+    elif baseline.get("deterministic_checksum") != result.get("deterministic_checksum"):
         reasons.append("deterministic checksum")
     base_scenario, new_scenario = baseline.get("scenario", {}), result.get("scenario", {})
     if world_mode:
@@ -1657,6 +1741,36 @@ def compare_world_mode_results(
     baseline = by_name[WORLD_MODE_BASELINE]
     mode_comparisons: dict[str, Any] = {}
     classifications: list[str] = []
+    metadata_mismatches = {
+        name: _missing_world_mode_metadata(result)
+        for name, result in by_name.items()
+    }
+    if any(metadata_mismatches.values()):
+        return {
+            "classification": "invalid",
+            "valid": False,
+            "mismatches": [
+                f"{name}: missing {', '.join(mismatches)}"
+                for name, mismatches in metadata_mismatches.items()
+                if mismatches
+            ],
+            "results": [result["artifact_path"] for result in results],
+        }
+    selector_mismatches = {
+        name: expected
+        for name, expected in WORLD_MODE_SELECTOR_VALUES.items()
+        if _world_mode_selector_values(by_name[name]) != expected
+    }
+    if selector_mismatches:
+        return {
+            "classification": "invalid",
+            "valid": False,
+            "mismatches": [
+                f"{name}: scenario culling selector values"
+                for name in sorted(selector_mismatches)
+            ],
+            "results": [result["artifact_path"] for result in results],
+        }
     for name in sorted(WORLD_MODE_SCENARIOS - {WORLD_MODE_BASELINE}):
         result = by_name[name]
         mismatches = _comparison_mismatch(
@@ -1689,7 +1803,13 @@ def compare_world_mode_results(
         metric_classifications: list[str] = []
         base_metrics = baseline["aggregate"].get("metrics", {})
         new_metrics = result["aggregate"].get("metrics", {})
-        for metric in sorted(set(base_metrics) & set(new_metrics)):
+        for metric, direction in WORLD_MODE_TIMING_METRIC_DIRECTIONS.items():
+            if direction != "lower":
+                raise BenchmarkError(
+                    f"unsupported world mode metric direction: {direction}"
+                )
+            if metric not in base_metrics or metric not in new_metrics:
+                continue
             classification, details = classify_metric(
                 base_metrics[metric],
                 new_metrics[metric],
@@ -1698,6 +1818,11 @@ def compare_world_mode_results(
             )
             metric_results[metric] = details
             metric_classifications.append(classification)
+        gpu_only_metrics = {
+            metric: result["aggregate"]["metrics"][metric]
+            for metric in WORLD_MODE_GPU_ONLY_METRICS
+            if metric in result["aggregate"].get("metrics", {})
+        }
         if not metric_classifications:
             overall = "invalid"
         elif "regression" in metric_classifications:
@@ -1714,6 +1839,7 @@ def compare_world_mode_results(
             "result": result["artifact_path"],
             "threshold_percent": threshold_percent,
             "tail_threshold_percent": tail_threshold_percent,
+            "gpu_only_metrics": gpu_only_metrics,
         }
         classifications.append(overall)
 
@@ -1729,6 +1855,7 @@ def compare_world_mode_results(
         "classification": overall,
         "valid": overall != "invalid",
         "baseline": baseline["artifact_path"],
+        "comparison_checksum": _world_mode_comparison_checksum(baseline),
         "mode_comparisons": mode_comparisons,
         "threshold_percent": threshold_percent,
         "tail_threshold_percent": tail_threshold_percent,
@@ -1756,6 +1883,10 @@ def human_output(value: dict[str, Any]) -> str:
             if details.get("mismatches"):
                 line += " [" + ", ".join(details["mismatches"]) + "]"
             lines.append(line)
+            for metric, stats in details.get("gpu_only_metrics", {}).items():
+                lines.append(
+                    f"    {metric}: median {stats.get('median', 0):.4g} ms"
+                )
         for metric, details in value.get("metrics", {}).items():
             median = details.get("statistics", {}).get("median", {})
             delta = median.get("percent")
