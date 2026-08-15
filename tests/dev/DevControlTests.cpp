@@ -120,6 +120,27 @@ int main() {
     "phase capture should accept an exact local surface-impact frame"
   );
   failures += expect(
+    parseRequest(
+      R"({"operation":"arm_phase_capture","name":"local-out","phase":"local_weapon_switch_outgoing"})"
+    ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"local-apex","phase":"local_weapon_switch_apex"})"
+      ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"local-in","phase":"local_weapon_switch_incoming"})"
+      ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"remote-out","phase":"remote_weapon_switch_outgoing"})"
+      ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"remote-apex","phase":"remote_weapon_switch_apex"})"
+      ).ok &&
+      parseRequest(
+        R"({"operation":"arm_phase_capture","name":"remote-in","phase":"remote_weapon_switch_incoming"})"
+      ).ok,
+    "phase capture should accept bounded local and remote switch frames"
+  );
+  failures += expect(
     !parseRequest(
       R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"idle"})"
     ).ok &&

@@ -9,6 +9,7 @@
 #include "render/DrawList2D.hpp"
 #include "render/PlayerPresentation.hpp"
 #include "render/ViewModelPresentation.hpp"
+#include "render/WeaponSwitchPresentation.hpp"
 #include "sim/Arena.hpp"
 #include "sim/Combat.hpp"
 #include "sim/PlayerState.hpp"
@@ -295,6 +296,7 @@ struct RenderSettings {
   std::uint8_t teammateNameTagGreen = 245;
   std::uint8_t teammateNameTagBlue = 255;
   Weapon localSelectedWeapon = Weapon::LightningGun;
+  WeaponSwitchPresentationOutput weaponSwitchPresentation = {};
   float machineGunBarrelRotationRadians = 0.0F;
   float machineGunRecoilAmount = 0.0F;
   float machineGunVibrationAmount = 0.0F;
@@ -318,6 +320,9 @@ struct RenderSettings {
   std::array<Vec3, kDuelPlayerCount> sniperSmokeTracerDirections = {};
   std::array<float, kDuelPlayerCount> sniperSmokeTracerTraceLengths = {};
   bool showOwnWeapons = true;
+  // The hand meshes are an experimental preview. Keep direct RenderSettings
+  // callers aligned with the default-off client cvar.
+  bool viewModelHandsEnabled = false;
   int weaponPosition = 0;
   bool shotgunWeaponModelStart = false;
   int combatEffectsQuality = 2;
@@ -559,6 +564,7 @@ struct RemotePlayerView {
   float plasmaGunContainmentAmount = 0.0F;
   PlayerPresentationFrame presentation = {};
   bool hasPresentation = false;
+  WeaponSwitchPresentationOutput weaponSwitchPresentation = {};
   RemoteBodyFade bodyFade = {};
 };
 

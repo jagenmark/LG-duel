@@ -70,6 +70,9 @@ enum class MeshHandle : std::uint16_t {
   RemotePlasmaGunCore,
   RemoteRevolverBody,
   RemoteRevolverCylinder,
+  ViewModelRightTriggerGrip,
+  ViewModelLeftClosedSupport,
+  ViewModelLeftOpenSupport,
 };
 
 enum class PlayerBodyPartType : std::uint8_t {
@@ -489,6 +492,8 @@ struct GltfShadowCasterPlan {
 struct ViewModelRenderStats {
   std::uint32_t drawCalls = 0;
   std::uint32_t dynamicVertices = 0;
+  std::uint32_t sharedHandVertices = 0;
+  std::uint32_t sharedHandStaticGpuBytes = 0;
 };
 
 struct OutlineMaskDraw {
@@ -1123,8 +1128,10 @@ void appendCollisionDebugGeometry(
 );
 [[nodiscard]] Vec3 firstPersonFreezeGunMuzzlePosition(
   const PlayerState& player,
-  const RenderSettings& settings
+  const RenderSettings& settings,
+  float cameraVerticalOffset = 0.0F
 );
+[[nodiscard]] Vec3 freezeGunMuzzleSocket();
 [[nodiscard]] Vec3 plasmaGunMuzzleSocket();
 [[nodiscard]] Vec3 plasmaGunGripSocket();
 [[nodiscard]] Vec3 sniperRifleGripSocket();

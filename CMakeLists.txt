@@ -121,7 +121,9 @@ add_library(lg_duel_client_app
   src/render/Scene3D.cpp
   src/render/StaticAmbientProbe.cpp
   src/render/ScreenUi.cpp
+  src/render/ViewModelHandPoses.cpp
   src/render/ViewModelPresentation.cpp
+  src/render/WeaponSwitchPresentation.cpp
   src/render/WorldVisibility.cpp
 )
 

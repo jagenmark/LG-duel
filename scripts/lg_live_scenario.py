@@ -42,6 +42,8 @@ CLIENT_CVAR_OVERRIDE_RULES = {
     "r_draw_player_outlines": {"0", "1"},
     "r_player_outline_mode": {"0", "1", "2"},
     "r_show_weapons": {"0", "1"},
+    "r_viewmodel_hands": {"0", "1"},
+    "r_weapon_switch_animation": {"0", "1"},
 }
 
 

@@ -1,6 +1,7 @@
 #include "render/GltfSkinnedModel.hpp"
 #include "render/PointLightResponse.hpp"
 #include "render/Scene3D.hpp"
+#include "render/ViewModelHandPoses.hpp"
 #include "render/WeaponPresentation.hpp"
 #include "sim/Arena.hpp"
 #include "sim/WeaponCatalog.hpp"
@@ -130,6 +131,21 @@ const lg::SimpleRenderInstance* findSimpleMesh(
     }
   );
   return found == scene.simpleInstances.end() ? nullptr : &*found;
+}
+
+const lg::StaticMeshInstance* findStaticMesh(
+  const lg::Scene3D& scene,
+  lg::MeshHandle mesh,
+  lg::RenderPass pass
+) {
+  const auto found = std::find_if(
+    scene.staticMeshInstances.begin(),
+    scene.staticMeshInstances.end(),
+    [mesh, pass](const lg::StaticMeshInstance& instance) {
+      return instance.mesh == mesh && instance.pass == pass;
+    }
+  );
+  return found == scene.staticMeshInstances.end() ? nullptr : &*found;
 }
 
 const lg::SimpleRenderInstance* findSimpleBillboard(
@@ -349,6 +365,14 @@ float maxVertexX(const lg::Scene3D& scene) {
 float nearestTranslucentVertexDistance(const lg::Scene3D& scene, lg::Vec3 point) {
   float result = std::numeric_limits<float>::infinity();
   for (const lg::Vertex3D& vertex : scene.translucentVertices) {
+    result = std::min(result, lg::length(vertex.position - point));
+  }
+  return result;
+}
+
+float nearestSceneVertexDistance(const lg::Scene3D& scene, lg::Vec3 point) {
+  float result = nearestTranslucentVertexDistance(scene, point);
+  for (const lg::Vertex3D& vertex : scene.vertices) {
     result = std::min(result, lg::length(vertex.position - point));
   }
   return result;
@@ -1775,6 +1799,106 @@ int main() {
         [](float value) { return std::isfinite(value); }
       ),
     "Worker two-handed pose should expose a finite animated weapon socket"
+  );
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> switchRemotePlayers = {};
+  switchRemotePlayers[1].player = opponent;
+  switchRemotePlayers[1].visible = true;
+  switchRemotePlayers[1].selectedWeapon = lg::Weapon::MachineGun;
+  switchRemotePlayers[1].weaponSwitchPresentation =
+    lg::sampleWeaponSwitchPresentation(
+      lg::Weapon::MachineGun, lg::Weapon::MachineGun, 1.0F, false
+    );
+  lg::RenderSettings workerSwitchSettings = settings;
+  workerSwitchSettings.playerModel = 1;
+  workerSwitchSettings.frustumCullRemotePlayers = false;
+  const lg::Scene3D workerSwitchRestScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, switchRemotePlayers, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, workerSwitchSettings
+  );
+  switchRemotePlayers[1].weaponSwitchPresentation =
+    lg::sampleWeaponSwitchPresentation(
+      lg::Weapon::MachineGun, lg::Weapon::RocketLauncher, 0.45F, true
+    );
+  const lg::Scene3D workerSwitchRaisedScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, switchRemotePlayers, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, workerSwitchSettings
+  );
+  const lg::StaticMeshInstance* restWorkerWeapon = findStaticMesh(
+    workerSwitchRestScene,
+    lg::MeshHandle::RemoteMachineGunBody,
+    lg::RenderPass::OpaqueWorld
+  );
+  const lg::StaticMeshInstance* raisedWorkerWeapon = findStaticMesh(
+    workerSwitchRaisedScene,
+    lg::MeshHandle::RemoteMachineGunBody,
+    lg::RenderPass::OpaqueWorld
+  );
+  failures += expect(
+    restWorkerWeapon != nullptr && raisedWorkerWeapon != nullptr &&
+      raisedWorkerWeapon->modelRow2.x > restWorkerWeapon->modelRow2.x + 0.05F &&
+      workerSwitchRestScene.gltfPlayerModelInstances.size() == 1U &&
+      workerSwitchRaisedScene.gltfPlayerModelInstances.size() == 1U &&
+      nearlyEqual(
+        workerSwitchRestScene.gltfPlayerModelInstances[0].modelTranslation.z,
+        workerSwitchRaisedScene.gltfPlayerModelInstances[0].modelTranslation.z
+      ),
+    "positive switch pitch should aim the Worker weapon socket upward while the body root stays fixed"
+  );
+  auto workerCombinedPitchPlayers = switchRemotePlayers;
+  workerCombinedPitchPlayers[1].player.viewPitchRadians = 0.65F;
+  const lg::Scene3D workerCombinedPitchScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    workerCombinedPitchPlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    workerSwitchSettings
+  );
+  auto workerClampedPitchPlayers = workerCombinedPitchPlayers;
+  workerClampedPitchPlayers[1].player.viewPitchRadians = 0.78539816F;
+  workerClampedPitchPlayers[1].weaponSwitchPresentation =
+    lg::sampleWeaponSwitchPresentation(
+      lg::Weapon::MachineGun, lg::Weapon::MachineGun, 1.0F, false
+    );
+  const lg::Scene3D workerClampedPitchScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    workerClampedPitchPlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    workerSwitchSettings
+  );
+  const lg::StaticMeshInstance* combinedPitchWeapon = findStaticMesh(
+    workerCombinedPitchScene,
+    lg::MeshHandle::RemoteMachineGunBody,
+    lg::RenderPass::OpaqueWorld
+  );
+  const lg::StaticMeshInstance* clampedPitchWeapon = findStaticMesh(
+    workerClampedPitchScene,
+    lg::MeshHandle::RemoteMachineGunBody,
+    lg::RenderPass::OpaqueWorld
+  );
+  failures += expect(
+    combinedPitchWeapon != nullptr && clampedPitchWeapon != nullptr &&
+      workerCombinedPitchScene.gltfBonePalette.size() ==
+        workerClampedPitchScene.gltfBonePalette.size() &&
+      maxPaletteDelta(
+        workerCombinedPitchScene.gltfBonePalette,
+        workerClampedPitchScene.gltfBonePalette
+      ) < 0.0001F &&
+      lg::length(
+        combinedPitchWeapon->modelTranslation - clampedPitchWeapon->modelTranslation
+      ) < 0.0001F &&
+      nearlyEqual(combinedPitchWeapon->modelRow0.x, clampedPitchWeapon->modelRow0.x) &&
+      nearlyEqual(combinedPitchWeapon->modelRow1.y, clampedPitchWeapon->modelRow1.y) &&
+      nearlyEqual(combinedPitchWeapon->modelRow2.z, clampedPitchWeapon->modelRow2.z),
+    "Worker arms and held weapon should share the clamped aim-plus-switch pitch"
   );
   lg::GltfSkinnedModel::PoseScratch workerRestScratch;
   lg::GltfSkinnedModel::PoseScratch workerDeathScratch;
@@ -4446,6 +4570,7 @@ int main() {
 
   lg::RenderSettings localMachineGunSettings = settings;
   localMachineGunSettings.localSelectedWeapon = lg::Weapon::MachineGun;
+  localMachineGunSettings.viewModelHandsEnabled = true;
   const lg::Scene3D localMachineGunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4471,9 +4596,9 @@ int main() {
   failures += expect(
     hasMachineGunBodyViewModel &&
       hasMachineGunBarrelViewModel &&
-      localMachineGunScene.viewModelStats.drawCalls == 2 &&
+      localMachineGunScene.viewModelStats.drawCalls == 4 &&
       localMachineGunScene.viewModelStats.dynamicVertices == 0,
-    "first-person machine gun should use separate static body and barrel viewmodel meshes"
+    "first-person machine gun should use separate static weapon meshes plus two shared hands"
   );
 
   lg::RenderSettings spinningMachineGunSettings = localMachineGunSettings;
@@ -4671,9 +4796,258 @@ int main() {
       hiddenLocalWeaponScene.viewModelStats.dynamicVertices == 0,
     "r_show_weapons 0 should suppress local first-person weapon models"
   );
+  const auto isViewModelHand = [](const lg::StaticMeshInstance& instance) {
+    return instance.pass == lg::RenderPass::ViewModel &&
+      (instance.mesh == lg::MeshHandle::ViewModelRightTriggerGrip ||
+       instance.mesh == lg::MeshHandle::ViewModelLeftClosedSupport ||
+       instance.mesh == lg::MeshHandle::ViewModelLeftOpenSupport);
+  };
+  const std::size_t machineGunHandCount = static_cast<std::size_t>(std::count_if(
+    localMachineGunScene.staticMeshInstances.begin(),
+    localMachineGunScene.staticMeshInstances.end(),
+    isViewModelHand
+  ));
+  lg::RenderSettings handsHiddenSettings = localMachineGunSettings;
+  handsHiddenSettings.viewModelHandsEnabled = false;
+  const lg::Scene3D handsHiddenScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    handsHiddenSettings
+  );
+  lg::RenderSettings defaultHandsSettings = settings;
+  defaultHandsSettings.localSelectedWeapon = lg::Weapon::MachineGun;
+  const lg::Scene3D defaultHandsScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    defaultHandsSettings
+  );
+  const lg::StaticMeshInstance* defaultHandsBody = findMachineGunPart(
+    defaultHandsScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  const lg::StaticMeshInstance* explicitHandsOffBody = findMachineGunPart(
+    handsHiddenScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  const std::size_t hiddenHandCount = static_cast<std::size_t>(std::count_if(
+    handsHiddenScene.staticMeshInstances.begin(),
+    handsHiddenScene.staticMeshInstances.end(),
+    isViewModelHand
+  ));
+  failures += expect(
+    !lg::RenderSettings{}.viewModelHandsEnabled &&
+      lg::viewModelHandPosesAreFinite() &&
+      lg::viewModelHandMeshCount() == 3U &&
+      machineGunHandCount == 2U &&
+      localMachineGunScene.viewModelStats.sharedHandVertices == 1260U &&
+      localMachineGunScene.viewModelStats.sharedHandStaticGpuBytes == 50400U &&
+      localMachineGunScene.viewModelStats.dynamicVertices == 0U &&
+      hiddenHandCount == 0U &&
+      handsHiddenScene.viewModelStats.drawCalls == 2U &&
+      defaultHandsBody != nullptr && explicitHandsOffBody != nullptr &&
+      lg::length(
+        defaultHandsBody->modelTranslation - lg::Vec3{1.22F, 2.0F, 1.17F}
+      ) < 0.001F &&
+      lg::length(
+        defaultHandsBody->modelTranslation - explicitHandsOffBody->modelTranslation
+      ) < 0.001F &&
+      nearlyEqual(defaultHandsBody->modelRow0.x, explicitHandsOffBody->modelRow0.x) &&
+      nearlyEqual(defaultHandsBody->modelRow1.y, explicitHandsOffBody->modelRow1.y) &&
+      nearlyEqual(defaultHandsBody->modelRow2.z, explicitHandsOffBody->modelRow2.z),
+    "default-off hands should leave the main first-person weapon transform unchanged"
+  );
+  constexpr std::array<lg::MeshHandle, 3> kHandMeshHandles = {{
+    lg::MeshHandle::ViewModelRightTriggerGrip,
+    lg::MeshHandle::ViewModelLeftClosedSupport,
+    lg::MeshHandle::ViewModelLeftOpenSupport,
+  }};
+  bool handAssetsValid = true;
+  for (lg::MeshHandle handle : kHandMeshHandles) {
+    const lg::StaticMeshAsset* asset = lg::staticMeshAsset(handle);
+    handAssetsValid = handAssetsValid && asset != nullptr &&
+      asset->pass == lg::RenderPass::ViewModel &&
+      asset->vertices.size() == 420U &&
+      finiteVec3(asset->localBounds.center) &&
+      std::isfinite(asset->localBounds.radius) && asset->localBounds.radius > 0.0F;
+    if (asset == nullptr) continue;
+    for (const lg::Vertex3D& vertex : asset->vertices) {
+      handAssetsValid = handAssetsValid && finiteVec3(vertex.position) &&
+        finiteVec3(vertex.normal) && lg::length(vertex.normal) > 0.9F;
+    }
+  }
+  failures += expect(
+    handAssetsValid,
+    "each checked-in grip mesh should have finite bounds, positions, and normals"
+  );
+  bool everyWeaponHasItsExpectedHands = true;
+  bool everyWeaponUsesDeclaredMeshes = true;
+  bool everyWeaponUsesFixedHandScale = true;
+  for (std::size_t weaponIndex = 0; weaponIndex < lg::kWeaponCount; ++weaponIndex) {
+    lg::RenderSettings weaponHandsSettings = localMachineGunSettings;
+    const lg::Weapon weapon = static_cast<lg::Weapon>(weaponIndex);
+    weaponHandsSettings.localSelectedWeapon = weapon;
+    const lg::Scene3D weaponHandsScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      opponent,
+      inactiveBeam,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      weaponHandsSettings
+    );
+    const std::size_t count = static_cast<std::size_t>(std::count_if(
+      weaponHandsScene.staticMeshInstances.begin(),
+      weaponHandsScene.staticMeshInstances.end(),
+      isViewModelHand
+    ));
+    const lg::ViewModelHandPose& pose = lg::viewModelHandPose(weapon);
+    const std::size_t expected =
+      static_cast<std::size_t>(pose.showRightHand) +
+      static_cast<std::size_t>(pose.showLeftHand);
+    everyWeaponHasItsExpectedHands = everyWeaponHasItsExpectedHands && count == expected;
+    const auto expectedHandle = [](lg::ViewModelHandMeshPose meshPose) {
+      switch (meshPose) {
+      case lg::ViewModelHandMeshPose::RightTriggerGrip:
+        return lg::MeshHandle::ViewModelRightTriggerGrip;
+      case lg::ViewModelHandMeshPose::LeftClosedSupport:
+        return lg::MeshHandle::ViewModelLeftClosedSupport;
+      case lg::ViewModelHandMeshPose::LeftOpenSupport:
+        return lg::MeshHandle::ViewModelLeftOpenSupport;
+      }
+      return lg::MeshHandle::Invalid;
+    };
+    const lg::StaticMeshInstance* right = findStaticMesh(
+      weaponHandsScene,
+      expectedHandle(pose.right.meshPose),
+      lg::RenderPass::ViewModel
+    );
+    const lg::StaticMeshInstance* left = pose.showLeftHand
+      ? findStaticMesh(
+          weaponHandsScene,
+          expectedHandle(pose.left.meshPose),
+          lg::RenderPass::ViewModel
+        )
+      : nullptr;
+    everyWeaponUsesDeclaredMeshes = everyWeaponUsesDeclaredMeshes &&
+      right != nullptr && (!pose.showLeftHand || left != nullptr);
+    if (right != nullptr) {
+      everyWeaponUsesFixedHandScale = everyWeaponUsesFixedHandScale &&
+        nearlyEqual(lg::length(right->modelRow0), pose.right.transform.scale) &&
+        finiteVec3(right->modelTranslation) &&
+        finiteVec3(right->worldBounds.center) &&
+        std::isfinite(right->worldBounds.radius);
+    }
+    if (left != nullptr) {
+      everyWeaponUsesFixedHandScale = everyWeaponUsesFixedHandScale &&
+        nearlyEqual(lg::length(left->modelRow0), pose.left.transform.scale) &&
+        finiteVec3(left->modelTranslation) &&
+        finiteVec3(left->worldBounds.center) &&
+        std::isfinite(left->worldBounds.radius);
+    }
+  }
+  failures += expect(
+    everyWeaponHasItsExpectedHands && everyWeaponUsesDeclaredMeshes &&
+      everyWeaponUsesFixedHandScale,
+    "each weapon should use its declared grip meshes at a weapon-scale-independent size"
+  );
+
+  std::array<lg::Scene3D, 3> placedMachineGunScenes;
+  for (int placement = 0; placement < 3; ++placement) {
+    lg::RenderSettings placed = localMachineGunSettings;
+    placed.weaponPosition = placement;
+    placedMachineGunScenes[static_cast<std::size_t>(placement)] =
+      lg::buildPerspectiveScene(
+        16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
+        weaponFires, rocketExplosions, rockets, placed
+      );
+  }
+  const lg::StaticMeshInstance* centeredRight = findStaticMesh(
+    placedMachineGunScenes[0], lg::MeshHandle::ViewModelRightTriggerGrip,
+    lg::RenderPass::ViewModel
+  );
+  const lg::StaticMeshInstance* rightPlacedRight = findStaticMesh(
+    placedMachineGunScenes[1], lg::MeshHandle::ViewModelRightTriggerGrip,
+    lg::RenderPass::ViewModel
+  );
+  const lg::StaticMeshInstance* leftPlacedRight = findStaticMesh(
+    placedMachineGunScenes[2], lg::MeshHandle::ViewModelRightTriggerGrip,
+    lg::RenderPass::ViewModel
+  );
+  failures += expect(
+    centeredRight != nullptr && rightPlacedRight != nullptr &&
+      leftPlacedRight != nullptr &&
+      nearlyEqual(
+        lg::length(rightPlacedRight->modelTranslation - centeredRight->modelTranslation),
+        0.30F
+      ) &&
+      nearlyEqual(
+        lg::length(leftPlacedRight->modelTranslation - centeredRight->modelTranslation),
+        0.30F
+      ) &&
+      nearlyEqual(lg::length(centeredRight->modelRow0),
+        lg::length(rightPlacedRight->modelRow0)) &&
+      nearlyEqual(lg::length(centeredRight->modelRow0),
+        lg::length(leftPlacedRight->modelRow0)),
+    "center, right, and left placement should move the same attached hand without rescaling it"
+  );
+
+  lg::RenderSettings movedMachineGunSettings = localMachineGunSettings;
+  movedMachineGunSettings.viewModelPresentation.translation = {0.08F, -0.04F, 0.11F};
+  movedMachineGunSettings.viewModelPresentation.rotationRadians = {0.06F, -0.04F, 0.03F};
+  const lg::Scene3D movedMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, movedMachineGunSettings
+  );
+  const lg::StaticMeshInstance* baseMachineGunHand = findStaticMesh(
+    localMachineGunScene, lg::MeshHandle::ViewModelRightTriggerGrip,
+    lg::RenderPass::ViewModel
+  );
+  const lg::StaticMeshInstance* movedMachineGunHand = findStaticMesh(
+    movedMachineGunScene, lg::MeshHandle::ViewModelRightTriggerGrip,
+    lg::RenderPass::ViewModel
+  );
+  const lg::StaticMeshInstance* baseMachineGunBody = findStaticMesh(
+    localMachineGunScene, lg::MeshHandle::RemoteMachineGunBody,
+    lg::RenderPass::ViewModel
+  );
+  const lg::StaticMeshInstance* movedMachineGunBody = findStaticMesh(
+    movedMachineGunScene, lg::MeshHandle::RemoteMachineGunBody,
+    lg::RenderPass::ViewModel
+  );
+  failures += expect(
+    baseMachineGunHand != nullptr && movedMachineGunHand != nullptr &&
+      baseMachineGunBody != nullptr && movedMachineGunBody != nullptr &&
+      lg::length(movedMachineGunHand->modelTranslation -
+        baseMachineGunHand->modelTranslation) > 0.05F &&
+      lg::length(movedMachineGunBody->modelTranslation -
+        baseMachineGunBody->modelTranslation) > 0.05F &&
+      lg::length(movedMachineGunHand->modelRow0 -
+        baseMachineGunHand->modelRow0) > 0.005F &&
+      lg::length(movedMachineGunBody->modelRow0 -
+        baseMachineGunBody->modelRow0) > 0.005F,
+    "weapon and hands should share viewmodel translation and rotation motion"
+  );
 
   lg::RenderSettings localShotgunSettings = settings;
   localShotgunSettings.localSelectedWeapon = lg::Weapon::Shotgun;
+  localShotgunSettings.viewModelHandsEnabled = true;
   const lg::Scene3D localShotgunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4697,13 +5071,14 @@ int main() {
   }
   failures += expect(
     hasShotgunViewModel &&
-      localShotgunScene.viewModelStats.drawCalls == 1 &&
+      localShotgunScene.viewModelStats.drawCalls == 3 &&
       localShotgunScene.viewModelStats.dynamicVertices == 0,
-    "first-person shotgun should use a static viewmodel mesh without dynamic vertices"
+    "first-person shotgun should use a static viewmodel mesh plus static shared hands"
   );
 
   lg::RenderSettings localSniperSettings = settings;
   localSniperSettings.localSelectedWeapon = lg::Weapon::Railgun;
+  localSniperSettings.viewModelHandsEnabled = true;
   const lg::Scene3D localSniperScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4747,9 +5122,9 @@ int main() {
       nearlyEqual(sniperForwardScale, 0.725F) &&
       nearlyEqual(sniperWidthScale, 0.9425F) &&
       nearlyEqual(sniperHeightScale, 0.83375F) &&
-      localSniperScene.viewModelStats.drawCalls == 1 &&
+      localSniperScene.viewModelStats.drawCalls == 3 &&
       localSniperScene.viewModelStats.dynamicVertices == 0,
-    "first-person sniper should use its larger, thicker view-only mesh"
+    "first-person sniper should retain its larger view-only mesh plus two shared hands"
   );
   const lg::Vec3 localSniperMuzzle =
     lg::firstPersonSniperRifleMuzzlePosition(player, localSniperSettings);
@@ -4800,6 +5175,7 @@ int main() {
 
   lg::RenderSettings localRevolverSettings = settings;
   localRevolverSettings.localSelectedWeapon = lg::Weapon::Revolver;
+  localRevolverSettings.viewModelHandsEnabled = true;
   localRevolverSettings.viewModelPresentation.cameraTranslation =
     {0.035F, -0.020F, 0.015F};
   const lg::Scene3D localRevolverScene = lg::buildPerspectiveScene(
@@ -4868,14 +5244,14 @@ int main() {
       revolverCylinder.mesh == lg::MeshHandle::RemoteRevolverCylinder &&
       nearlyEqual(revolverViewModelScale, 0.40F) &&
       revolverSocketMatchesViewModel &&
-      localRevolverScene.viewModelStats.drawCalls == 2 &&
+      localRevolverScene.viewModelStats.drawCalls == 3 &&
       lg::length(
         recoiledRevolverBody.modelTranslation - revolverBody.modelTranslation
       ) > 0.01F &&
       lg::length(
         indexedRevolverCylinder.modelRow1 - revolverCylinder.modelRow1
       ) > 0.01F,
-    "first-person revolver should submit body and cylinder with recoil and one-step indexing transforms"
+    "first-person revolver should submit body, cylinder, and its intentional one-handed pose"
   );
   lg::RenderSettings localRevolverTracerSettings = idleRevolverSettings;
   localRevolverTracerSettings.viewModelPresentation.cameraTranslation =
@@ -4997,6 +5373,7 @@ int main() {
 
   lg::RenderSettings localRocketLauncherSettings = settings;
   localRocketLauncherSettings.localSelectedWeapon = lg::Weapon::RocketLauncher;
+  localRocketLauncherSettings.viewModelHandsEnabled = true;
   const lg::Scene3D idleRocketLauncherScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -5042,7 +5419,7 @@ int main() {
   failures += expect(
     idleRocketBody.mesh == lg::MeshHandle::RemoteRocketLauncherBody &&
       idleRocketRecoil.mesh == lg::MeshHandle::RemoteRocketLauncherRecoil &&
-      idleRocketLauncherScene.viewModelStats.drawCalls == 3U &&
+      idleRocketLauncherScene.viewModelStats.drawCalls == 5U &&
       lg::length(firingRocketBody.modelTranslation - idleRocketBody.modelTranslation) > 0.001F &&
       lg::length(firingRocketRecoil.modelTranslation - idleRocketRecoil.modelTranslation) > 0.001F &&
       lg::length(
@@ -5055,7 +5432,7 @@ int main() {
           lg::rocketLauncherMuzzleSocket() - lg::Vec3{0.5F, 0.0F, 0.08F}
         )
       ) < 0.001F,
-    "first-person rocket launcher should submit three animated material parts and preserve its muzzle socket"
+    "first-person rocket launcher should submit animated parts and two shared hands with its socket"
   );
   lg::RemotePlayerView remoteRocketSocketView;
   remoteRocketSocketView.player = opponent;
@@ -5087,6 +5464,74 @@ int main() {
     "remote rocket muzzle helper should follow mechanism motion and pose turns"
   );
 
+  lg::RenderSettings localFreezeGunSettings = settings;
+  localFreezeGunSettings.localSelectedWeapon = lg::Weapon::FreezeGun;
+  localFreezeGunSettings.weaponPosition = 1;
+  localFreezeGunSettings.viewModelPresentation.translation =
+    {0.025F, -0.015F, 0.010F};
+  localFreezeGunSettings.viewModelPresentation.rotationRadians =
+    {0.030F, -0.020F, 0.010F};
+  localFreezeGunSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  localFreezeGunSettings.freezeGunFiringAmount = 1.0F;
+  constexpr float kLocalFreezeCameraVerticalOffset = 0.12F;
+  lg::LightningGunResult localFreezeBeam;
+  localFreezeBeam.active = true;
+  localFreezeBeam.end = player.position + lg::Vec3{6.0F, 0.0F, 0.65F};
+  const std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
+    localFreezeRemotePlayers = {};
+  const lg::Scene3D localFreezeGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    localFreezeRemotePlayers,
+    localFreezeBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    localFreezeGunSettings,
+    kLocalFreezeCameraVerticalOffset
+  );
+  const lg::StaticMeshInstance freezeGunBody = findViewModel(
+    localFreezeGunScene,
+    lg::MeshHandle::RemoteFreezeGunBody
+  );
+  const lg::Vec3 localFreezeMuzzle = lg::firstPersonFreezeGunMuzzlePosition(
+    player,
+    localFreezeGunSettings,
+    kLocalFreezeCameraVerticalOffset
+  );
+  const lg::Vec3 unoffsetFreezeMuzzle =
+    lg::firstPersonFreezeGunMuzzlePosition(player, localFreezeGunSettings);
+  const float nearestFreezeBeamVertex = nearestSceneVertexDistance(
+    localFreezeGunScene,
+    localFreezeMuzzle
+  );
+  const float nearestUnoffsetFreezeBeamVertex = nearestSceneVertexDistance(
+    localFreezeGunScene,
+    unoffsetFreezeMuzzle
+  );
+  failures += expect(
+    freezeGunBody.mesh == lg::MeshHandle::RemoteFreezeGunBody &&
+      localFreezeGunScene.viewModelStats.drawCalls == 3U &&
+      lg::length(
+        transformPoint(freezeGunBody, lg::freezeGunMuzzleSocket()) -
+        localFreezeMuzzle
+      ) < 0.001F,
+    "first-person Freeze muzzle should match the rendered model through camera and step motion"
+  );
+  failures += expect(
+    nearestFreezeBeamVertex < 0.035F,
+    "first-person Freeze beam should begin at the rendered muzzle through camera and step motion"
+  );
+  failures += expect(
+    nearestUnoffsetFreezeBeamVertex > 0.040F,
+    "first-person Freeze beam should not retain the unoffset muzzle after a camera step"
+  );
+
   lg::RenderSettings localGrenadeLauncherSettings = settings;
   localGrenadeLauncherSettings.localSelectedWeapon =
     lg::Weapon::GrenadeLauncher;
@@ -5108,8 +5553,19 @@ int main() {
     localGrenadeLauncherScene,
     lg::MeshHandle::RemoteGrenadeLauncher
   );
+  const std::size_t grenadeLauncherViewModelCount =
+    static_cast<std::size_t>(std::count_if(
+      localGrenadeLauncherScene.staticMeshInstances.begin(),
+      localGrenadeLauncherScene.staticMeshInstances.end(),
+      [](const lg::StaticMeshInstance& instance) {
+        return instance.mesh == lg::MeshHandle::RemoteGrenadeLauncher &&
+          instance.pass == lg::RenderPass::ViewModel;
+      }
+    ));
   failures += expect(
     grenadeLauncherBody.mesh == lg::MeshHandle::RemoteGrenadeLauncher &&
+      grenadeLauncherViewModelCount == 1U &&
+      localGrenadeLauncherScene.viewModelStats.drawCalls == 1U &&
       lg::length(
         transformPoint(
           grenadeLauncherBody,
@@ -5120,7 +5576,7 @@ int main() {
           localGrenadeLauncherSettings
         )
       ) < 0.001F,
-    "first-person grenade launcher muzzle should follow the rendered model through camera motion"
+    "first-person grenade launcher should use one model path whose muzzle follows camera motion"
   );
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
@@ -5250,8 +5706,84 @@ int main() {
     "remote sniper tracer origin should match the live held-weapon socket across Worker poses"
   );
 
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
+    workerPlasmaRemotePlayers = workerRocketRemotePlayers;
+  workerPlasmaRemotePlayers[1].selectedWeapon = lg::Weapon::PlasmaGun;
+  workerPlasmaRemotePlayers[1].player.viewPitchRadians = 0.55F;
+  workerPlasmaRemotePlayers[1].presentation.torsoAimPitchRadians = 0.62F;
+  workerPlasmaRemotePlayers[1].presentation.proceduralLean = 0.25F;
+  workerPlasmaRemotePlayers[1].weaponSwitchPresentation =
+    lg::sampleWeaponSwitchPresentation(
+      lg::Weapon::MachineGun, lg::Weapon::PlasmaGun, 0.45F, true
+    );
+  std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles>
+    workerPlasmaProjectiles = {};
+  workerPlasmaProjectiles[0].active = true;
+  workerPlasmaProjectiles[0].owner = 1;
+  workerPlasmaProjectiles[0].weapon = lg::Weapon::PlasmaGun;
+  workerPlasmaProjectiles[0].position =
+    workerPlasmaRemotePlayers[1].player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  workerPlasmaProjectiles[0].velocity = {-40.0F, 0.0F, 0.0F};
+  const lg::Scene3D workerPlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    workerPlasmaRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    workerPlasmaProjectiles,
+    workerRocketSettings
+  );
+  const lg::StaticMeshInstance* workerPlasmaBody = findStaticMesh(
+    workerPlasmaProjectileScene,
+    lg::MeshHandle::RemotePlasmaGunBody,
+    lg::RenderPass::OpaqueWorld
+  );
+  const lg::SimpleRenderInstance* workerPlasmaCore = findSimpleMesh(
+    workerPlasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  auto restingWorkerPlasmaPlayers = workerPlasmaRemotePlayers;
+  restingWorkerPlasmaPlayers[1].player.viewPitchRadians = 0.0F;
+  restingWorkerPlasmaPlayers[1].presentation.torsoAimPitchRadians = 0.0F;
+  restingWorkerPlasmaPlayers[1].presentation.proceduralLean = 0.0F;
+  restingWorkerPlasmaPlayers[1].weaponSwitchPresentation =
+    lg::sampleWeaponSwitchPresentation(
+      lg::Weapon::PlasmaGun, lg::Weapon::PlasmaGun, 1.0F, false
+    );
+  const lg::Scene3D restingWorkerPlasmaProjectileScene =
+    lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      restingWorkerPlasmaPlayers,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      workerPlasmaProjectiles,
+      workerRocketSettings
+    );
+  const lg::SimpleRenderInstance* restingWorkerPlasmaCore = findSimpleMesh(
+    restingWorkerPlasmaProjectileScene,
+    lg::MeshHandle::PlasmaCore
+  );
+  failures += expect(
+    workerPlasmaBody != nullptr && workerPlasmaCore != nullptr &&
+      restingWorkerPlasmaCore != nullptr &&
+      lg::length(
+        workerPlasmaCore->position -
+        transformPoint(*workerPlasmaBody, lg::plasmaGunMuzzleSocket())
+      ) < 0.001F &&
+      lg::length(
+        workerPlasmaCore->position - restingWorkerPlasmaCore->position
+      ) > 0.01F,
+    "remote Plasma projectiles should follow the rendered Worker socket through aim, switch, and lean"
+  );
+
   lg::RenderSettings localPlasmaGunSettings = settings;
   localPlasmaGunSettings.localSelectedWeapon = lg::Weapon::PlasmaGun;
+  localPlasmaGunSettings.viewModelHandsEnabled = true;
   const lg::Scene3D idlePlasmaGunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -5306,8 +5838,8 @@ int main() {
     idlePlasmaBody.mesh == lg::MeshHandle::RemotePlasmaGunBody &&
       idlePlasmaProngs.mesh == lg::MeshHandle::RemotePlasmaGunProngs &&
       idlePlasmaCore.mesh == lg::MeshHandle::RemotePlasmaGunCore &&
-      idlePlasmaGunScene.viewModelStats.drawCalls == 3U,
-    "first-person plasma gun should submit its three material meshes"
+      idlePlasmaGunScene.viewModelStats.drawCalls == 5U,
+    "first-person plasma gun should submit its material meshes and two shared hands"
   );
   failures += expect(
     lg::length(
