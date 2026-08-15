@@ -1072,7 +1072,9 @@ def _run_benchmark_with_session(
     environment["benchmark_server_port"] = server_port
     environment["benchmark_control_port"] = control_port
     environment["benchmark_state_directory"] = str(state_dir)
-    client_executable = build_dir / "lg_duel_client.exe"
+    client_executable = build_dir / (
+        "lg_duel_client.exe" if os.name == "nt" else "lg_duel_client"
+    )
     if client_executable.is_file():
         environment["executable"] = str(client_executable)
         environment["executable_sha256"] = hashlib.sha256(client_executable.read_bytes()).hexdigest()
@@ -1491,6 +1493,7 @@ COMPARISON_ENVIRONMENT_KEYS = (
     "compiler", "compiler_path", "compiler_version", "compile_time_options",
     "sdl_configuration", "observed_resolution", "selected_present_mode",
     "benchmark_version", "gpu_timing_instrumentation_version", "build_mode",
+    "executable_sha256",
 )
 WORLD_MODE_TIMING_METRIC_DIRECTIONS = {
     "frame_ms": "lower",
@@ -1549,6 +1552,111 @@ def _world_mode_selector_values(result: dict[str, Any]) -> dict[str, str]:
         elif value is not None:
             values[key] = str(value)
     return values
+
+
+def _selector_values_from_mapping(
+    value: Any, keys: Iterable[str]
+) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key in keys:
+        item = value.get(key)
+        if isinstance(item, bool):
+            result[key] = "1" if item else "0"
+        elif item is not None:
+            result[key] = str(item)
+    return result
+
+
+def _world_mode_applied_selector_mismatches(
+    result: dict[str, Any], expected: dict[str, str]
+) -> list[str]:
+    settings = result.get("settings", {})
+    contract = settings.get("graphics_contract", {}) if isinstance(settings, dict) else {}
+    checks = (
+        (
+            "scenario cvars",
+            _world_mode_selector_values(result),
+            expected,
+        ),
+        (
+            "presentation cvars",
+            _selector_values_from_mapping(
+                settings.get("presentation_cvars") if isinstance(settings, dict) else None,
+                WORLD_MODE_SELECTOR_CVARS,
+            ),
+            expected,
+        ),
+        (
+            "graphics contract selectors",
+            _selector_values_from_mapping(contract, WORLD_MODE_CONTRACT_KEYS),
+            {
+                "world_frustum_cull": expected["r_world_frustum_cull"],
+                "world_gpu_indirect": expected["r_world_gpu_indirect"],
+            },
+        ),
+        (
+            "effective graphics cvars",
+            _selector_values_from_mapping(
+                contract.get("effective_cvars") if isinstance(contract, dict) else None,
+                WORLD_MODE_SELECTOR_CVARS,
+            ),
+            expected,
+        ),
+    )
+    return [label for label, actual, wanted in checks if actual != wanted]
+
+
+def _world_mode_descriptor_mismatches(
+    result: dict[str, Any], descriptor: dict[str, Any], descriptor_hash: str
+) -> list[str]:
+    mismatches: list[str] = []
+    if result.get("scenario") != descriptor:
+        mismatches.append("scenario descriptor")
+    if result.get("scenario_hash") != descriptor_hash:
+        mismatches.append("scenario hash")
+    settings = result.get("settings")
+    if not isinstance(settings, dict):
+        return mismatches + ["settings"]
+    expected_settings = {
+        "backend": descriptor["backend_requirement"],
+        "resolution": descriptor["resolution"],
+        "window_mode": "fullscreen" if descriptor["fullscreen"] else "windowed",
+        "vsync": descriptor["vsync"],
+        "frame_cap": descriptor["frame_cap"],
+        "fov": descriptor["fov"],
+        "presentation_cvars": descriptor["cvars"],
+        "graphics_profile": descriptor.get("graphics_profile", "Default"),
+        "render_scale": descriptor.get("render_scale", 1.0),
+    }
+    for key, expected in expected_settings.items():
+        if key not in settings or settings[key] != expected:
+            mismatches.append(f"settings {key}")
+    contract = settings.get("graphics_contract")
+    if not isinstance(contract, dict):
+        mismatches.append("graphics contract")
+    else:
+        required_contract_keys = {"profile", "effective_cvars"} | set(
+            GRAPHICS_CONTRACT_CVARS.values()
+        )
+        missing = sorted(required_contract_keys - set(contract))
+        if missing:
+            mismatches.append(
+                "graphics contract fields: " + ", ".join(missing)
+            )
+        effective = contract.get("effective_cvars")
+        if not isinstance(effective, dict):
+            mismatches.append("effective graphics cvars")
+        else:
+            missing_effective = sorted(
+                set(GRAPHICS_CONTRACT_CVARS) - set(effective)
+            )
+            if missing_effective:
+                mismatches.append(
+                    "effective graphics cvars: " + ", ".join(missing_effective)
+                )
+    return mismatches
 
 
 def _is_world_mode_result(result: dict[str, Any]) -> bool:
@@ -1741,33 +1849,27 @@ def compare_world_mode_results(
     baseline = by_name[WORLD_MODE_BASELINE]
     mode_comparisons: dict[str, Any] = {}
     classifications: list[str] = []
-    metadata_mismatches = {
-        name: _missing_world_mode_metadata(result)
-        for name, result in by_name.items()
-    }
-    if any(metadata_mismatches.values()):
+    artifact_mismatches: dict[str, list[str]] = {}
+    for name, result in by_name.items():
+        descriptor, _, descriptor_hash = load_scenario(name)
+        mismatches = _missing_world_mode_metadata(result)
+        mismatches.extend(
+            _world_mode_descriptor_mismatches(result, descriptor, descriptor_hash)
+        )
+        mismatches.extend(
+            _world_mode_applied_selector_mismatches(
+                result, WORLD_MODE_SELECTOR_VALUES[name]
+            )
+        )
+        artifact_mismatches[name] = sorted(set(mismatches))
+    if any(artifact_mismatches.values()):
         return {
             "classification": "invalid",
             "valid": False,
             "mismatches": [
                 f"{name}: missing {', '.join(mismatches)}"
-                for name, mismatches in metadata_mismatches.items()
+                for name, mismatches in artifact_mismatches.items()
                 if mismatches
-            ],
-            "results": [result["artifact_path"] for result in results],
-        }
-    selector_mismatches = {
-        name: expected
-        for name, expected in WORLD_MODE_SELECTOR_VALUES.items()
-        if _world_mode_selector_values(by_name[name]) != expected
-    }
-    if selector_mismatches:
-        return {
-            "classification": "invalid",
-            "valid": False,
-            "mismatches": [
-                f"{name}: scenario culling selector values"
-                for name in sorted(selector_mismatches)
             ],
             "results": [result["artifact_path"] for result in results],
         }

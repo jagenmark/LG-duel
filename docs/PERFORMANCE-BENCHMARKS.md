@@ -271,9 +271,10 @@ flag. The PowerShell wrapper owns the supported CLI contract:
 ```
 
 `compare-modes` accepts only the three named Overkill static-world results. It
-allows their mode name, scenario hash, labels, notes, and the two culling cvars
-to differ. It still requires the map, camera, presentation settings, graphics
-contract, build, host, backend, driver, resolution, and Git state to match.
+verifies each artifact against its checked-in descriptor, then allows their mode
+name, scenario hash, labels, notes, and the two culling cvars to differ. It
+still requires the map, camera, presentation settings, graphics contract, build
+and executable hash, host, backend, driver, resolution, and Git state to match.
 
 Rendered benchmarks use their own local session. The defaults are UDP server
 port `28960`, TCP control port `28961`, and launcher state at

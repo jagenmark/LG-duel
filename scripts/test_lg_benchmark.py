@@ -289,34 +289,31 @@ class BenchmarkTests(unittest.TestCase):
     def _world_mode_artifact(
         self, root: Path, name: str, median: float, *, gpu: int, world_cull: int
     ) -> dict:
-        result = self._artifact(root, name, median, scenario_hash=name)
-        result["scenario"].update({
-            "name": name,
-            "map": "overkill_import",
-            "cvars": {
-                "r_world_frustum_cull": world_cull,
-                "r_world_gpu_indirect": gpu,
-                "r_texture_filter": 2,
-            },
-        })
+        descriptor, _, descriptor_hash = lg_benchmark.load_scenario(name)
+        result = self._artifact(root, name, median, scenario_hash=descriptor_hash)
+        result["scenario"] = descriptor
+        expected_selectors = {
+            "r_world_frustum_cull": str(world_cull),
+            "r_world_gpu_indirect": str(gpu),
+        }
+        effective_cvars = {}
+        graphics_contract = {"profile": "Default"}
+        for cvar, contract_key in lg_benchmark.GRAPHICS_CONTRACT_CVARS.items():
+            value = expected_selectors.get(cvar, "same")
+            effective_cvars[cvar] = value
+            graphics_contract[contract_key] = value
+        graphics_contract["effective_cvars"] = effective_cvars
         result["settings"].update({
+            "backend": descriptor["backend_requirement"],
+            "resolution": descriptor["resolution"],
+            "window_mode": "fullscreen" if descriptor["fullscreen"] else "windowed",
+            "vsync": descriptor["vsync"],
+            "frame_cap": descriptor["frame_cap"],
             "fov": 105.0,
+            "presentation_cvars": copy.deepcopy(descriptor["cvars"]),
+            "graphics_profile": descriptor.get("graphics_profile", "Default"),
             "render_scale": 1.0,
-            "graphics_contract": {
-                "profile": "Default",
-                "world_frustum_cull": str(world_cull),
-                "world_gpu_indirect": str(gpu),
-                "effective_cvars": {
-                    "r_world_frustum_cull": str(world_cull),
-                    "r_world_gpu_indirect": str(gpu),
-                    "r_texture_filter": "2",
-                },
-            },
-            "presentation_cvars": {
-                "r_world_frustum_cull": world_cull,
-                "r_world_gpu_indirect": gpu,
-                "r_texture_filter": 2,
-            },
+            "graphics_contract": graphics_contract,
         })
         result["environment"].update({
             "gpu_name": "Intel Graphics",
@@ -385,6 +382,27 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(
             lg_benchmark._world_mode_selector_values(baseline),
             lg_benchmark.WORLD_MODE_SELECTOR_VALUES["overkill-static-flythrough"],
+        )
+        bad_contract = copy.deepcopy(result)
+        bad_contract["settings"]["graphics_contract"]["world_gpu_indirect"] = "0"
+        self.assertIn(
+            "graphics contract selectors",
+            lg_benchmark._world_mode_applied_selector_mismatches(
+                bad_contract,
+                lg_benchmark.WORLD_MODE_SELECTOR_VALUES[
+                    "overkill-static-flythrough-gpu-indirect"
+                ],
+            ),
+        )
+        missing_contract = copy.deepcopy(result)
+        del missing_contract["settings"]["graphics_contract"]["effective_cvars"]
+        self.assertIn(
+            "effective graphics cvars",
+            lg_benchmark._world_mode_descriptor_mismatches(
+                missing_contract,
+                missing_contract["scenario"],
+                missing_contract["scenario_hash"],
+            ),
         )
         self.assertTrue(
             lg_benchmark._missing_world_mode_metadata(
