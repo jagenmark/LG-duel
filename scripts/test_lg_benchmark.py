@@ -52,6 +52,7 @@ class BenchmarkTests(unittest.TestCase):
 
     def test_graphics_contract_requires_native_effective_cvars(self) -> None:
         effective = {
+            "r_world_frustum_cull": "0", "r_world_gpu_indirect": "0",
             "r_antialiasing": "1", "r_sun_shadows": "2",
             "r_contact_shadows": "1", "r_material_quality": "1",
             "r_ambient_grounding": "2",
@@ -284,6 +285,167 @@ class BenchmarkTests(unittest.TestCase):
         result = self._artifact(Path("root"), "result", 10)
         result["environment"]["build_mode"] = "debug"
         self.assertIn("build_mode", lg_benchmark._comparison_mismatch(baseline, result))
+
+    def _world_mode_artifact(
+        self, root: Path, name: str, median: float, *, gpu: int, world_cull: int
+    ) -> dict:
+        descriptor, _, descriptor_hash = lg_benchmark.load_scenario(name)
+        result = self._artifact(root, name, median, scenario_hash=descriptor_hash)
+        result["scenario"] = descriptor
+        expected_selectors = {
+            "r_world_frustum_cull": str(world_cull),
+            "r_world_gpu_indirect": str(gpu),
+        }
+        effective_cvars = {}
+        graphics_contract = {"profile": "Default"}
+        for cvar, contract_key in lg_benchmark.GRAPHICS_CONTRACT_CVARS.items():
+            value = expected_selectors.get(cvar, "same")
+            effective_cvars[cvar] = value
+            graphics_contract[contract_key] = value
+        graphics_contract["effective_cvars"] = effective_cvars
+        result["settings"].update({
+            "backend": descriptor["backend_requirement"],
+            "resolution": descriptor["resolution"],
+            "window_mode": "fullscreen" if descriptor["fullscreen"] else "windowed",
+            "vsync": descriptor["vsync"],
+            "frame_cap": descriptor["frame_cap"],
+            "fov": 105.0,
+            "presentation_cvars": copy.deepcopy(descriptor["cvars"]),
+            "graphics_profile": descriptor.get("graphics_profile", "Default"),
+            "render_scale": 1.0,
+            "graphics_contract": graphics_contract,
+        })
+        result["environment"].update({
+            "gpu_name": "Intel Graphics",
+            "gpu_type": "integrated",
+            "graphics_driver_name": "Mesa",
+            "graphics_driver_version": "1",
+            "vulkan_api_version": "1.4",
+            "observed_resolution": [1280, 720],
+        })
+        result["map_content_hash"] = 1
+        result["aggregate"]["metrics"].update({
+            "world_draws": {
+                "median": 5 if gpu else 5,
+                "mean": 5,
+                "p95": 5,
+                "p99": 5,
+                "max": 5,
+                "cv_percent": 1.0,
+            },
+            "world_gpu_indirect_cpu_ms": {
+                "median": 0.004 if gpu else 0.0,
+                "mean": 0.004 if gpu else 0.0,
+                "p95": 0.01 if gpu else 0.0,
+                "p99": 0.01 if gpu else 0.0,
+                "max": 0.02 if gpu else 0.0,
+                "cv_percent": 1.0,
+            },
+            "world_indirect_cull_gpu_ms": {
+                "median": 0.02,
+                "mean": 0.02,
+                "p95": 0.02,
+                "p99": 0.02,
+                "max": 0.02,
+                "cv_percent": 1.0,
+            },
+        })
+        for key in lg_benchmark.COMPARISON_ENVIRONMENT_KEYS:
+            result["environment"].setdefault(key, {
+                "compile_time_options": {},
+                "sdl_configuration": {},
+            }.get(key, "same"))
+        result["git"] = {"commit": "same", "dirty": False}
+        return result
+
+    def test_world_mode_comparison_allows_only_culling_selectors(self) -> None:
+        baseline = self._world_mode_artifact(
+            Path("root"), "overkill-static-flythrough", 10, gpu=0, world_cull=1
+        )
+        result = self._world_mode_artifact(
+            Path("root"), "overkill-static-flythrough-gpu-indirect", 10,
+            gpu=1, world_cull=0,
+        )
+        self.assertEqual(
+            lg_benchmark._comparison_mismatch(
+                baseline, result, allow_world_mode_selectors=True
+            ),
+            [],
+        )
+        result["settings"]["presentation_cvars"]["r_texture_filter"] = 1
+        self.assertIn(
+            "settings",
+            lg_benchmark._comparison_mismatch(
+                baseline, result, allow_world_mode_selectors=True
+            ),
+        )
+        self.assertEqual(
+            lg_benchmark._world_mode_selector_values(baseline),
+            lg_benchmark.WORLD_MODE_SELECTOR_VALUES["overkill-static-flythrough"],
+        )
+        bad_contract = copy.deepcopy(result)
+        bad_contract["settings"]["graphics_contract"]["world_gpu_indirect"] = "0"
+        self.assertIn(
+            "graphics contract selectors",
+            lg_benchmark._world_mode_applied_selector_mismatches(
+                bad_contract,
+                lg_benchmark.WORLD_MODE_SELECTOR_VALUES[
+                    "overkill-static-flythrough-gpu-indirect"
+                ],
+            ),
+        )
+        missing_contract = copy.deepcopy(result)
+        del missing_contract["settings"]["graphics_contract"]["effective_cvars"]
+        self.assertIn(
+            "effective graphics cvars",
+            lg_benchmark._world_mode_descriptor_mismatches(
+                missing_contract,
+                missing_contract["scenario"],
+                missing_contract["scenario_hash"],
+            ),
+        )
+        self.assertTrue(
+            lg_benchmark._missing_world_mode_metadata(
+                self._artifact(Path("root"), "missing", 10)
+            )
+        )
+
+    def test_compare_world_modes_requires_three_guarded_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results = root / "results"
+            modes = {
+                "overkill-static-flythrough": (10, 0, 1),
+                "overkill-static-flythrough-bvh-off": (10.1, 0, 0),
+                "overkill-static-flythrough-gpu-indirect": (9.9, 1, 0),
+            }
+            references = []
+            for name, (median, gpu, world_cull) in modes.items():
+                directory = results / name
+                directory.mkdir(parents=True)
+                (directory / "aggregate.json").write_text(
+                    json.dumps(self._world_mode_artifact(
+                        root, name, median, gpu=gpu, world_cull=world_cull
+                    )),
+                    encoding="utf-8",
+                )
+                references.append(directory)
+            with mock.patch.object(lg_benchmark, "RESULT_ROOT", results):
+                comparison = lg_benchmark.compare_world_mode_results(references)
+            self.assertTrue(comparison["valid"])
+            self.assertIn(
+                "overkill-static-flythrough-gpu-indirect",
+                comparison["mode_comparisons"],
+            )
+            gpu_comparison = comparison["mode_comparisons"][
+                "overkill-static-flythrough-gpu-indirect"
+            ]
+            self.assertNotIn("world_draws", gpu_comparison["metrics"])
+            self.assertIn(
+                "world_indirect_cull_gpu_ms",
+                gpu_comparison["gpu_only_metrics"],
+            )
+            self.assertTrue((results / "overkill-static-flythrough-gpu-indirect" / "mode-comparison.json").is_file())
 
     def test_benchmark_cli_defaults_to_release_with_debug_opt_in(self) -> None:
         parser = lg_benchmark.build_parser()
@@ -560,6 +722,7 @@ class BenchmarkTests(unittest.TestCase):
                                     "p95_ms": 12, "p99_ms": 14, "max_ms": 15, "stddev_ms": 0.2},
                         "validity": {"map": True, "completed": True, "frame_count": True},
                         "effective_cvars": {
+                            "r_world_frustum_cull": "0", "r_world_gpu_indirect": "0",
                             "r_antialiasing": "1", "r_sun_shadows": "2",
                             "r_contact_shadows": "1", "r_material_quality": "1",
                             "r_ambient_grounding": "2",

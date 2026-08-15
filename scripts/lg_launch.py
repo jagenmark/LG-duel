@@ -67,6 +67,14 @@ def _normalized(path: Path | str) -> str:
     return os.path.normcase(os.path.abspath(os.fspath(path)))
 
 
+def _same_library_path(first: Path | str, second: Path | str) -> bool:
+    first_text = str(first)
+    second_text = str(second)
+    return _normalized(first_text) == _normalized(second_text) or (
+        Path(first_text).name == Path(second_text).name
+    )
+
+
 def _parse_vulkan_devices(output: str) -> list[dict[str, Any]]:
     devices: list[dict[str, Any]] = []
     current: dict[str, str] | None = None
@@ -240,19 +248,31 @@ def _probe_default_vulkan(
         record
         for record in records
         if any(
-            _normalized(str(record["library_path"])) == _normalized(library)
-            or Path(str(record["library_path"])).name == Path(library).name
+            _same_library_path(record["library_path"], library)
             for library in selected_libraries
         )
     ]
+    if len(active_records) > 1:
+        matching_records = []
+        for candidate in active_records:
+            try:
+                _probe_vulkan(
+                    Path(str(candidate["path"])),
+                    expected_gpu=str(selected["gpu_name"]),
+                    runner=runner,
+                )
+            except LaunchError:
+                continue
+            matching_records.append(candidate)
+        if len(matching_records) == 1:
+            active_records = matching_records
     if len(active_records) == 1:
         record = active_records[0]
         matched_library = next(
             (
                 library
                 for library in selected_libraries
-                if _normalized(str(record["library_path"])) == _normalized(library)
-                or Path(str(record["library_path"])).name == Path(library).name
+                if _same_library_path(record["library_path"], library)
             ),
             None,
         )
@@ -522,6 +542,12 @@ def verify_control_status(
         actual_value = status.get(key)
         if key == "vulkan_icd_path":
             matched = isinstance(actual_value, str) and _normalized(actual_value) == _normalized(str(expected))
+        elif key == "graphics_driver_version":
+            expected_text = str(expected)
+            actual_text = str(actual_value)
+            matched = actual_text == expected_text or expected_text.endswith(
+                f" {actual_text}"
+            ) or expected_text.rsplit(" ", 1)[-1].startswith(actual_text)
         else:
             matched = str(actual_value) == str(expected)
         if not matched:
@@ -674,8 +700,13 @@ def _write_state(value: dict[str, Any]) -> None:
 
 
 def _process_path(pid: int) -> str | None:
-    if pid <= 0 or platform.system() != "Windows":
+    if pid <= 0:
         return None
+    if platform.system() != "Windows":
+        try:
+            return str(Path(f"/proc/{pid}/exe").resolve(strict=True))
+        except (OSError, RuntimeError):
+            return None
     try:
         import ctypes
         from ctypes import wintypes
@@ -908,9 +939,13 @@ def _process_running(pid: int) -> bool:
         except (AttributeError, OSError, ValueError):
             return False
     try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        state = stat.rsplit(") ", 1)[1].split(maxsplit=1)[0]
+        if state == "Z":
+            return False
         os.kill(pid, 0)
         return True
-    except (OSError, ProcessLookupError, ValueError):
+    except (OSError, ProcessLookupError, ValueError, IndexError):
         return False
 
 

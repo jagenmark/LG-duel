@@ -91,13 +91,22 @@ int main() {
       result->benchmarkFrameIndex == 91U &&
       result->outlineApplicable &&
       result->gpuPrimaryCommandBufferMilliseconds.has_value() &&
-      near(*result->gpuPrimaryCommandBufferMilliseconds, 0.21) &&
+      near(*result->gpuPrimaryCommandBufferMilliseconds, 0.23) &&
       result->outlineGpuMilliseconds.has_value() &&
       near(*result->outlineGpuMilliseconds, 0.01) &&
       result->readbackLatencyFrames == 3U,
     "delayed results should keep their original frame ID and latency"
   );
   if (result.has_value()) {
+    const std::size_t worldIndirectCullIndex = static_cast<std::size_t>(
+      lg::GpuTimedPass::WorldIndirectCull
+    );
+    failures += expect(
+      result->passApplicable[worldIndirectCullIndex] &&
+        result->passMilliseconds[worldIndirectCullIndex].has_value() &&
+        near(*result->passMilliseconds[worldIndirectCullIndex], 0.01),
+      "readback should retain the world indirect cull GPU stage"
+    );
     for (std::size_t passIndex = 0;
          passIndex < lg::kGpuTimedPassCount;
          ++passIndex) {

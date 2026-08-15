@@ -182,6 +182,9 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world_surface_direct.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world_surface_direct.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world_indirect_cull.comp.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world_indirect_cull.comp.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/sun_shadow_world.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/sun_shadow_world.vert.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -367,6 +370,9 @@ add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world_surface_direct.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world_surface_direct.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world_indirect_cull.comp.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world_indirect_cull.comp.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/sun_shadow_world.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/sun_shadow_world.vert.spv"

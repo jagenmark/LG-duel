@@ -111,7 +111,7 @@ namespace {
     "r_player_outline_mode", "r_player_outline_style", "r_player_outline_width",
     "r_player_outline_debug_mask", "r_enemy_outline_width",
     "r_teammate_outline_width", "r_player_outline_scale", "r_show_weapon", "r_show_weapons",
-    "r_frustum_cull", "r_world_frustum_cull", "r_player_model", "r_bloom",
+    "r_frustum_cull", "r_world_frustum_cull", "r_world_gpu_indirect", "r_player_model", "r_bloom",
     "r_material_quality", "r_ambient_grounding", "r_ambient_debug",
     "r_combat_effects",
     "s_enable", "s_volume", "vid_fullscreen", "vid_width", "vid_height", "r_vsync",
@@ -724,6 +724,25 @@ dev::JsonValue resultJson(
       return sample.worldVisibilityQueryMilliseconds;
     }
   );
+  worldVisibility.object["gpu_indirect_cpu_ms"] = visibilityMetric(
+    [](const FrameSample& sample) {
+      return sample.worldGpuIndirectCpuMilliseconds;
+    }
+  );
+  worldVisibility.object["gpu_indirect_frames"] =
+    dev::JsonValue::numberValue(static_cast<double>(std::count_if(
+      samples.begin(),
+      samples.end(),
+      [](const FrameSample& sample) { return sample.worldGpuIndirect; }
+    )));
+  worldVisibility.object["gpu_indirect_commands"] = visibilityMetric(
+    [](const FrameSample& sample) { return sample.worldGpuIndirectCommands; }
+  );
+  worldVisibility.object["gpu_indirect_material_groups"] = visibilityMetric(
+    [](const FrameSample& sample) {
+      return sample.worldGpuIndirectMaterialGroups;
+    }
+  );
   root.object["world_visibility"] = std::move(worldVisibility);
   dev::JsonValue thresholds = dev::JsonValue::objectValue();
   for (const double threshold : {2.63, 4.17, 6.94, 8.33, 16.67}) {
@@ -745,6 +764,17 @@ dev::JsonValue resultJson(
     context.actualWidth == scenario.width && context.actualHeight == scenario.height
   );
   validity.object["supported_workload"] = dev::JsonValue::booleanValue(!scenario.unsupportedEffectFixture);
+  const auto gpuIndirectCvar = scenario.cvars.find("r_world_gpu_indirect");
+  const bool gpuIndirectRequested =
+    gpuIndirectCvar != scenario.cvars.end() && gpuIndirectCvar->second == "1";
+  validity.object["gpu_indirect"] = dev::JsonValue::booleanValue(
+    !gpuIndirectRequested ||
+    (!samples.empty() && std::all_of(
+      samples.begin(),
+      samples.end(),
+      [](const FrameSample& sample) { return sample.worldGpuIndirect; }
+    ))
+  );
   root.object["validity"] = std::move(validity);
   dev::JsonValue warnings = dev::JsonValue::arrayValue(); for (const std::string& warning : context.warnings) warnings.array.push_back(dev::JsonValue::stringValue(warning)); root.object["warnings"] = std::move(warnings);
   dev::JsonValue screenshots = dev::JsonValue::arrayValue(); for (const std::string& path : context.screenshotPaths) screenshots.array.push_back(dev::JsonValue::stringValue(path)); root.object["screenshots"] = std::move(screenshots);
@@ -945,6 +975,9 @@ dev::JsonValue frameTimelineJson(
       dev::JsonValue::numberValue(sample.animationMilliseconds);
     cpu.object["world_visibility"] =
       dev::JsonValue::numberValue(sample.worldVisibilityMilliseconds);
+    cpu.object["world_gpu_indirect_cpu"] = dev::JsonValue::numberValue(
+      sample.worldGpuIndirectCpuMilliseconds
+    );
     cpu.object["render_instance_construction"] = dev::JsonValue::numberValue(
       sample.renderInstanceConstructionMilliseconds
     );
@@ -1011,6 +1044,15 @@ dev::JsonValue frameTimelineJson(
       dev::JsonValue::numberValue(sample.worldVisibilityTestedNodes);
     workload.object["world_visibility_query_ms"] =
       dev::JsonValue::numberValue(sample.worldVisibilityQueryMilliseconds);
+    workload.object["world_gpu_indirect_cpu_ms"] = dev::JsonValue::numberValue(
+      sample.worldGpuIndirectCpuMilliseconds
+    );
+    workload.object["world_gpu_indirect"] =
+      dev::JsonValue::booleanValue(sample.worldGpuIndirect);
+    workload.object["world_gpu_indirect_commands"] =
+      dev::JsonValue::numberValue(sample.worldGpuIndirectCommands);
+    workload.object["world_gpu_indirect_material_groups"] =
+      dev::JsonValue::numberValue(sample.worldGpuIndirectMaterialGroups);
     workload.object["visible_players"] =
       dev::JsonValue::numberValue(sample.visiblePlayers);
     workload.object["projectiles"] =
@@ -1083,6 +1125,9 @@ bool writeArtifacts(
     "uploaded_vertices,rendered_triangles,world_draws,world_submitted_triangles,"
     "world_submitted_ranges,world_total_chunks,world_visible_chunks,"
     "world_culled_chunks,world_visibility_tested_nodes,world_visibility_query_ms,"
+    "world_gpu_indirect_cpu_ms,"
+    "world_gpu_indirect,world_gpu_indirect_commands,"
+    "world_gpu_indirect_material_groups,"
     "visible_players,projectiles,effects,lights,particles,transparent_effects,"
     "instance_upload_bytes,instance_draws";
   for (std::size_t passIndex = 0;
@@ -1136,7 +1181,12 @@ bool writeArtifacts(
       << ',' << s.worldSubmittedRanges << ',' << s.worldTotalChunks
       << ',' << s.worldVisibleChunks << ',' << s.worldCulledChunks
       << ',' << s.worldVisibilityTestedNodes
-      << ',' << s.worldVisibilityQueryMilliseconds << ',' << s.visiblePlayers
+      << ',' << s.worldVisibilityQueryMilliseconds
+      << ',' << s.worldGpuIndirectCpuMilliseconds
+      << ',' << (s.worldGpuIndirect ? 1 : 0)
+      << ',' << s.worldGpuIndirectCommands
+      << ',' << s.worldGpuIndirectMaterialGroups
+      << ',' << s.visiblePlayers
       << ',' << s.projectileCount << ',' << s.effectCount
       << ',' << s.lightCount << ',' << s.particleCount
       << ',' << s.transparentEffectCount

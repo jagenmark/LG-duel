@@ -58,6 +58,8 @@ SDL_CONFIGURATION_OPTIONS = {
 _BENCHMARK_SCOPE_LOCK = threading.RLock()
 
 GRAPHICS_CONTRACT_CVARS = {
+    "r_world_frustum_cull": "world_frustum_cull",
+    "r_world_gpu_indirect": "world_gpu_indirect",
     "r_antialiasing": "anti_aliasing",
     "r_sun_shadows": "sun_shadow_quality",
     "r_contact_shadows": "contact_shadows",
@@ -1070,7 +1072,9 @@ def _run_benchmark_with_session(
     environment["benchmark_server_port"] = server_port
     environment["benchmark_control_port"] = control_port
     environment["benchmark_state_directory"] = str(state_dir)
-    client_executable = build_dir / "lg_duel_client.exe"
+    client_executable = build_dir / (
+        "lg_duel_client.exe" if os.name == "nt" else "lg_duel_client"
+    )
     if client_executable.is_file():
         environment["executable"] = str(client_executable)
         environment["executable_sha256"] = hashlib.sha256(client_executable.read_bytes()).hexdigest()
@@ -1452,30 +1456,305 @@ def create_baseline(
 
 
 MATERIAL_KEYS = ("backend", "resolution", "window_mode", "vsync", "frame_cap", "fov", "presentation_cvars")
+WORLD_MODE_SCENARIOS = frozenset({
+    "overkill-static-flythrough",
+    "overkill-static-flythrough-bvh-off",
+    "overkill-static-flythrough-gpu-indirect",
+})
+WORLD_MODE_BASELINE = "overkill-static-flythrough"
+WORLD_MODE_SELECTOR_VALUES = {
+    "overkill-static-flythrough": {
+        "r_world_frustum_cull": "1",
+        "r_world_gpu_indirect": "0",
+    },
+    "overkill-static-flythrough-bvh-off": {
+        "r_world_frustum_cull": "0",
+        "r_world_gpu_indirect": "0",
+    },
+    "overkill-static-flythrough-gpu-indirect": {
+        "r_world_frustum_cull": "0",
+        "r_world_gpu_indirect": "1",
+    },
+}
+WORLD_MODE_SELECTOR_CVARS = frozenset({
+    "r_world_frustum_cull",
+    "r_world_gpu_indirect",
+})
+WORLD_MODE_CONTRACT_KEYS = frozenset({
+    "world_frustum_cull",
+    "world_gpu_indirect",
+})
+COMPARISON_ENVIRONMENT_KEYS = (
+    "os", "cpu", "architecture", "logical_cores", "renderer",
+    "protocol_version", "control_protocol_version", "gpu_name", "gpu_type",
+    "graphics_driver_name", "graphics_driver_version", "vulkan_api_version",
+    "vulkan_metadata_status", "software_renderer", "gpu_verification_state",
+    "gpu_verified", "build_metadata_status", "build_type", "cmake_generator",
+    "compiler", "compiler_path", "compiler_version", "compile_time_options",
+    "sdl_configuration", "observed_resolution", "selected_present_mode",
+    "benchmark_version", "gpu_timing_instrumentation_version", "build_mode",
+    "executable_sha256",
+)
+WORLD_MODE_TIMING_METRIC_DIRECTIONS = {
+    "frame_ms": "lower",
+    "total_render_cpu_ms": "lower",
+    "gpu_primary_command_buffer_ms": "lower",
+    "main_scene_gpu_ms": "lower",
+    "world_visibility_ms": "lower",
+    "world_visibility_query_ms": "lower",
+    "world_command_encoding_ms": "lower",
+}
+WORLD_MODE_GPU_ONLY_METRICS = (
+    "world_gpu_indirect_cpu_ms",
+    "world_indirect_cull_gpu_ms",
+)
 
 
-def _comparison_mismatch(baseline: dict[str, Any], result: dict[str, Any]) -> list[str]:
+def _missing_world_mode_metadata(result: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    if not isinstance(result.get("scenario_hash"), str) or not result["scenario_hash"]:
+        missing.append("scenario hash")
+    map_hash = result.get("map_content_hash")
+    if isinstance(map_hash, bool) or not isinstance(map_hash, int) or map_hash <= 0:
+        missing.append("map content hash")
+    deterministic_checksum = result.get("deterministic_checksum")
+    if deterministic_checksum is not None and not isinstance(
+        deterministic_checksum, (int, str)
+    ):
+        missing.append("deterministic checksum")
+    environment = result.get("environment")
+    if not isinstance(environment, dict):
+        missing.append("environment")
+    else:
+        for key in COMPARISON_ENVIRONMENT_KEYS:
+            if key not in environment or environment[key] is None:
+                missing.append(f"environment {key}")
+    git = result.get("git")
+    if not isinstance(git, dict):
+        missing.append("git metadata")
+    else:
+        for key in ("commit", "dirty"):
+            if key not in git or git[key] is None:
+                missing.append(f"git {key}")
+    return missing
+
+
+def _world_mode_selector_values(result: dict[str, Any]) -> dict[str, str]:
+    scenario = result.get("scenario", {})
+    cvars = scenario.get("cvars", {}) if isinstance(scenario, dict) else {}
+    if not isinstance(cvars, dict):
+        return {}
+    values: dict[str, str] = {}
+    for key in WORLD_MODE_SELECTOR_CVARS:
+        value = cvars.get(key)
+        if isinstance(value, bool):
+            values[key] = "1" if value else "0"
+        elif value is not None:
+            values[key] = str(value)
+    return values
+
+
+def _selector_values_from_mapping(
+    value: Any, keys: Iterable[str]
+) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key in keys:
+        item = value.get(key)
+        if isinstance(item, bool):
+            result[key] = "1" if item else "0"
+        elif item is not None:
+            result[key] = str(item)
+    return result
+
+
+def _world_mode_applied_selector_mismatches(
+    result: dict[str, Any], expected: dict[str, str]
+) -> list[str]:
+    settings = result.get("settings", {})
+    contract = settings.get("graphics_contract", {}) if isinstance(settings, dict) else {}
+    checks = (
+        (
+            "scenario cvars",
+            _world_mode_selector_values(result),
+            expected,
+        ),
+        (
+            "presentation cvars",
+            _selector_values_from_mapping(
+                settings.get("presentation_cvars") if isinstance(settings, dict) else None,
+                WORLD_MODE_SELECTOR_CVARS,
+            ),
+            expected,
+        ),
+        (
+            "graphics contract selectors",
+            _selector_values_from_mapping(contract, WORLD_MODE_CONTRACT_KEYS),
+            {
+                "world_frustum_cull": expected["r_world_frustum_cull"],
+                "world_gpu_indirect": expected["r_world_gpu_indirect"],
+            },
+        ),
+        (
+            "effective graphics cvars",
+            _selector_values_from_mapping(
+                contract.get("effective_cvars") if isinstance(contract, dict) else None,
+                WORLD_MODE_SELECTOR_CVARS,
+            ),
+            expected,
+        ),
+    )
+    return [label for label, actual, wanted in checks if actual != wanted]
+
+
+def _world_mode_descriptor_mismatches(
+    result: dict[str, Any], descriptor: dict[str, Any], descriptor_hash: str
+) -> list[str]:
+    mismatches: list[str] = []
+    if result.get("scenario") != descriptor:
+        mismatches.append("scenario descriptor")
+    if result.get("scenario_hash") != descriptor_hash:
+        mismatches.append("scenario hash")
+    settings = result.get("settings")
+    if not isinstance(settings, dict):
+        return mismatches + ["settings"]
+    expected_settings = {
+        "backend": descriptor["backend_requirement"],
+        "resolution": descriptor["resolution"],
+        "window_mode": "fullscreen" if descriptor["fullscreen"] else "windowed",
+        "vsync": descriptor["vsync"],
+        "frame_cap": descriptor["frame_cap"],
+        "fov": descriptor["fov"],
+        "presentation_cvars": descriptor["cvars"],
+        "graphics_profile": descriptor.get("graphics_profile", "Default"),
+        "render_scale": descriptor.get("render_scale", 1.0),
+    }
+    for key, expected in expected_settings.items():
+        if key not in settings or settings[key] != expected:
+            mismatches.append(f"settings {key}")
+    contract = settings.get("graphics_contract")
+    if not isinstance(contract, dict):
+        mismatches.append("graphics contract")
+    else:
+        required_contract_keys = {"profile", "effective_cvars"} | set(
+            GRAPHICS_CONTRACT_CVARS.values()
+        )
+        missing = sorted(required_contract_keys - set(contract))
+        if missing:
+            mismatches.append(
+                "graphics contract fields: " + ", ".join(missing)
+            )
+        effective = contract.get("effective_cvars")
+        if not isinstance(effective, dict):
+            mismatches.append("effective graphics cvars")
+        else:
+            missing_effective = sorted(
+                set(GRAPHICS_CONTRACT_CVARS) - set(effective)
+            )
+            if missing_effective:
+                mismatches.append(
+                    "effective graphics cvars: " + ", ".join(missing_effective)
+                )
+    return mismatches
+
+
+def _is_world_mode_result(result: dict[str, Any]) -> bool:
+    scenario = result.get("scenario", {})
+    return isinstance(scenario, dict) and scenario.get("name") in WORLD_MODE_SCENARIOS
+
+
+def _without_world_mode_cvars(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    return {
+        key: item for key, item in value.items()
+        if key not in WORLD_MODE_SELECTOR_CVARS
+    }
+
+
+def _normalized_world_mode_scenario(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    for key in ("name", "labels", "residual_nondeterminism"):
+        normalized.pop(key, None)
+    normalized["cvars"] = _without_world_mode_cvars(normalized.get("cvars", {}))
+    return normalized
+
+
+def _normalized_world_mode_settings(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    normalized["presentation_cvars"] = _without_world_mode_cvars(
+        normalized.get("presentation_cvars", {})
+    )
+    contract = normalized.get("graphics_contract")
+    if isinstance(contract, dict):
+        contract = dict(contract)
+        effective = contract.get("effective_cvars")
+        contract["effective_cvars"] = _without_world_mode_cvars(effective)
+        for key in WORLD_MODE_CONTRACT_KEYS:
+            contract.pop(key, None)
+        normalized["graphics_contract"] = contract
+    return normalized
+
+
+def _world_mode_comparison_checksum(result: dict[str, Any]) -> str:
+    payload = {
+        "scenario": _normalized_world_mode_scenario(result.get("scenario", {})),
+        "map_content_hash": result.get("map_content_hash"),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _comparison_mismatch(
+    baseline: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    allow_world_mode_selectors: bool = False,
+) -> list[str]:
     reasons = []
+    world_mode = (
+        allow_world_mode_selectors and
+        _is_world_mode_result(baseline) and
+        _is_world_mode_result(result)
+    )
     if baseline.get("schema_version") != result.get("schema_version"):
         reasons.append("result schema version")
-    if baseline.get("scenario_hash") != result.get("scenario_hash"):
+    if not world_mode and baseline.get("scenario_hash") != result.get("scenario_hash"):
         reasons.append("scenario hash")
     if baseline.get("map_content_hash") != result.get("map_content_hash"):
         reasons.append("map content hash")
-    if baseline.get("deterministic_checksum") != result.get("deterministic_checksum"):
+    if world_mode:
+        if _world_mode_comparison_checksum(baseline) != _world_mode_comparison_checksum(result):
+            reasons.append("deterministic checksum")
+    elif baseline.get("deterministic_checksum") != result.get("deterministic_checksum"):
         reasons.append("deterministic checksum")
     base_scenario, new_scenario = baseline.get("scenario", {}), result.get("scenario", {})
-    for key in ("name", "schema_version", "expected_benchmark_version"):
-        if base_scenario.get(key) != new_scenario.get(key):
-            reasons.append(f"scenario {key}")
-    for key in MATERIAL_KEYS:
-        if baseline.get("settings", {}).get(key) != result.get("settings", {}).get(key):
-            reasons.append(key)
+    if world_mode:
+        if _normalized_world_mode_scenario(base_scenario) != _normalized_world_mode_scenario(new_scenario):
+            reasons.append("scenario settings")
+        if _normalized_world_mode_settings(baseline.get("settings", {})) != _normalized_world_mode_settings(result.get("settings", {})):
+            reasons.append("settings")
+    else:
+        for key in ("name", "schema_version", "expected_benchmark_version"):
+            if base_scenario.get(key) != new_scenario.get(key):
+                reasons.append(f"scenario {key}")
+        for key in MATERIAL_KEYS:
+            if baseline.get("settings", {}).get(key) != result.get("settings", {}).get(key):
+                reasons.append(key)
     base_env, new_env = baseline.get("environment", {}), result.get("environment", {})
-    for key in ("build_mode", "renderer", "protocol_version", "gpu_name", "graphics_driver_version", "vulkan_api_version",
-                "observed_resolution", "selected_present_mode"):
+    for key in COMPARISON_ENVIRONMENT_KEYS:
         if base_env.get(key) != new_env.get(key):
             reasons.append(key)
+    base_git, new_git = baseline.get("git", {}), result.get("git", {})
+    for key in ("commit", "dirty"):
+        if base_git.get(key) != new_git.get(key):
+            reasons.append(f"git {key}")
     return sorted(set(reasons))
 
 
@@ -1543,6 +1822,152 @@ def compare_results(baseline_ref: str | Path, result_ref: str | Path, *, thresho
     return comparison
 
 
+def compare_world_mode_results(
+    result_refs: Iterable[str | Path],
+    *,
+    threshold_percent: float = 3.0,
+    tail_threshold_percent: float = 3.0,
+) -> dict[str, Any]:
+    references = list(result_refs)
+    if len(references) != len(WORLD_MODE_SCENARIOS):
+        raise BenchmarkError(
+            "compare-modes needs exactly three --result references"
+        )
+    results = [load_result(reference, detailed=True) for reference in references]
+    names = [result.get("scenario", {}).get("name") for result in results]
+    if set(names) != WORLD_MODE_SCENARIOS or len(set(names)) != len(names):
+        return {
+            "classification": "invalid",
+            "valid": False,
+            "mismatches": [
+                "results must contain the three overkill static-world modes"
+            ],
+            "results": [str(reference) for reference in references],
+        }
+
+    by_name = dict(zip(names, results, strict=True))
+    baseline = by_name[WORLD_MODE_BASELINE]
+    mode_comparisons: dict[str, Any] = {}
+    classifications: list[str] = []
+    artifact_mismatches: dict[str, list[str]] = {}
+    for name, result in by_name.items():
+        descriptor, _, descriptor_hash = load_scenario(name)
+        mismatches = _missing_world_mode_metadata(result)
+        mismatches.extend(
+            _world_mode_descriptor_mismatches(result, descriptor, descriptor_hash)
+        )
+        mismatches.extend(
+            _world_mode_applied_selector_mismatches(
+                result, WORLD_MODE_SELECTOR_VALUES[name]
+            )
+        )
+        artifact_mismatches[name] = sorted(set(mismatches))
+    if any(artifact_mismatches.values()):
+        return {
+            "classification": "invalid",
+            "valid": False,
+            "mismatches": [
+                f"{name}: missing {', '.join(mismatches)}"
+                for name, mismatches in artifact_mismatches.items()
+                if mismatches
+            ],
+            "results": [result["artifact_path"] for result in results],
+        }
+    for name in sorted(WORLD_MODE_SCENARIOS - {WORLD_MODE_BASELINE}):
+        result = by_name[name]
+        mismatches = _comparison_mismatch(
+            baseline,
+            result,
+            allow_world_mode_selectors=True,
+        )
+        if mismatches:
+            mode_comparisons[name] = {
+                "classification": "invalid",
+                "valid": False,
+                "mismatches": mismatches,
+                "baseline": baseline["artifact_path"],
+                "result": result["artifact_path"],
+            }
+            classifications.append("invalid")
+            continue
+        if not baseline.get("aggregate", {}).get("valid") or not result.get("aggregate", {}).get("valid"):
+            mode_comparisons[name] = {
+                "classification": "invalid",
+                "valid": False,
+                "mismatches": ["invalid benchmark run"],
+                "baseline": baseline["artifact_path"],
+                "result": result["artifact_path"],
+            }
+            classifications.append("invalid")
+            continue
+
+        metric_results: dict[str, Any] = {}
+        metric_classifications: list[str] = []
+        base_metrics = baseline["aggregate"].get("metrics", {})
+        new_metrics = result["aggregate"].get("metrics", {})
+        for metric, direction in WORLD_MODE_TIMING_METRIC_DIRECTIONS.items():
+            if direction != "lower":
+                raise BenchmarkError(
+                    f"unsupported world mode metric direction: {direction}"
+                )
+            if metric not in base_metrics or metric not in new_metrics:
+                continue
+            classification, details = classify_metric(
+                base_metrics[metric],
+                new_metrics[metric],
+                threshold_percent=threshold_percent,
+                tail_threshold_percent=tail_threshold_percent,
+            )
+            metric_results[metric] = details
+            metric_classifications.append(classification)
+        gpu_only_metrics = {
+            metric: result["aggregate"]["metrics"][metric]
+            for metric in WORLD_MODE_GPU_ONLY_METRICS
+            if metric in result["aggregate"].get("metrics", {})
+        }
+        if not metric_classifications:
+            overall = "invalid"
+        elif "regression" in metric_classifications:
+            overall = "regression"
+        elif all(value == "improvement" for value in metric_classifications):
+            overall = "improvement"
+        else:
+            overall = "inconclusive"
+        mode_comparisons[name] = {
+            "classification": overall,
+            "valid": overall != "invalid",
+            "metrics": metric_results,
+            "baseline": baseline["artifact_path"],
+            "result": result["artifact_path"],
+            "threshold_percent": threshold_percent,
+            "tail_threshold_percent": tail_threshold_percent,
+            "gpu_only_metrics": gpu_only_metrics,
+        }
+        classifications.append(overall)
+
+    if "invalid" in classifications:
+        overall = "invalid"
+    elif "regression" in classifications:
+        overall = "regression"
+    elif classifications and all(value == "improvement" for value in classifications):
+        overall = "improvement"
+    else:
+        overall = "inconclusive"
+    comparison = {
+        "classification": overall,
+        "valid": overall != "invalid",
+        "baseline": baseline["artifact_path"],
+        "comparison_checksum": _world_mode_comparison_checksum(baseline),
+        "mode_comparisons": mode_comparisons,
+        "threshold_percent": threshold_percent,
+        "tail_threshold_percent": tail_threshold_percent,
+    }
+    comparison_path = Path(by_name["overkill-static-flythrough-gpu-indirect"]["artifact_path"]).parent / "mode-comparison.json"
+    comparison["comparison_path"] = str(comparison_path)
+    _write_json(comparison_path, comparison)
+    return comparison
+
+
 EXIT_CODES = {"pass": 0, "improvement": 0, "regression": 2, "invalid": 3, "error": 3, "inconclusive": 4}
 
 
@@ -1551,6 +1976,19 @@ def human_output(value: dict[str, Any]) -> str:
         lines = [f"Benchmark comparison: {value['classification']}"]
         if value.get("mismatches"):
             lines.append("Not comparable: " + ", ".join(value["mismatches"]))
+        for name, details in value.get("mode_comparisons", {}).items():
+            line = f"  {name}: {details['classification']}"
+            median = details.get("metrics", {}).get("frame_ms", {}).get("statistics", {}).get("median", {})
+            delta = median.get("percent")
+            if delta is not None:
+                line += f" ({delta:+.2f}% median frame_ms)"
+            if details.get("mismatches"):
+                line += " [" + ", ".join(details["mismatches"]) + "]"
+            lines.append(line)
+            for metric, stats in details.get("gpu_only_metrics", {}).items():
+                lines.append(
+                    f"    {metric}: median {stats.get('median', 0):.4g} ms"
+                )
         for metric, details in value.get("metrics", {}).items():
             median = details.get("statistics", {}).get("median", {})
             delta = median.get("percent")
@@ -1608,6 +2046,13 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--result", required=True)
     compare.add_argument("--threshold-percent", type=float, default=3.0)
     compare.add_argument("--tail-threshold-percent", type=float, default=3.0)
+    compare_modes = commands.add_parser("compare-modes")
+    compare_modes.add_argument(
+        "--result", action="append", required=True,
+        help="repeat three times with the CPU-BVH, CPU-no-cull, and GPU-indirect results",
+    )
+    compare_modes.add_argument("--threshold-percent", type=float, default=3.0)
+    compare_modes.add_argument("--tail-threshold-percent", type=float, default=3.0)
     report = commands.add_parser("report")
     report.add_argument("--result", required=True)
     report.add_argument("--detailed", action="store_true")
@@ -1651,6 +2096,13 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     if args.command == "compare":
         result = compare_results(args.baseline, args.result, threshold_percent=args.threshold_percent,
                                  tail_threshold_percent=args.tail_threshold_percent)
+        return result, EXIT_CODES[result["classification"]]
+    if args.command == "compare-modes":
+        result = compare_world_mode_results(
+            args.result,
+            threshold_percent=args.threshold_percent,
+            tail_threshold_percent=args.tail_threshold_percent,
+        )
         return result, EXIT_CODES[result["classification"]]
     if args.command == "report":
         return load_result(args.result, detailed=args.detailed), 0

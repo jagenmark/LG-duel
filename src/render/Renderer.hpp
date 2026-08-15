@@ -362,6 +362,10 @@ struct RenderSettings {
   bool drawPlayerOutlines = true;
   bool frustumCullRemotePlayers = true;
   bool worldFrustumCull = false;
+  // Prototype: GPU-tests static-world chunks and writes indirect commands for
+  // the main-camera depth and color passes. CPU BVH culling remains the
+  // fallback and control path.
+  bool worldGpuIndirect = false;
   bool benchmarkTimingEnabled = false;
   std::optional<std::uint64_t> benchmarkGpuFrameIndex;
   // The client map revision changes when the authoritative arena is replaced.
@@ -999,6 +1003,10 @@ struct RendererFrameDiagnostics {
   std::uint32_t worldCulledChunks = 0;
   std::uint32_t worldVisibilityTestedNodes = 0;
   float worldVisibilityQueryMilliseconds = 0.0F;
+  float worldGpuIndirectCpuMilliseconds = 0.0F;
+  bool worldGpuIndirect = false;
+  std::uint32_t worldGpuIndirectCommands = 0;
+  std::uint32_t worldGpuIndirectMaterialGroups = 0;
   int ambientGroundingQuality = 0;
   std::uint32_t ambientStaticRays = 0;
   std::uint32_t ambientStaticSamples = 0;
@@ -1244,6 +1252,7 @@ private:
   void* gpuDevice_ = nullptr;
   void* gpuPipeline_ = nullptr;
   void* gpuPipelineWorldSurface_ = nullptr;
+  void* gpuPipelineWorldIndirectCull_ = nullptr;
   void* gpuPipeline3D_ = nullptr;
   void* gpuPipeline3DTranslucent_ = nullptr;
   void* gpuPipelineInstancedMesh_ = nullptr;

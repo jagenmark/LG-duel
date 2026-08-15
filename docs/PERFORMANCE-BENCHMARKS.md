@@ -229,10 +229,21 @@ cases add to the retained controls:
 - `eyetoeye-static-long`: 5-second warm-up plus a 25-second static baseline for tail stability.
 - `overkill-static-flythrough`: deterministic 15-second presentation-only camera interpolation through all three checked-in Overkill structural views; the world remains static.
 - `overkill-static-flythrough-bvh-off`: identical camera workload with only `r_world_frustum_cull` disabled, providing a same-build control for static-world BVH comparisons.
+- `overkill-static-flythrough-gpu-indirect`: identical camera workload with CPU world culling disabled and the guarded `r_world_gpu_indirect` prototype enabled. Its GPU command visibility is device and driver dependent, and its legacy visible/culled chunk counters stay zero because the prototype does not read commands back.
 
 `r_world_frustum_cull` is intentionally experimental and defaults off. Promote it
 only when repeated same-host comparisons against the `bvh-off` descriptor meet
 the frame-median and p95 budgets without excessive material-range inflation.
+
+`r_world_gpu_indirect` is also experimental and defaults off. Compare the GPU
+descriptor with both CPU descriptors on the same host, SDL_GPU backend, driver,
+power state, resolution, and camera path. Use CPU frame totals and world command
+encoding for CPU cost. In GPU mode, include the CPU dispatch/setup metric
+`world_gpu_indirect_cpu_ms`, the compute timestamp
+`world_indirect_cull_gpu_ms`, and the recorded MainScene GPU timestamp when
+assessing total cost.
+Do not treat an Intel Core Ultra 7 258V iGPU result as a discrete-GPU result;
+it is a valid low-power target and must have its own threshold and report.
 
 The camera coordinates come from `config/dev-camera-presets.json`, not arbitrary map-space guesses. Bot commands are current commands: `bot_add [count]` is permitted only in warmup; `bot_attack 0|off|easy|medium|hard`, `bot_weapon <weapon>`, `bot_stare`, `bot_standstill`, and `bot_dodge` control supported training behavior. Bots default to Machine Gun, and benchmark scenarios can select another authoritative bot weapon with `actors.weapon`.
 
@@ -255,8 +266,15 @@ flag. The PowerShell wrapper owns the supported CLI contract:
 .\scripts\lg-benchmark.ps1 run --scenario eyetoeye-match-load --graphics-profile Low --repetitions 5 --json
 .\scripts\lg-benchmark.ps1 baseline-create --scenario eyetoeye-static-baseline --name gpu-driver-current --repetitions 5
 .\scripts\lg-benchmark.ps1 compare --baseline gpu-driver-current --result build/benchmarks/eyetoeye-static-baseline/<run-group> --threshold-percent 5 --tail-threshold-percent 8
+.\scripts\lg-benchmark.ps1 compare-modes --result build/benchmarks/overkill-static-flythrough/<run-group> --result build/benchmarks/overkill-static-flythrough-bvh-off/<run-group> --result build/benchmarks/overkill-static-flythrough-gpu-indirect/<run-group>
 .\scripts\lg-benchmark.ps1 report --result build/benchmarks/eyetoeye-static-baseline/<run-group> --detailed
 ```
+
+`compare-modes` accepts only the three named Overkill static-world results. It
+verifies each artifact against its checked-in descriptor, then allows their mode
+name, scenario hash, labels, notes, and the two culling cvars to differ. It
+still requires the map, camera, presentation settings, graphics contract, build
+and executable hash, host, backend, driver, resolution, and Git state to match.
 
 Rendered benchmarks use their own local session. The defaults are UDP server
 port `28960`, TCP control port `28961`, and launcher state at
@@ -459,7 +477,7 @@ Do not hide a regression by disabling culling, players, weapons, effects, outlin
 
 Use AC power and a stable power plan, close GPU-heavy applications, wait for background work to settle, and run enough repeats to see variance. Record driver/OS/build changes. Compare p50 for typical cost and p95/p99/max for pacing risk; average FPS alone is insufficient. A direct CPU-time change is a regression signal, not proof of GPU execution speed.
 
-Static-world improvements should show in the GPU-required static baseline; dynamic player/outline/effect work needs the corresponding diagnostic counts. A high-visible imported map is a useful structural stress case, not a proxy for every duel map. SDL_Renderer fallback is less representative because it lacks the static SDL_GPU world cache and screen-space outline path; never merge it into GPU baseline trends.
+Static-world improvements should show in the GPU-required static baseline; dynamic player/outline/effect work needs the corresponding diagnostic counts. A high-visible imported map is a useful structural stress case, not a proxy for every duel map. For GPU indirect work, report p50/p95/p99 CPU frame time, MainScene GPU time, world draw calls, indirect command slots, and material groups. SDL_Renderer fallback is less representative because it lacks the static SDL_GPU world cache and screen-space outline path; never merge it into GPU baseline trends.
 
 ## Troubleshooting
 

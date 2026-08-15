@@ -1,0 +1,59 @@
+#version 450
+
+// Prototype path: one invocation tests one existing static-world chunk and
+// writes one non-indexed indirect draw command. The CPU still groups commands
+// by material before it records the indirect draw calls.
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct StaticWorldChunk {
+  vec4 boundsMin;
+  vec4 boundsMax;
+  uvec4 drawData;
+};
+
+layout(set = 0, binding = 0, std140) readonly buffer StaticWorldChunks {
+  StaticWorldChunk chunks[];
+};
+
+layout(set = 1, binding = 0, std140) buffer StaticWorldIndirectCommands {
+  uvec4 commands[];
+};
+
+layout(set = 2, binding = 0, std140) uniform CullData {
+  vec4 planes[5];
+  uvec4 counts;
+} cullData;
+
+bool outsidePlane(
+  vec3 boundsMin,
+  vec3 boundsMax,
+  vec4 plane
+) {
+  vec3 positive = vec3(
+    plane.x >= 0.0 ? boundsMax.x : boundsMin.x,
+    plane.y >= 0.0 ? boundsMax.y : boundsMin.y,
+    plane.z >= 0.0 ? boundsMax.z : boundsMin.z
+  );
+  return dot(plane.xyz, positive) + plane.w < 0.0;
+}
+
+void main() {
+  uint index = gl_GlobalInvocationID.x;
+  if (index >= cullData.counts.x) {
+    return;
+  }
+
+  StaticWorldChunk chunk = chunks[index];
+  bool visible = true;
+  for (uint planeIndex = 0u; planeIndex < 5u; ++planeIndex) {
+    if (outsidePlane(chunk.boundsMin.xyz, chunk.boundsMax.xyz, cullData.planes[planeIndex])) {
+      visible = false;
+      break;
+    }
+  }
+
+  // drawData.x is firstVertex and drawData.y is vertexCount.
+  commands[index] = visible
+    ? uvec4(chunk.drawData.y, 1u, chunk.drawData.x, 0u)
+    : uvec4(0u, 0u, 0u, 0u);
+}

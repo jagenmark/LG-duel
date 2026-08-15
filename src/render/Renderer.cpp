@@ -256,6 +256,23 @@ struct GpuVertex {
   std::uint32_t materialSlot = 0;
 };
 
+// Storage-buffer layout for the GPU static-world indirect prototype. Every
+// member is a vec4/uvec4-sized value so the C++ and std140 layouts match.
+struct alignas(16) GpuStaticWorldChunk {
+  float boundsMin[4] = {};
+  float boundsMax[4] = {};
+  std::uint32_t drawData[4] = {};
+};
+
+static_assert(sizeof(GpuStaticWorldChunk) == 48);
+
+struct alignas(16) GpuWorldIndirectCullUniform {
+  float planes[5][4] = {};
+  std::uint32_t counts[4] = {};
+};
+
+static_assert(sizeof(GpuWorldIndirectCullUniform) == 96);
+
 static_assert(sizeof(GpuVertex) == 40U);
 
 struct GpuMaterialVertex {
@@ -395,6 +412,8 @@ struct StaticWorldBatch {
 
 struct StaticWorldMesh {
   SDL_GPUBuffer* vertexBuffer = nullptr;
+  SDL_GPUBuffer* chunkBuffer = nullptr;
+  SDL_GPUBuffer* indirectBuffer = nullptr;
   SDL_GPUSampler* sampler = nullptr;
   std::vector<WorldTexture> textures;
   std::vector<StaticWorldBatch> batches;
@@ -605,6 +624,12 @@ void destroyStaticWorldMesh(SDL_GPUDevice* device, StaticWorldMesh* mesh) {
   }
   if (mesh->vertexBuffer != nullptr) {
     SDL_ReleaseGPUBuffer(device, mesh->vertexBuffer);
+  }
+  if (mesh->chunkBuffer != nullptr) {
+    SDL_ReleaseGPUBuffer(device, mesh->chunkBuffer);
+  }
+  if (mesh->indirectBuffer != nullptr) {
+    SDL_ReleaseGPUBuffer(device, mesh->indirectBuffer);
   }
   delete mesh;
 }
@@ -2031,6 +2056,43 @@ void ensureSkyLoaded(
   SDL_GPUShader* shader = SDL_CreateGPUShader(device, &createInfo);
   SDL_free(code);
   return shader;
+}
+
+[[nodiscard]] SDL_GPUComputePipeline* createGpuWorldIndirectCullPipeline(
+  SDL_GPUDevice* device
+) {
+  const std::string path = shaderPath("world_indirect_cull.comp.spv");
+  std::size_t codeSize = 0;
+  void* code = SDL_LoadFile(path.c_str(), &codeSize);
+  if (code == nullptr) {
+    std::cerr
+      << "SDL_GPU static-world indirect shader load failed: "
+      << path << " error=" << SDL_GetError() << '\n';
+    return nullptr;
+  }
+
+  SDL_GPUComputePipelineCreateInfo createInfo = {};
+  createInfo.code_size = codeSize;
+  createInfo.code = static_cast<const Uint8*>(code);
+  createInfo.entrypoint = "main";
+  createInfo.format = SDL_GPU_SHADERFORMAT_SPIRV;
+  createInfo.num_readonly_storage_buffers = 1;
+  createInfo.num_readwrite_storage_buffers = 1;
+  createInfo.num_uniform_buffers = 1;
+  createInfo.threadcount_x = 64;
+  createInfo.threadcount_y = 1;
+  createInfo.threadcount_z = 1;
+  SDL_GPUComputePipeline* pipeline = SDL_CreateGPUComputePipeline(
+    device,
+    &createInfo
+  );
+  if (pipeline == nullptr) {
+    std::cerr
+      << "SDL_GPU static-world indirect pipeline setup failed: "
+      << SDL_GetError() << '\n';
+  }
+  SDL_free(code);
+  return pipeline;
 }
 
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuSkyPipeline(
@@ -4791,6 +4853,23 @@ void appendScene3D(
     mesh->batches.back().vertexCount += vertexCount;
   }
 
+  std::vector<GpuStaticWorldChunk> gpuChunks;
+  gpuChunks.reserve(mesh->chunkBatches.size());
+  for (std::size_t index = 0; index < mesh->chunkBatches.size(); ++index) {
+    const WorldVisibilityAabb& bounds = mesh->visibility.chunks[index].bounds;
+    const StaticWorldBatch& batch = mesh->chunkBatches[index];
+    GpuStaticWorldChunk gpuChunk;
+    gpuChunk.boundsMin[0] = bounds.min.x;
+    gpuChunk.boundsMin[1] = bounds.min.y;
+    gpuChunk.boundsMin[2] = bounds.min.z;
+    gpuChunk.boundsMax[0] = bounds.max.x;
+    gpuChunk.boundsMax[1] = bounds.max.y;
+    gpuChunk.boundsMax[2] = bounds.max.z;
+    gpuChunk.drawData[0] = batch.firstVertex;
+    gpuChunk.drawData[1] = batch.vertexCount;
+    gpuChunks.push_back(gpuChunk);
+  }
+
   if (!updateStaticWorldSampler(device, mesh, settings)) {
     destroyStaticWorldMesh(device, mesh);
     return nullptr;
@@ -4806,6 +4885,30 @@ void appendScene3D(
   if (mesh->vertexBuffer == nullptr) {
     destroyStaticWorldMesh(device, mesh);
     return nullptr;
+  }
+  if (!gpuChunks.empty()) {
+    const Uint32 chunkUploadSize = static_cast<Uint32>(
+      gpuChunks.size() * sizeof(GpuStaticWorldChunk)
+    );
+    const SDL_GPUBufferCreateInfo chunkBufferInfo = {
+      SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ,
+      chunkUploadSize,
+      0,
+    };
+    mesh->chunkBuffer = SDL_CreateGPUBuffer(device, &chunkBufferInfo);
+    const Uint32 indirectBufferSize = static_cast<Uint32>(
+      gpuChunks.size() * sizeof(SDL_GPUIndirectDrawCommand)
+    );
+    const SDL_GPUBufferCreateInfo indirectBufferInfo = {
+      SDL_GPU_BUFFERUSAGE_INDIRECT | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE,
+      indirectBufferSize,
+      0,
+    };
+    mesh->indirectBuffer = SDL_CreateGPUBuffer(device, &indirectBufferInfo);
+    if (mesh->chunkBuffer == nullptr || mesh->indirectBuffer == nullptr) {
+      destroyStaticWorldMesh(device, mesh);
+      return nullptr;
+    }
   }
   if (!gpuVertices.empty()) {
     const SDL_GPUTransferBufferCreateInfo transferInfo = {
@@ -4841,6 +4944,52 @@ void appendScene3D(
     }
     const SDL_GPUTransferBufferLocation source = {transferBuffer, 0};
     const SDL_GPUBufferRegion destination = {mesh->vertexBuffer, 0, uploadSize};
+    SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
+    SDL_EndGPUCopyPass(copyPass);
+    const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
+    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+    if (!submitted) {
+      destroyStaticWorldMesh(device, mesh);
+      return nullptr;
+    }
+  }
+  if (!gpuChunks.empty()) {
+    const Uint32 uploadSize = static_cast<Uint32>(
+      gpuChunks.size() * sizeof(GpuStaticWorldChunk)
+    );
+    const SDL_GPUTransferBufferCreateInfo transferInfo = {
+      SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+      uploadSize,
+      0,
+    };
+    SDL_GPUTransferBuffer* transferBuffer =
+      SDL_CreateGPUTransferBuffer(device, &transferInfo);
+    void* mapped = transferBuffer != nullptr
+      ? SDL_MapGPUTransferBuffer(device, transferBuffer, false)
+      : nullptr;
+    if (mapped == nullptr) {
+      if (transferBuffer != nullptr) {
+        SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+      }
+      destroyStaticWorldMesh(device, mesh);
+      return nullptr;
+    }
+    std::memcpy(mapped, gpuChunks.data(), uploadSize);
+    SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+    SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(device);
+    SDL_GPUCopyPass* copyPass = commandBuffer != nullptr
+      ? SDL_BeginGPUCopyPass(commandBuffer)
+      : nullptr;
+    if (copyPass == nullptr) {
+      if (commandBuffer != nullptr) {
+        (void)SDL_CancelGPUCommandBuffer(commandBuffer);
+      }
+      SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+      destroyStaticWorldMesh(device, mesh);
+      return nullptr;
+    }
+    const SDL_GPUTransferBufferLocation source = {transferBuffer, 0};
+    const SDL_GPUBufferRegion destination = {mesh->chunkBuffer, 0, uploadSize};
     SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
     SDL_EndGPUCopyPass(copyPass);
     const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
@@ -4964,6 +5113,102 @@ void updateStaticWorldVisibility(
     savedTriangles >= 800U * rangeInflation;
 }
 
+[[nodiscard]] bool dispatchStaticWorldIndirectCull(
+  SDL_GPUCommandBuffer* commandBuffer,
+  SDL_GPUComputePipeline* pipeline,
+  const StaticWorldMesh& mesh,
+  const PerspectiveCamera& camera
+) {
+  if (
+    commandBuffer == nullptr ||
+    pipeline == nullptr ||
+    mesh.chunkBuffer == nullptr ||
+    mesh.indirectBuffer == nullptr ||
+    mesh.chunkBatches.empty() ||
+    !std::isfinite(camera.position.x) ||
+    !std::isfinite(camera.position.y) ||
+    !std::isfinite(camera.position.z) ||
+    !std::isfinite(camera.forward.x) ||
+    !std::isfinite(camera.forward.y) ||
+    !std::isfinite(camera.forward.z) ||
+    !std::isfinite(camera.right.x) ||
+    !std::isfinite(camera.right.y) ||
+    !std::isfinite(camera.right.z) ||
+    !std::isfinite(camera.up.x) ||
+    !std::isfinite(camera.up.y) ||
+    !std::isfinite(camera.up.z) ||
+    !std::isfinite(camera.focalLength) ||
+    !std::isfinite(camera.aspectRatio) ||
+    !std::isfinite(camera.nearPlane) ||
+    camera.focalLength <= 0.0F ||
+    camera.aspectRatio <= 0.0F ||
+    camera.nearPlane < 0.0F
+  ) {
+    return false;
+  }
+
+  const float horizontalScale = camera.aspectRatio / camera.focalLength;
+  const float verticalScale = 1.0F / camera.focalLength;
+  const std::array<Vec3, 5> normals = {
+    camera.forward,
+    camera.right + camera.forward * horizontalScale,
+    camera.forward * horizontalScale - camera.right,
+    camera.up + camera.forward * verticalScale,
+    camera.forward * verticalScale - camera.up,
+  };
+  const std::array<float, 5> offsets = {
+    -camera.nearPlane,
+    0.0F,
+    0.0F,
+    0.0F,
+    0.0F,
+  };
+  GpuWorldIndirectCullUniform uniform;
+  for (std::size_t index = 0; index < normals.size(); ++index) {
+    uniform.planes[index][0] = normals[index].x;
+    uniform.planes[index][1] = normals[index].y;
+    uniform.planes[index][2] = normals[index].z;
+    // The CPU query evaluates the plane after subtracting the camera origin.
+    // Fold that origin into the world-space plane constant for the shader.
+    uniform.planes[index][3] =
+      offsets[index] - dot(normals[index], camera.position);
+  }
+  uniform.counts[0] = static_cast<std::uint32_t>(mesh.chunkBatches.size());
+
+  const SDL_GPUStorageBufferReadWriteBinding outputBinding = {
+    mesh.indirectBuffer,
+    false,
+    0,
+    0,
+    0,
+  };
+  SDL_GPUComputePass* computePass = SDL_BeginGPUComputePass(
+    commandBuffer,
+    nullptr,
+    0,
+    &outputBinding,
+    1
+  );
+  if (computePass == nullptr) {
+    return false;
+  }
+  SDL_BindGPUComputePipeline(computePass, pipeline);
+  SDL_GPUBuffer* readonlyBuffers[] = {mesh.chunkBuffer};
+  SDL_BindGPUComputeStorageBuffers(computePass, 0, readonlyBuffers, 1);
+  SDL_PushGPUComputeUniformData(
+    commandBuffer,
+    0,
+    &uniform,
+    sizeof(uniform)
+  );
+  const Uint32 groupCount = static_cast<Uint32>(
+    (mesh.chunkBatches.size() + 63U) / 64U
+  );
+  SDL_DispatchGPUCompute(computePass, groupCount, 1, 1);
+  SDL_EndGPUComputePass(computePass);
+  return true;
+}
+
 [[nodiscard]] std::span<const StaticWorldBatch> staticWorldDrawBatches(
   const StaticWorldMesh& mesh,
   bool cullingEnabled
@@ -5022,6 +5267,74 @@ void drawStaticWorldGeometry(
       ++diagnostics->worldSubmittedRanges;
       diagnostics->worldSubmittedTriangles += batch.vertexCount / 3U;
     }
+  }
+}
+
+void drawStaticWorldGeometryIndirect(
+  SDL_GPUCommandBuffer* commandBuffer,
+  SDL_GPURenderPass* renderPass,
+  StaticWorldMesh& mesh,
+  RendererFrameDiagnostics* diagnostics,
+  bool pushMaterialTraits = true
+) {
+  if (mesh.indirectBuffer == nullptr || mesh.chunkBatches.empty()) {
+    return;
+  }
+  std::size_t firstChunk = 0;
+  while (firstChunk < mesh.chunkBatches.size()) {
+    const StaticWorldBatch& first = mesh.chunkBatches[firstChunk];
+    std::size_t nextChunk = firstChunk + 1U;
+    while (
+      nextChunk < mesh.chunkBatches.size() &&
+      mesh.chunkBatches[nextChunk].materialId == first.materialId &&
+      mesh.chunkBatches[nextChunk].texture == first.texture
+    ) {
+      ++nextChunk;
+    }
+    if (
+      first.texture != nullptr &&
+      first.texture->texture != nullptr
+    ) {
+      const SDL_GPUTextureSamplerBinding textureBinding = {
+        first.texture->texture,
+        mesh.sampler,
+      };
+      const struct alignas(16) MaterialUniform {
+        float traits[4];
+      } materialUniform = {{
+        first.traits.roughness,
+        first.traits.metallic,
+        first.traits.specular,
+        first.traits.emissive,
+      }};
+      if (pushMaterialTraits) {
+        SDL_PushGPUFragmentUniformData(
+          commandBuffer,
+          1,
+          &materialUniform,
+          sizeof(materialUniform)
+        );
+      }
+      SDL_BindGPUFragmentSamplers(renderPass, 0, &textureBinding, 1);
+      SDL_DrawGPUPrimitivesIndirect(
+        renderPass,
+        mesh.indirectBuffer,
+        static_cast<Uint32>(firstChunk * sizeof(SDL_GPUIndirectDrawCommand)),
+        static_cast<Uint32>(nextChunk - firstChunk)
+      );
+      if (diagnostics != nullptr) {
+        ++diagnostics->worldDrawCalls;
+        diagnostics->worldSubmittedRanges += static_cast<std::uint32_t>(
+          nextChunk - firstChunk
+        );
+        ++diagnostics->worldGpuIndirectMaterialGroups;
+        for (std::size_t index = firstChunk; index < nextChunk; ++index) {
+          diagnostics->worldSubmittedTriangles +=
+            mesh.chunkBatches[index].vertexCount / 3U;
+        }
+      }
+    }
+    firstChunk = nextChunk;
   }
 }
 
@@ -7668,6 +7981,7 @@ void appendCommandBatches(
   SDL_GPUDevice* device,
   SDL_GPUGraphicsPipeline* pipeline2D,
   SDL_GPUGraphicsPipeline* pipelineWorldSurface,
+  SDL_GPUComputePipeline* worldIndirectCullPipeline,
   SDL_GPUGraphicsPipeline* pipeline3D,
   SDL_GPUGraphicsPipeline* pipeline3DTranslucent,
   SDL_GPUGraphicsPipeline* instancedMeshPipeline,
@@ -7819,6 +8133,10 @@ void appendCommandBatches(
   diagnostics.worldCulledChunks = 0;
   diagnostics.worldVisibilityTestedNodes = 0;
   diagnostics.worldVisibilityQueryMilliseconds = 0.0F;
+  diagnostics.worldGpuIndirectCpuMilliseconds = 0.0F;
+  diagnostics.worldGpuIndirect = false;
+  diagnostics.worldGpuIndirectCommands = 0;
+  diagnostics.worldGpuIndirectMaterialGroups = 0;
   diagnostics.ambientGroundingQuality = settings.ambientGroundingQuality;
   diagnostics.ambientStaticRays = 0;
   diagnostics.ambientStaticSamples = 0;
@@ -8439,28 +8757,78 @@ void appendCommandBatches(
       (void)submitCommandBuffer();
       return false;
     }
+    bool worldGpuIndirectActive = false;
     if (worldMesh != nullptr) {
+      const bool worldGpuIndirectRequested =
+        settings.worldGpuIndirect && worldIndirectCullPipeline != nullptr;
+      RenderClock::time_point worldGpuIndirectCpuStart = {};
+      if (worldGpuIndirectRequested) {
+        worldGpuIndirectCpuStart = RenderClock::now();
+        gpuTiming.beginPass(commandBuffer, GpuTimedPass::WorldIndirectCull);
+      }
       RenderClock::time_point visibilityStart = {};
-      if (settings.benchmarkTimingEnabled || settings.worldFrustumCull) {
+      if (
+        settings.benchmarkTimingEnabled ||
+        settings.worldFrustumCull ||
+        settings.worldGpuIndirect
+      ) {
         visibilityStart = RenderClock::now();
       }
-      updateStaticWorldVisibility(
-        *worldMesh,
-        perspectiveScene.camera,
-        settings.worldFrustumCull
-      );
+      const bool worldGpuIndirectDispatched =
+        worldGpuIndirectRequested &&
+        dispatchStaticWorldIndirectCull(
+          commandBuffer,
+          worldIndirectCullPipeline,
+          *worldMesh,
+          perspectiveScene.camera
+        );
+      if (worldGpuIndirectRequested) {
+        gpuTiming.endPass(commandBuffer, GpuTimedPass::WorldIndirectCull);
+      }
+      if (worldGpuIndirectDispatched) {
+        worldGpuIndirectActive = true;
+        // Keep the CPU visibility state in the full-world state for code that
+        // inspects it, without paying for the BVH query on this path.
+        updateStaticWorldVisibility(
+          *worldMesh,
+          perspectiveScene.camera,
+          false
+        );
+      } else {
+        updateStaticWorldVisibility(
+          *worldMesh,
+          perspectiveScene.camera,
+          settings.worldFrustumCull
+        );
+      }
       RenderClock::time_point visibilityEnd = {};
-      if (settings.benchmarkTimingEnabled || settings.worldFrustumCull) {
+      if (
+        settings.benchmarkTimingEnabled ||
+        settings.worldFrustumCull ||
+        settings.worldGpuIndirect
+      ) {
         visibilityEnd = RenderClock::now();
       }
-      if (settings.worldFrustumCull) {
+      if (worldGpuIndirectRequested) {
+        diagnostics.worldGpuIndirectCpuMilliseconds = millisecondsBetween(
+          worldGpuIndirectCpuStart,
+          visibilityEnd
+        );
+      }
+      if (settings.worldFrustumCull && !worldGpuIndirectActive) {
         diagnostics.worldVisibilityQueryMilliseconds =
           millisecondsBetween(visibilityStart, visibilityEnd);
       }
-      if (settings.benchmarkTimingEnabled) {
+      if (settings.benchmarkTimingEnabled && !worldGpuIndirectActive) {
         // Visibility covers only the CPU query and visible-range selection.
         diagnostics.worldVisibilityMilliseconds =
           millisecondsBetween(visibilityStart, visibilityEnd);
+      }
+      diagnostics.worldGpuIndirect = worldGpuIndirectActive;
+      if (worldGpuIndirectActive) {
+        diagnostics.worldGpuIndirectCommands = static_cast<std::uint32_t>(
+          worldMesh->chunkBatches.size()
+        );
       }
     }
     const bool hasStaticWorld = worldMesh != nullptr &&
@@ -8497,7 +8865,10 @@ void appendCommandBatches(
         (perspectiveScene.vertices.empty() || hasStaticWorld) &&
         (
           !hasStaticWorld ||
-          activeWorldTexturesOpaque(*worldMesh, settings.worldFrustumCull)
+          activeWorldTexturesOpaque(
+            *worldMesh,
+            worldGpuIndirectActive ? false : settings.worldFrustumCull
+          )
         ),
       (!hasStaticWorld || worldMesh->opaqueVertices) &&
         verticesOpaque(perspectiveScene.vertices),
@@ -8589,15 +8960,25 @@ void appendCommandBatches(
           0,
         };
         SDL_BindGPUVertexBuffers(pass, 0, &staticBinding, 1);
-        for (const StaticWorldBatch& batch :
-             staticWorldDrawBatches(*worldMesh, settings.worldFrustumCull)) {
-          SDL_DrawGPUPrimitives(
+        if (worldGpuIndirectActive) {
+          drawStaticWorldGeometryIndirect(
+            commandBuffer,
             pass,
-            batch.vertexCount,
-            1,
-            batch.firstVertex,
-            0
+            *worldMesh,
+            nullptr,
+            false
           );
+        } else {
+          for (const StaticWorldBatch& batch :
+               staticWorldDrawBatches(*worldMesh, settings.worldFrustumCull)) {
+            SDL_DrawGPUPrimitives(
+              pass,
+              batch.vertexCount,
+              1,
+              batch.firstVertex,
+              0
+            );
+          }
         }
       }
       if (opaqueDynamicVertexCount > 0U) {
@@ -9287,19 +9668,28 @@ void appendCommandBatches(
           diagnostics.worldSubmittedRanges = 0U;
           diagnostics.worldTotalChunks =
             static_cast<std::uint32_t>(worldMesh->chunkBatches.size());
-          const bool submittedCulledWorld =
-            settings.worldFrustumCull && worldMesh->useCulledBatches;
-          // Visibility telemetry describes the geometry actually submitted.
-          // The adaptive policy may deliberately keep aggregate full-world
-          // draws when extra ranges cost more than the rejected triangles.
-          diagnostics.worldVisibleChunks = submittedCulledWorld
-            ? worldMesh->visibilityScratch.visibleChunkCount
-            : diagnostics.worldTotalChunks;
-          diagnostics.worldCulledChunks =
-            diagnostics.worldTotalChunks - diagnostics.worldVisibleChunks;
-          diagnostics.worldVisibilityTestedNodes = settings.worldFrustumCull
-            ? worldMesh->visibilityScratch.testedNodes
-            : 0U;
+          if (worldGpuIndirectActive) {
+            // GPU mode does not read the command buffer back. Keep the legacy
+            // visibility counts zero rather than reporting a false CPU view;
+            // command slots and material groups are recorded below.
+            diagnostics.worldVisibleChunks = 0U;
+            diagnostics.worldCulledChunks = 0U;
+            diagnostics.worldVisibilityTestedNodes = 0U;
+          } else {
+            const bool submittedCulledWorld =
+              settings.worldFrustumCull && worldMesh->useCulledBatches;
+            // Visibility telemetry describes the geometry actually submitted.
+            // The adaptive policy may deliberately keep aggregate full-world
+            // draws when extra ranges cost more than the rejected triangles.
+            diagnostics.worldVisibleChunks = submittedCulledWorld
+              ? worldMesh->visibilityScratch.visibleChunkCount
+              : diagnostics.worldTotalChunks;
+            diagnostics.worldCulledChunks =
+              diagnostics.worldTotalChunks - diagnostics.worldVisibleChunks;
+            diagnostics.worldVisibilityTestedNodes = settings.worldFrustumCull
+              ? worldMesh->visibilityScratch.testedNodes
+              : 0U;
+          }
           diagnostics.worldLoadedTextures = worldMesh->loadedTextures;
           diagnostics.worldMissingTextures = worldMesh->missingTextures;
           diagnostics.worldReferencedMaterials = worldMesh->referencedMaterials;
@@ -9375,13 +9765,22 @@ void appendCommandBatches(
           if (settings.benchmarkTimingEnabled) {
             staticWorldStart = RenderClock::now();
           }
-          drawStaticWorldGeometry(
-            commandBuffer,
-            worldPass,
-            *worldMesh,
-            settings.worldFrustumCull,
-            &diagnostics
-          );
+          if (worldGpuIndirectActive) {
+            drawStaticWorldGeometryIndirect(
+              commandBuffer,
+              worldPass,
+              *worldMesh,
+              &diagnostics
+            );
+          } else {
+            drawStaticWorldGeometry(
+              commandBuffer,
+              worldPass,
+              *worldMesh,
+              settings.worldFrustumCull,
+              &diagnostics
+            );
+          }
           if (settings.benchmarkTimingEnabled) {
             staticWorldEncodingMilliseconds +=
               millisecondsBetween(staticWorldStart, RenderClock::now());
@@ -11658,6 +12057,8 @@ bool Renderer::initialize(void* window) {
         SDL_GPUGraphicsPipeline* pipeline3D = scenePipelines.world;
         SDL_GPUGraphicsPipeline* pipelineWorldSurface =
           scenePipelines.worldSurface;
+        SDL_GPUComputePipeline* worldIndirectCullPipeline =
+          createGpuWorldIndirectCullPipeline(device);
         SDL_GPUGraphicsPipeline* pipeline3DTranslucent =
           scenePipelines.translucent;
         SDL_GPUGraphicsPipeline* instancedMeshPipeline =
@@ -11940,6 +12341,7 @@ bool Renderer::initialize(void* window) {
           gpuDevice_ = device;
           gpuPipeline_ = pipeline;
           gpuPipelineWorldSurface_ = pipelineWorldSurface;
+          gpuPipelineWorldIndirectCull_ = worldIndirectCullPipeline;
           gpuPipeline3D_ = pipeline3D;
           gpuPipeline3DTranslucent_ = pipeline3DTranslucent;
           gpuPipelineInstancedMesh_ = instancedMeshPipeline;
@@ -12087,6 +12489,9 @@ bool Renderer::initialize(void* window) {
         }
         if (pipelineWorldSurface != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipelineWorldSurface);
+        }
+        if (worldIndirectCullPipeline != nullptr) {
+          SDL_ReleaseGPUComputePipeline(device, worldIndirectCullPipeline);
         }
         if (pipeline3D != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipeline3D);
@@ -12693,6 +13098,7 @@ void Renderer::render(
           static_cast<SDL_GPUDevice*>(gpuDevice_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineWorldSurface_),
+          static_cast<SDL_GPUComputePipeline*>(gpuPipelineWorldIndirectCull_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline3D_),
           static_cast<SDL_GPUGraphicsPipeline*>(
             gpuPipeline3DTranslucent_
@@ -12908,6 +13314,10 @@ void Renderer::render(
   lastFrameDiagnostics_.worldCulledChunks = 0;
   lastFrameDiagnostics_.worldVisibilityTestedNodes = 0;
   lastFrameDiagnostics_.worldVisibilityQueryMilliseconds = 0.0F;
+  lastFrameDiagnostics_.worldGpuIndirectCpuMilliseconds = 0.0F;
+  lastFrameDiagnostics_.worldGpuIndirect = false;
+  lastFrameDiagnostics_.worldGpuIndirectCommands = 0;
+  lastFrameDiagnostics_.worldGpuIndirectMaterialGroups = 0;
   lastFrameDiagnostics_.gpuDepthBits = 0;
   lastFrameDiagnostics_.worldLoadedTextures = 0;
   lastFrameDiagnostics_.worldMissingTextures = 0;
@@ -13701,6 +14111,13 @@ void Renderer::shutdown() {
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineWorldSurface_)
       );
       gpuPipelineWorldSurface_ = nullptr;
+    }
+    if (gpuPipelineWorldIndirectCull_ != nullptr) {
+      SDL_ReleaseGPUComputePipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUComputePipeline*>(gpuPipelineWorldIndirectCull_)
+      );
+      gpuPipelineWorldIndirectCull_ = nullptr;
     }
     if (gpuPipeline3DTranslucent_ != nullptr) {
       SDL_ReleaseGPUGraphicsPipeline(
