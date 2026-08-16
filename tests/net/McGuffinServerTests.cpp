@@ -263,6 +263,63 @@ int main() {
     "snapshot state should reconstruct McGuffin state without transient events"
   );
 
+  {
+    lg::LoopbackTransport batchTransport;
+    lg::ServerGame batchServer(batchTransport);
+    batchServer.setArena(objectiveArena());
+    lg::MatchRules batchRules;
+    batchRules.countdownTicks = 0;
+    batchRules.roundEndTicks = 1;
+    batchServer.setMatchRules(batchRules);
+    lg::McGuffinConfig batchConfig;
+    batchConfig.initialSpawnTicks = 0;
+    batchConfig.installationDelayTicks = 0;
+    batchConfig.pointsPerSecond = 125;
+    batchConfig.scoreLimit = 1;
+    batchConfig.finalHoldTicks = 1;
+    batchServer.setMcGuffinConfig(batchConfig);
+    lg::WeaponDamageTuning batchDamage;
+    batchDamage.railgunDamage = 100;
+    batchServer.setRuntimeGameplayTuning(
+      {}, 1.0F, 1.0F, 1000.0F, 20.0F, 1000.0F, 100,
+      batchDamage, 0.0F, 100, 100, true, false, 250, 750,
+      lg::WeaponSwitchingMode::Crazy
+    );
+    sendMode(batchTransport, 1);
+    batchServer.tick(lg::kFixedTickSeconds);
+    sendTeam(batchTransport, 0, 2, lg::Team::Red);
+    sendTeam(batchTransport, 1, 1, lg::Team::Blue);
+    batchServer.tick(lg::kFixedTickSeconds);
+    sendReady(batchTransport, 0, 3);
+    sendReady(batchTransport, 1, 2);
+    batchServer.tick(lg::kFixedTickSeconds);
+    failures += expect(
+      batchServer.snapshot().matchPhase == lg::MatchPhase::Live &&
+        batchServer.snapshot().mcguffin.state == lg::McGuffinState::InstalledRed,
+      "McGuffin combat-batch setup should install the objective"
+    );
+
+    lg::CommandPacket blueRail;
+    blueRail.playerIndex = 1;
+    blueRail.command.sequence = 3;
+    blueRail.command.viewYawRadians = 3.1415927F;
+    blueRail.command.weapon = lg::Weapon::Railgun;
+    blueRail.command.attack = true;
+    batchTransport.sendCommand(blueRail);
+    batchServer.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot& batchSnapshot = batchServer.snapshot();
+    failures += expect(
+      batchSnapshot.mcguffinRoundsWon[0] == 1 &&
+        batchSnapshot.matchPhase == lg::MatchPhase::RoundEnd &&
+        batchSnapshot.roundWinningTeam == lg::Team::Red,
+      "the final McGuffin hold should still award its round"
+    );
+    failures += expect(
+      batchSnapshot.players[0].health == 0 && hasFrag(batchSnapshot, 1, 0),
+      "a final-hold round transition should not discard same-tick combat"
+    );
+  }
+
   // Let blue finish the swapped second round, then verify that merely entering
   // an unclaimed deciding-round base does not commit its ownership.
   for (int tick = 0; tick < 12 && server.snapshot().mcguffinRound < 2; ++tick) {
