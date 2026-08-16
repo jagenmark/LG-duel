@@ -1,12 +1,21 @@
 #include "replay/KillcamClientReceiver.hpp"
 
+#include <variant>
 #include <utility>
 
 namespace lg::replay {
 
+namespace {
+
+std::uint32_t messageSession(const ReplayTransferMessage& message) {
+  return std::visit([](const auto& value) { return value.sessionId; }, message);
+}
+
+} // namespace
+
 KillcamClientReceiver::KillcamClientReceiver(
     ReplayTransferReceiverConfig config)
-    : receiver_(config) {}
+    : config_(config), receiver_(config) {}
 
 std::optional<ReplayTransferMessage> KillcamClientReceiver::cancelMessage(
     ReplayTransferCancelReason reason) const {
@@ -25,6 +34,9 @@ std::optional<ReplayTransferMessage> KillcamClientReceiver::cancelMessage(
 std::optional<ReplayTransferMessage> KillcamClientReceiver::receive(
     const ReplayTransferMessage& message,
     std::uint64_t now) {
+  if (boundSessionId_ == 0U || messageSession(message) != boundSessionId_) {
+    return std::nullopt;
+  }
   if (const auto* begin = std::get_if<ReplayTransferBegin>(&message)) {
     const auto acknowledgement = receiver_.receiveBegin(*begin, now);
     if (acknowledgement.has_value()) return *acknowledgement;
@@ -42,6 +54,16 @@ std::optional<ReplayTransferMessage> KillcamClientReceiver::receive(
     const auto acknowledgement = receiver_.receiveChunk(*chunk, now);
     if (acknowledgement.has_value()) {
       if (const auto result = receiver_.takeCompleted(); result.has_value()) {
+        const ReplayTransferBegin& completedBegin = receiver_.beginMessage();
+        completedStatus_ = status();
+        completedStatus_->active = false;
+        completedStatus_->failed = false;
+        completedStatus_->transferId = completedBegin.transferId;
+        completedStatus_->generation = completedBegin.generation;
+        completedStatus_->sessionId = completedBegin.sessionId;
+        completedStatus_->lethalSequence = completedBegin.lethalSequence;
+        completedStatus_->expectedBytes = completedBegin.byteCount;
+        completedStatus_->receivedBytes = result->size();
         completed_ = std::move(*result);
       }
       if (receiver_.failed()) {
@@ -101,15 +123,26 @@ KillcamClientReceiverStatus KillcamClientReceiver::status() const {
     result.transferId = begin.transferId;
     result.generation = begin.generation;
     result.sessionId = begin.sessionId;
+    result.lethalSequence = begin.lethalSequence;
     result.expectedBytes = begin.byteCount;
+  } else if (completedStatus_.has_value()) {
+    result = *completedStatus_;
   }
   result.receivedBytes = receiver_.receivedBytes();
   return result;
 }
 
+void KillcamClientReceiver::bindSession(std::uint32_t sessionId) {
+  if (sessionId == boundSessionId_) return;
+  reset();
+  boundSessionId_ = sessionId;
+}
+
 void KillcamClientReceiver::reset() {
-  receiver_ = ReplayTransferReceiver{};
+  receiver_ = ReplayTransferReceiver(config_);
   completed_.reset();
+  completedStatus_.reset();
+  boundSessionId_ = 0U;
   failed_ = false;
 }
 

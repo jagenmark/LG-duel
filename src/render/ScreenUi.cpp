@@ -3441,6 +3441,39 @@ void addHud(
     }
   }
 
+  if (hud.killcam.active) {
+    const float panelWidth = std::min(
+      620.0F,
+      std::max(260.0F, static_cast<float>(width) - 24.0F)
+    );
+    const float panelHeight = 126.0F;
+    const float panelX = (static_cast<float>(width) - panelWidth) * 0.5F;
+    constexpr float panelY = 34.0F;
+    addRect(drawList, panelX, panelY, panelWidth, panelHeight, {7, 11, 17, 232});
+    addOutline(drawList, panelX, panelY, panelWidth, panelHeight,
+               {235, 90, 70, 245});
+    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 8.0F,
+            "KILLCAM", {255, 225, 190, 255}, 2.6F,
+            TextHorizontalAlignment::Center);
+    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 38.0F,
+            "KILLED BY " + hud.killcam.killer + " - " + hud.killcam.weapon,
+            {235, 242, 250, 255}, 1.75F, TextHorizontalAlignment::Center);
+    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 59.0F,
+            hud.killcam.cause, {225, 195, 170, 245}, 1.5F,
+            TextHorizontalAlignment::Center);
+    constexpr float barXPadding = 28.0F;
+    constexpr float barY = panelY + 83.0F;
+    const float barWidth = panelWidth - barXPadding * 2.0F;
+    addRect(drawList, panelX + barXPadding, barY, barWidth, 8.0F,
+            {35, 39, 48, 255});
+    addRect(drawList, panelX + barXPadding, barY,
+            barWidth * std::clamp(hud.killcam.progress, 0.0F, 1.0F), 8.0F,
+            {235, 90, 70, 255});
+    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 98.0F,
+            hud.killcam.prompt, {255, 240, 220, 255}, 1.35F,
+            TextHorizontalAlignment::Center);
+  }
+
   float y = 12.0F;
   for (const std::string& line : hud.topLeftLines) {
     addText(drawList, 12.0F, y, line, defaultText, textScale);

@@ -428,6 +428,7 @@ struct UdpServerTransport::Impl {
             static_cast<std::uint8_t>(slotIndex),
             clients[slotIndex].playerIndex,
             lastServerTick,
+            clients[slotIndex].session,
           },
           response
         )) {
@@ -1282,6 +1283,7 @@ struct UdpClientTransport::Impl {
     } else if (type == PacketType::ReplayTransfer && connected) {
       replay::ReplayTransferMessage message;
       if (decodeReplayTransferPacket(wire, message) &&
+          replayMessageSession(message) == sessionId &&
           !std::holds_alternative<replay::ReplayTransferAck>(message) &&
           !std::holds_alternative<replay::ReplayTransferCancel>(message)) {
         if (replayTransferMessages.size() >=
@@ -1368,13 +1370,15 @@ struct UdpClientTransport::Impl {
       }
       if (type == PacketType::ConnectAccept) {
         ConnectAccept accept;
-        if (decodeConnectAccept(wire, accept) && accept.clientNonce == nonce) {
+        if (decodeConnectAccept(wire, accept) && accept.clientNonce == nonce &&
+            accept.sessionId != 0U) {
           // The echoed nonce prevents delayed accepts from a previous connection
           // attempt from assigning this client to a stale server-side session.
           connected = true;
           timedOut = false;
           assignedClient = accept.clientIndex;
           assignedPlayer = accept.playerIndex;
+          sessionId = accept.sessionId;
           snapshots.clear();
           projectileUpdates.clear();
           chatHistory.clear();
@@ -1431,6 +1435,7 @@ struct UdpClientTransport::Impl {
       projectileUpdates.clear();
       chatHistory.clear();
       replayTransferMessages.clear();
+      sessionId = 0U;
       latestProjectileMapRevision = 0U;
       latestProjectileRevision = 0U;
       configurationRevision = 0;
@@ -1496,6 +1501,7 @@ struct UdpClientTransport::Impl {
   std::uint32_t nextCommandDatagramSequence = 1;
   std::uint8_t assignedPlayer = 0;
   std::uint8_t assignedClient = 0;
+  std::uint32_t sessionId = 0;
   bool connected = false;
   bool timedOut = false;
   float pingMs = 0.0F;
@@ -1594,6 +1600,7 @@ void UdpClientTransport::disconnect() {
   impl_->pendingMatchCombatStats = {};
   impl_->chatHistory.clear();
   impl_->replayTransferMessages.clear();
+  impl_->sessionId = 0U;
   impl_->networkSim.clear();
   impl_->telemetry.valid = false;
 }
@@ -1780,7 +1787,7 @@ bool UdpClientTransport::receiveChatHistory(ChatHistoryChunk& chunk) {
 bool UdpClientTransport::sendReplayTransferMessage(
     const replay::ReplayTransferMessage& message) {
   impl_->pump();
-  if (!impl_->connected) {
+  if (!impl_->connected || replayMessageSession(message) != impl_->sessionId) {
     return false;
   }
   WirePacket wire;
@@ -1844,6 +1851,10 @@ std::uint8_t UdpClientTransport::clientIndex() const {
 
 std::uint8_t UdpClientTransport::playerIndex() const {
   return impl_->assignedPlayer;
+}
+
+std::uint32_t UdpClientTransport::sessionId() const {
+  return impl_->sessionId;
 }
 
 bool UdpClientTransport::spectator() const {

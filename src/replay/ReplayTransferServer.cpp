@@ -31,7 +31,8 @@ bool ReplayTransferServer::start(
     std::uint32_t generation,
     std::vector<std::uint8_t> bytes,
     std::uint64_t now,
-    std::string* error) {
+    std::string* error,
+    std::uint32_t lethalSequence) {
   if (clientIndex >= slots_.size()) {
     setError(error, "replay transfer client index is out of range");
     return false;
@@ -56,7 +57,7 @@ bool ReplayTransferServer::start(
   const std::uint32_t transferId = nextTransferId_++;
   if (nextTransferId_ == 0U) nextTransferId_ = 1U;
   if (!slot.sender.begin(transferId, generation, std::move(bytes), now,
-                         transferConfig)) {
+                         transferConfig, lethalSequence)) {
     setError(error, "replay transfer sender rejected the segment");
     return false;
   }
@@ -154,6 +155,7 @@ std::optional<ReplayTransferServerStatus> ReplayTransferServer::status(
       slot.sender.beginMessage().transferId,
       slot.generation,
       slot.sessionId,
+      slot.sender.beginMessage().lethalSequence,
       slot.bytes,
       slot.sender.stats()};
 }

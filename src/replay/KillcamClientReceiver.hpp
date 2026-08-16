@@ -15,6 +15,7 @@ struct KillcamClientReceiverStatus {
   std::uint32_t transferId = 0;
   std::uint32_t generation = 0;
   std::uint32_t sessionId = 0;
+  std::uint32_t lethalSequence = 0;
   std::size_t receivedBytes = 0;
   std::size_t expectedBytes = 0;
 };
@@ -36,14 +37,19 @@ public:
   [[nodiscard]] KillcamClientReceiverStatus status() const;
   [[nodiscard]] bool active() const { return receiver_.active(); }
   [[nodiscard]] bool failed() const { return failed_ || receiver_.failed(); }
+  void bindSession(std::uint32_t sessionId);
+  [[nodiscard]] std::uint32_t boundSession() const { return boundSessionId_; }
   void reset();
 
 private:
   [[nodiscard]] std::optional<ReplayTransferMessage> cancelMessage(
       ReplayTransferCancelReason reason) const;
 
+  ReplayTransferReceiverConfig config_ = {};
   ReplayTransferReceiver receiver_;
   std::optional<std::vector<std::uint8_t>> completed_ = {};
+  std::optional<KillcamClientReceiverStatus> completedStatus_ = {};
+  std::uint32_t boundSessionId_ = 0;
   bool failed_ = false;
 };
 

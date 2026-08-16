@@ -1506,6 +1506,10 @@ replay::ReplayRollingBufferStats ServerGame::rollingReplayStats() const {
   return rollingReplay_ == nullptr ? replay::ReplayRollingBufferStats{} : rollingReplay_->stats();
 }
 
+std::uint32_t ServerGame::replayGeneration() const {
+  return replayGeneration_;
+}
+
 std::optional<replay::ReplayDemo> ServerGame::extractRollingReplaySegment(
   const replay::ReplayLethalEvent& event,
   std::uint32_t beforeTicks,

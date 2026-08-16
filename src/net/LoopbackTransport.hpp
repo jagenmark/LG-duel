@@ -7,6 +7,8 @@
 
 namespace lg {
 
+inline constexpr std::size_t kMaxQueuedReplayTransferMessages = 256U;
+
 class LoopbackTransport final : public NetTransport {
 public:
   void sendCommand(const CommandPacket& packet) override;

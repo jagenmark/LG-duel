@@ -45,6 +45,7 @@ struct ReplayTransferBegin {
   std::uint32_t byteCount = 0;
   std::uint32_t sessionId = 1;
   std::array<std::uint8_t, kReplayTransferSha256Bytes> sha256 = {};
+  std::uint32_t lethalSequence = 0;
 };
 struct ReplayTransferChunk {
   std::uint32_t transferId = 0;
@@ -119,7 +120,8 @@ public:
   [[nodiscard]] bool begin(std::uint32_t id, std::uint32_t generation,
                            std::vector<std::uint8_t> bytes,
                            std::uint64_t nowMilliseconds,
-                           ReplayTransferConfig config = {});
+                           ReplayTransferConfig config = {},
+                           std::uint32_t lethalSequence = 0U);
   [[nodiscard]] std::optional<ReplayTransferMessage>
   nextMessage(std::uint64_t nowMilliseconds);
   // Compatibility helper for the pre-NetCodec unit tests. Live transport must

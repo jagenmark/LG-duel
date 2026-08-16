@@ -239,12 +239,13 @@ bool encodeReplayTransferBegin(const ReplayTransferBegin& value,
   u32(bytes, value.byteCount);
   u32(bytes, value.sessionId);
   bytes.insert(bytes.end(), value.sha256.begin(), value.sha256.end());
+  u32(bytes, value.lethalSequence);
   return true;
 }
 
 bool decodeReplayTransferBegin(const std::vector<std::uint8_t>& bytes,
                                ReplayTransferBegin& value) {
-  if (!legacyHeader(bytes, ReplayTransferPacketType::Begin, 51U)) return false;
+  if (!legacyHeader(bytes, ReplayTransferPacketType::Begin, 55U)) return false;
   std::size_t at = 1U;
   ReplayTransferBegin decoded;
   if (!readU32(bytes, at, decoded.transferId) ||
@@ -252,11 +253,14 @@ bool decodeReplayTransferBegin(const std::vector<std::uint8_t>& bytes,
       !readU16(bytes, at, decoded.chunkCount) ||
       !readU32(bytes, at, decoded.byteCount) ||
       !readU32(bytes, at, decoded.sessionId) ||
-      at + decoded.sha256.size() != bytes.size()) {
+      at + decoded.sha256.size() + sizeof(decoded.lethalSequence) != bytes.size()) {
     return false;
   }
-  std::copy(bytes.begin() + static_cast<std::ptrdiff_t>(at), bytes.end(),
+  std::copy(bytes.begin() + static_cast<std::ptrdiff_t>(at),
+            bytes.begin() + static_cast<std::ptrdiff_t>(at + decoded.sha256.size()),
             decoded.sha256.begin());
+  at += decoded.sha256.size();
+  if (!readU32(bytes, at, decoded.lethalSequence)) return false;
   if (!validBegin(decoded)) return false;
   value = decoded;
   return true;
@@ -375,7 +379,8 @@ bool decodeReplayTransferCancel(const std::vector<std::uint8_t>& bytes,
 bool ReplayTransferSender::begin(std::uint32_t id, std::uint32_t generation,
                                  std::vector<std::uint8_t> bytes,
                                  std::uint64_t now,
-                                 ReplayTransferConfig config) {
+                                 ReplayTransferConfig config,
+                                 std::uint32_t lethalSequence) {
   if (id == 0U || generation == 0U || config.sessionId == 0U || bytes.empty() ||
       bytes.size() > kReplayTransferMaxSegmentBytes ||
       config.retryMilliseconds == 0U || config.timeoutMilliseconds == 0U ||
@@ -391,7 +396,8 @@ bool ReplayTransferSender::begin(std::uint32_t id, std::uint32_t generation,
             static_cast<std::uint16_t>(count),
             static_cast<std::uint32_t>(bytes.size()),
             config.sessionId,
-            replayTransferSha256(bytes)};
+            replayTransferSha256(bytes),
+            lethalSequence};
   chunks_.clear();
   chunks_.reserve(count);
   for (std::size_t at = 0U; at < bytes.size();
@@ -549,6 +555,7 @@ ReplayTransferReceiver::receiveBegin(const ReplayTransferBegin& begin,
   }
   if (active_ && (begin.chunkCount != begin_.chunkCount ||
                   begin.byteCount != begin_.byteCount ||
+                  begin.lethalSequence != begin_.lethalSequence ||
                   begin.sha256 != begin_.sha256)) {
     failed_ = true;
     return std::nullopt;

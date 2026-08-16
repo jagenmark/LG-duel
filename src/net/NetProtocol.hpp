@@ -138,6 +138,7 @@ struct ConnectAccept {
   std::uint8_t clientIndex = 0;
   std::uint8_t playerIndex = kNoAssignedPlayer;
   std::uint32_t serverTick = 0;
+  std::uint32_t sessionId = 0;
 };
 
 // Edge counters are cumulative input state. Repeating them in every command

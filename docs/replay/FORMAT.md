@@ -123,9 +123,9 @@ The saved `.lgdemo` cap is 512 MiB. The recorder’s native resident cap is also
 cleanly before it exceeds its configured cap and preserves no partial final
 recording.
 
-No app command, console control, automatic match recording setting, or
-background save/load job calls these helpers yet. The helpers therefore do not
-make saved demos a player-facing feature.
+Local demo commands and the remote killcam use `ReplayStorage` and
+`ReplayIoService` outside the simulation tick. `ReplayFile` remains a bounded
+file helper; `ServerGame::tick` and render do not call it.
 
 ## Remote transfer envelope
 
@@ -135,7 +135,8 @@ framing. The envelope uses protocol version 61 and
 `PacketType::ReplayTransfer`, with a typed subtype for `Begin`, `Chunk`, `Ack`,
 or `Cancel`.
 
-`Begin` carries the transfer ID, replay generation, authenticated session ID,
+`ConnectAccept` establishes the current connection session. `Begin` carries
+the transfer ID, replay generation, lethal sequence, authenticated session ID,
 chunk count, byte count, and the 32-byte SHA-256 of the complete `.lgdemo`
 payload. Each `Chunk` carries the same transfer, generation, and session IDs,
 its index/count, payload length, payload, and CRC-32. `Ack` identifies one

@@ -27,6 +27,7 @@ struct ReplayTransferServerStatus {
   std::uint32_t transferId = 0;
   std::uint32_t generation = 0;
   std::uint32_t sessionId = 0;
+  std::uint32_t lethalSequence = 0;
   std::size_t bytes = 0;
   ReplayTransferStats stats = {};
 };
@@ -46,7 +47,8 @@ public:
       std::uint32_t generation,
       std::vector<std::uint8_t> bytes,
       std::uint64_t nowMilliseconds,
-      std::string* error = nullptr);
+      std::string* error = nullptr,
+      std::uint32_t lethalSequence = 0U);
   void receive(
       std::uint8_t clientIndex,
       std::uint32_t sessionId,

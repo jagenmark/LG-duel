@@ -212,6 +212,10 @@ std::size_t ClientSession::clientIndex() const {
     : transport_ ? transport_->clientIndex() : kNoAssignedPlayer;
 }
 
+std::uint32_t ClientSession::sessionId() const {
+  return transport_ == nullptr ? 0U : transport_->sessionId();
+}
+
 bool ClientSession::spectator() const {
   return game_ && game_->spectator();
 }

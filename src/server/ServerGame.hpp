@@ -153,6 +153,7 @@ public:
   );
   void endRollingReplay();
   [[nodiscard]] replay::ReplayRollingBufferStats rollingReplayStats() const;
+  [[nodiscard]] std::uint32_t replayGeneration() const;
   [[nodiscard]] std::optional<replay::ReplayDemo> extractRollingReplaySegment(
     const replay::ReplayLethalEvent& event,
     std::uint32_t beforeTicks,

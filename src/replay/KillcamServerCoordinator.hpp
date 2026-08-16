@@ -64,11 +64,13 @@ private:
     ReplayLethalEvent event = {};
     std::uint8_t clientIndex = kNoAssignedPlayer;
     std::uint32_t sessionId = 0U;
+    std::uint32_t mapRevision = 0U;
     std::uint32_t readyTick = 0U;
   };
   struct PendingEncode {
     std::uint8_t clientIndex = kNoAssignedPlayer;
     std::uint32_t sessionId = 0U;
+    std::uint32_t mapRevision = 0U;
     ReplayLethalEvent event = {};
   };
 
@@ -77,6 +79,7 @@ private:
       const ReplayRollingBufferConfig& right) const;
   [[nodiscard]] bool currentClientMatches(
       const PendingEvent& pending) const;
+  void invalidateStaleReplayState();
   void drainCompletedEncodes(std::uint64_t nowMilliseconds);
   void drainLethalEvents();
   void startReadyEncodes();
@@ -92,6 +95,8 @@ private:
   std::deque<PendingEvent> pendingEvents_;
   std::unordered_map<ReplayIoService::JobId, PendingEncode> pendingEncodes_;
   KillcamServerCoordinatorStats stats_ = {};
+  std::uint32_t observedReplayGeneration_ = 0U;
+  std::uint32_t observedMapRevision_ = 0U;
   bool configured_ = false;
   bool stopped_ = false;
 };

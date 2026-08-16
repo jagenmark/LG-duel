@@ -103,6 +103,8 @@ bool KillcamServerCoordinator::configure(
   }
   config_ = config;
   configured_ = true;
+  observedReplayGeneration_ = server_.replayGeneration();
+  observedMapRevision_ = server_.snapshot().mapRevision;
   if (error != nullptr) error->clear();
   return true;
 }
@@ -111,7 +113,31 @@ bool KillcamServerCoordinator::currentClientMatches(
     const PendingEvent& pending) const {
   const auto client = transport_.clientIndexForPlayer(pending.event.victim);
   return client.has_value() && *client == pending.clientIndex &&
+         pending.event.replayGeneration == server_.replayGeneration() &&
+         pending.mapRevision == server_.snapshot().mapRevision &&
          transport_.clientSession(pending.clientIndex) == pending.sessionId;
+}
+
+void KillcamServerCoordinator::invalidateStaleReplayState() {
+  const std::uint32_t generation = server_.replayGeneration();
+  const std::uint32_t mapRevision = server_.snapshot().mapRevision;
+  if (observedReplayGeneration_ == 0U) {
+    observedReplayGeneration_ = generation;
+    observedMapRevision_ = mapRevision;
+    return;
+  }
+  if (generation == observedReplayGeneration_ &&
+      mapRevision == observedMapRevision_) {
+    return;
+  }
+
+  // Dropping the job records makes any worker result stale. The bounded worker
+  // may finish its current encode, but drainCompletedEncodes() cannot start it.
+  pendingEvents_.clear();
+  pendingEncodes_.clear();
+  transfers_.clear();
+  observedReplayGeneration_ = generation;
+  observedMapRevision_ = mapRevision;
 }
 
 void KillcamServerCoordinator::drainCompletedEncodes(
@@ -124,6 +150,8 @@ void KillcamServerCoordinator::drainCompletedEncodes(
     pendingEncodes_.erase(pending);
     if (!result->ok || result->bytes.empty() ||
         result->bytes.size() > config_.maximumSegmentBytes ||
+        request.event.replayGeneration != server_.replayGeneration() ||
+        request.mapRevision != server_.snapshot().mapRevision ||
         transport_.clientSession(request.clientIndex) != request.sessionId ||
         !server_.snapshot().connectedPlayers[request.event.victim] ||
         transport_.clientIndexForPlayer(request.event.victim) !=
@@ -134,7 +162,7 @@ void KillcamServerCoordinator::drainCompletedEncodes(
     std::string error;
     if (transfers_.start(request.clientIndex, request.sessionId,
                          request.event.replayGeneration, result->bytes,
-                         nowMilliseconds, &error)) {
+                         nowMilliseconds, &error, request.event.sequence)) {
       ++stats_.encodedSegments;
     } else {
       ++stats_.rejectedSegments;
@@ -158,12 +186,14 @@ void KillcamServerCoordinator::drainLethalEvents() {
     }
     const std::uint32_t session = transport_.clientSession(*client);
     if (session == 0U || server_.rollingReplayStats().generation !=
-                             event.replayGeneration) {
+                             event.replayGeneration ||
+        event.replayGeneration != server_.replayGeneration()) {
       ++stats_.skippedEvents;
       continue;
     }
     if (pendingEvents_.size() >= kMaxPendingEvents) pendingEvents_.pop_front();
     pendingEvents_.push_back({event, *client, session,
+                              server_.snapshot().mapRevision,
                               readyTickFor(event, config_.afterTicks)});
     ++stats_.acceptedEvents;
   }
@@ -199,6 +229,7 @@ void KillcamServerCoordinator::startReadyEncodes() {
     }
     pendingEncodes_.emplace(job, PendingEncode{pending.clientIndex,
                                                 pending.sessionId,
+                                                pending.mapRevision,
                                                 pending.event});
   }
 }
@@ -216,8 +247,9 @@ void KillcamServerCoordinator::expireDisconnectedTransfers() {
   for (std::size_t index = 0U; index < kMaxNetworkClients; ++index) {
     const auto current = transfers_.status(static_cast<std::uint8_t>(index));
     if (current.has_value() &&
-        transport_.clientSession(static_cast<std::uint8_t>(index)) !=
-            current->sessionId) {
+        (current->generation != server_.replayGeneration() ||
+         transport_.clientSession(static_cast<std::uint8_t>(index)) !=
+             current->sessionId)) {
       transfers_.clearClient(static_cast<std::uint8_t>(index));
     }
   }
@@ -235,6 +267,7 @@ void KillcamServerCoordinator::sendDuePackets(std::uint64_t now) {
 
 void KillcamServerCoordinator::update(std::uint64_t now) {
   if (stopped_ || !configured_) return;
+  invalidateStaleReplayState();
   drainCompletedEncodes(now);
   processClientMessages();
   expireDisconnectedTransfers();

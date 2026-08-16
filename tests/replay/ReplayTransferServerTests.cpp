@@ -27,7 +27,7 @@ int main() {
 
   std::string error;
   failures += expect(
-      server.start(0U, 42U, 7U, bytes, 1U, &error),
+      server.start(0U, 42U, 7U, bytes, 1U, &error, 19U),
       "server transfer should accept a bounded segment");
   failures += expect(server.active(0U) && server.activeCount() == 1U,
                      "server should expose one active transfer");
@@ -35,6 +35,7 @@ int main() {
       server.status(0U).has_value() &&
           server.status(0U)->sessionId == 42U &&
           server.status(0U)->generation == 7U &&
+          server.status(0U)->lethalSequence == 19U &&
           server.status(0U)->bytes == bytes.size(),
       "server status should retain the authenticated transfer tuple");
   failures += expect(

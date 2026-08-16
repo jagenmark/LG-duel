@@ -93,6 +93,7 @@ public:
   [[nodiscard]] bool timedOut() const;
   [[nodiscard]] std::uint8_t clientIndex() const;
   [[nodiscard]] std::uint8_t playerIndex() const;
+  [[nodiscard]] std::uint32_t sessionId() const;
   [[nodiscard]] bool spectator() const;
   [[nodiscard]] float pingMilliseconds() const;
   [[nodiscard]] ClientNetworkSimulationStats networkSimulationStats() const;

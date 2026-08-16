@@ -49,6 +49,19 @@ int main() {
                      "disabled coordinator should release rolling replay");
   failures += expect(coordinator.stats().pendingEvents == 0U,
                      "disabled coordinator should clear pending events");
+
+  config.enabled = true;
+  failures += expect(coordinator.configure(config, &error),
+                     "coordinator should re-enable after the identity reset");
+  const std::uint32_t priorGeneration = server.replayGeneration();
+  server.resetMatch();
+  failures += expect(server.replayGeneration() != priorGeneration,
+                     "match reset should advance the replay generation");
+  coordinator.update(100U);
+  failures += expect(coordinator.stats().pendingEvents == 0U &&
+                          coordinator.stats().pendingEncodes == 0U &&
+                          coordinator.stats().activeTransfers == 0U,
+                     "generation changes should cancel stale coordinator state");
   coordinator.shutdown();
   return failures == 0 ? 0 : 1;
 }

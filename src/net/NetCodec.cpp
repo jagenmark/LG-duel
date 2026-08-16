@@ -1742,6 +1742,7 @@ bool encodeConnectAccept(const ConnectAccept& packet, WirePacket& wire) {
     writer.writeU8(packet.clientIndex) &&
     writer.writeU8(packet.playerIndex) &&
     writer.writeU32(packet.serverTick) &&
+    writer.writeU32(packet.sessionId) &&
     finishPacket(writer);
 }
 
@@ -1754,7 +1755,9 @@ bool decodeConnectAccept(const WirePacket& wire, ConnectAccept& packet) {
     !reader.readU8(decoded.clientIndex) ||
     !reader.readU8(decoded.playerIndex) ||
     !reader.readU32(decoded.serverTick) ||
+    !reader.readU32(decoded.sessionId) ||
     decoded.clientIndex >= kMaxNetworkClients ||
+    decoded.sessionId == 0U ||
     (decoded.playerIndex >= kDuelPlayerCount &&
      decoded.playerIndex != kNoAssignedPlayer) ||
     reader.remaining() != 0
@@ -3108,6 +3111,7 @@ bool encodeReplayTransferPacket(
               replay::ReplayTransferPacketType::Begin)) ||
           !writer.writeU32(value.transferId) ||
           !writer.writeU32(value.generation) ||
+          !writer.writeU32(value.lethalSequence) ||
           !writer.writeU32(value.sessionId) ||
           !writer.writeU16(value.chunkCount) ||
           !writer.writeU32(value.byteCount)) {
@@ -3180,6 +3184,7 @@ bool decodeReplayTransferPacket(
     replay::ReplayTransferBegin begin;
     if (!reader.readU32(begin.transferId) ||
         !reader.readU32(begin.generation) ||
+        !reader.readU32(begin.lethalSequence) ||
         !reader.readU32(begin.sessionId) ||
         !reader.readU16(begin.chunkCount) ||
         !reader.readU32(begin.byteCount)) {

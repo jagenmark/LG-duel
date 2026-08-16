@@ -148,6 +148,20 @@ int main() {
           std::holds_alternative<lg::replay::ReplayTransferBegin>(
               loopbackMessage),
       "loopback should carry typed replay messages through NetCodec");
+  for (std::size_t index = 0U;
+       index < lg::kMaxQueuedReplayTransferMessages + 8U;
+       ++index) {
+    failures += expect(
+        loopback.sendReplayTransferMessage(typedBegin),
+        "loopback should accept bounded replay queue writes");
+  }
+  std::size_t loopbackMessageCount = 0U;
+  while (loopback.receiveReplayTransferMessage(loopbackMessage)) {
+    ++loopbackMessageCount;
+  }
+  failures += expect(
+      loopbackMessageCount == lg::kMaxQueuedReplayTransferMessages,
+      "loopback replay queue should drop old packets at its hard cap");
 
   lg::replay::ReplayTransferSender boundarySender;
   failures += expect(

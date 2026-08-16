@@ -119,11 +119,13 @@ receiver expires on idle or overall timeout when a cancel packet is lost, so
 stale transfer state cannot remain pinned. The server sends at a per-tick
 packet budget, and a failed transfer only skips the killcam.
 
-The server accepts only ACK/Cancel messages from the authenticated endpoint
-that owns the matching client session. The client accepts only Begin/Chunk
-messages for its current session and active transfer. The coordinator rejects
-missing clients, stale sessions or generations, non-Duel modes, bot victims,
-oversized segments, malformed chunks, and cross-match map/content data.
+`ConnectAccept` gives each UDP connection a session ID. The server accepts only
+ACK/Cancel messages from the authenticated endpoint that owns that session. The
+client binds Begin/Chunk messages to its current session and active transfer.
+Replay or map generation changes cancel pending and active work. The
+coordinator rejects missing clients, stale sessions or generations, non-Duel
+modes, bot victims, oversized segments, malformed chunks, and cross-match
+map/content data.
 
 ## Hidden-information policy
 

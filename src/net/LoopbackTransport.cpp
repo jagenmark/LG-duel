@@ -101,6 +101,9 @@ bool LoopbackTransport::sendReplayTransferMessage(
   if (!encodeReplayTransferPacket(message, wire)) {
     return false;
   }
+  if (replayTransfer_.size() >= kMaxQueuedReplayTransferMessages) {
+    replayTransfer_.pop_front();
+  }
   replayTransfer_.push_back(std::move(wire));
   return true;
 }

@@ -27,6 +27,7 @@ int main() {
   failures += expect(sender.begin(4U, 9U, source, 1U, senderConfig),
                      "client receiver fixture should start a transfer");
   lg::replay::KillcamClientReceiver receiver({20U, 100U});
+  receiver.bindSession(77U);
 
   const auto begin = sender.nextMessage(1U);
   failures += expect(begin.has_value(), "sender should produce a typed begin");
@@ -83,6 +84,7 @@ int main() {
                      "successful client receive should not be marked failed");
 
   lg::replay::KillcamClientReceiver crcReceiver({20U, 100U});
+  crcReceiver.bindSession(77U);
   failures += expect(begin.has_value() && crcReceiver.receive(*begin, 1U).has_value(),
                      "CRC receiver should accept begin");
   lg::replay::ReplayTransferChunk corruptChunk;
@@ -109,6 +111,7 @@ int main() {
   failures += expect(hashSender.begin(6U, 10U, source, 1U, senderConfig),
                      "whole-file hash fixture should start");
   lg::replay::KillcamClientReceiver hashReceiver({20U, 100U});
+  hashReceiver.bindSession(77U);
   auto hashBegin = hashSender.nextMessage(1U);
   failures += expect(hashBegin.has_value(),
                      "whole-file hash fixture should send begin");
@@ -146,6 +149,7 @@ int main() {
       "whole-file SHA mismatch should cancel without exposing bytes");
 
   lg::replay::KillcamClientReceiver expiring({5U, 20U});
+  expiring.bindSession(77U);
   failures += expect(begin.has_value() && expiring.receive(*begin, 1U).has_value(),
                      "expiry receiver should accept the same begin");
   const auto timeout = expiring.update(7U);
@@ -157,6 +161,7 @@ int main() {
       "idle receiver should send a timeout cancel");
 
   lg::replay::KillcamClientReceiver skipped;
+  skipped.bindSession(77U);
   failures += expect(begin.has_value() && skipped.receive(*begin, 1U).has_value(),
                      "skip receiver should accept the same begin");
   const auto skip = skipped.cancel(lg::replay::ReplayTransferCancelReason::Skipped);
@@ -168,6 +173,7 @@ int main() {
       "user skip should cancel and fail closed");
 
   lg::replay::KillcamClientReceiver oversized;
+  oversized.bindSession(77U);
   lg::replay::ReplayTransferBegin invalidBegin;
   invalidBegin.transferId = 5U;
   invalidBegin.generation = 9U;
@@ -182,6 +188,20 @@ int main() {
           std::get<lg::replay::ReplayTransferCancel>(*tooLarge).reason ==
               lg::replay::ReplayTransferCancelReason::TooLarge,
       "oversized begin should be rejected with an explicit cancel");
+
+  lg::replay::KillcamClientReceiver sessionBound;
+  sessionBound.bindSession(77U);
+  if (begin.has_value()) {
+    const auto* original = std::get_if<lg::replay::ReplayTransferBegin>(&*begin);
+    if (original != nullptr) {
+      lg::replay::ReplayTransferBegin delayed = *original;
+      delayed.sessionId = 78U;
+      failures += expect(
+          !sessionBound.receive(delayed, 1U).has_value() &&
+              !sessionBound.active(),
+          "a delayed begin from the previous connection session must be ignored");
+    }
+  }
 
   return failures == 0 ? 0 : 1;
 }
