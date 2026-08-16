@@ -661,6 +661,9 @@ void ServerGame::tick(float fixedDt) {
   }
   updateMatchState();
   const bool tickStartedLive = snapshot_.matchPhase == MatchPhase::Live;
+  const bool combatBatchWarmup = warmupPhase();
+  combatBatch_ = {};
+  combatBatch_.active = tickStartedLive || combatBatchWarmup;
   if (replayPlayback_) {
     applyReplayInput(*pendingReplayInput_);
     pendingReplayInput_.reset();
@@ -884,9 +887,6 @@ void ServerGame::tick(float fixedDt) {
   lightningTargets.fill(kDuelPlayerCount);
   freezeTargets.fill(kDuelPlayerCount);
   weaponTargets.fill(kDuelPlayerCount);
-  const bool combatBatchWarmup = warmupPhase();
-  combatBatch_ = {};
-  combatBatch_.active = tickStartedLive || combatBatchWarmup;
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
     UserCommand command =
       commandForPlayer(snapshot_, commands_, hasCommand_, attackerIndex);
@@ -1457,29 +1457,70 @@ void ServerGame::tick(float fixedDt) {
   // A projectile blast can resolve several lethal targets in one tick. Keep
   // the match live while the combat batch runs so every kill scores, then use
   // the first score-limit crossing as the stable winner.
-  if (
-    tickStartedLive &&
-    snapshot_.gameMode == GameMode::FreeForAll &&
-    ffaScoreLimitCrossedThisTick_ &&
-    ffaFirstScoreLimitWinner_ < kDuelPlayerCount
-  ) {
-    beginMatchEnd(ffaFirstScoreLimitWinner_);
+  if (snapshot_.gameMode == GameMode::FreeForAll) {
+    if (
+      tickStartedLive &&
+      ffaScoreLimitCrossedThisTick_ &&
+      ffaFirstScoreLimitWinner_ < kDuelPlayerCount
+    ) {
+      beginMatchEnd(ffaFirstScoreLimitWinner_);
+    } else if (combatBatch_.ffaOvertimeResolutionPending) {
+      const auto leader = uniqueScoreLeader(
+        snapshot_.scores,
+        snapshot_.participatingPlayers
+      );
+      if (leader.has_value()) {
+        beginMatchEnd(*leader);
+      }
+    }
   }
 
   const auto deferredRespawnTargets = combatBatch_.respawnTargets;
   const auto deferredRoundWinner = combatBatch_.roundWinner;
   const auto deferredRoundWinningTeam = combatBatch_.roundWinningTeam;
+  const auto deferredMcGuffinRoundWinningTeam =
+    combatBatch_.mcguffinRoundWinningTeam;
   const auto deferredMatchWinner = combatBatch_.matchWinner;
   const auto deferredMatchWinningTeam = combatBatch_.matchWinningTeam;
   const bool deferredRoundEnd =
-    deferredRoundWinner.has_value() || deferredRoundWinningTeam.has_value();
+    deferredRoundWinner.has_value() || deferredRoundWinningTeam.has_value() ||
+    deferredMcGuffinRoundWinningTeam.has_value();
   const bool deferredMatchEnd =
     deferredMatchWinner.has_value() || deferredMatchWinningTeam.has_value();
   combatBatch_ = {};
-  if (deferredRoundWinner.has_value()) {
-    beginRoundEnd(*deferredRoundWinner);
+  if (deferredMcGuffinRoundWinningTeam.has_value()) {
+    beginMcGuffinRoundEnd(*deferredMcGuffinRoundWinningTeam);
+  } else if (deferredRoundWinner.has_value()) {
+    std::optional<std::size_t> winner;
+    std::size_t aliveCount = 0;
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      if (!isOccupiedSlot(index) || snapshot_.players[index].health <= 0) {
+        continue;
+      }
+      ++aliveCount;
+      winner = index;
+    }
+    if (aliveCount == 1U && winner.has_value()) {
+      beginRoundEnd(*winner);
+    } else {
+      beginRoundDraw();
+    }
   } else if (deferredRoundWinningTeam.has_value()) {
-    beginRoundEnd(*deferredRoundWinningTeam);
+    std::array<bool, kDuelPlayerCount> alivePlayers = {};
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      alivePlayers[index] =
+        isOccupiedSlot(index) && snapshot_.players[index].health > 0;
+    }
+    const auto winner = clanArenaRoundWinner(
+      occupiedPlayers(),
+      snapshot_.teams,
+      alivePlayers
+    );
+    if (winner.has_value()) {
+      beginRoundEnd(*winner);
+    } else {
+      beginRoundDraw();
+    }
   } else if (deferredMatchWinner.has_value()) {
     beginMatchEnd(*deferredMatchWinner);
   } else if (deferredMatchWinningTeam.has_value()) {
@@ -3482,6 +3523,13 @@ void ServerGame::beginCountdown() {
   }
 }
 
+void ServerGame::beginRoundDraw() {
+  snapshot_.roundWinner = 255;
+  snapshot_.roundWinningTeam = Team::None;
+  snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
+  snapshot_.matchPhase = MatchPhase::RoundEnd;
+}
+
 void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
   if (combatBatch_.active) {
     if (!combatBatch_.roundWinner.has_value()) {
@@ -4183,12 +4231,16 @@ void ServerGame::handlePlayerDeath(
         }
         ffaScoreLimitCrossedThisTick_ = true;
       } else if (snapshot_.overtime) {
-        const auto leader = uniqueScoreLeader(
-          snapshot_.scores,
-          snapshot_.participatingPlayers
-        );
-        if (leader.has_value()) {
-          beginMatchEnd(*leader);
+        if (combatBatch_.active) {
+          combatBatch_.ffaOvertimeResolutionPending = true;
+        } else {
+          const auto leader = uniqueScoreLeader(
+            snapshot_.scores,
+            snapshot_.participatingPlayers
+          );
+          if (leader.has_value()) {
+            beginMatchEnd(*leader);
+          }
         }
       }
       if (combatBatch_.active) {
@@ -4881,6 +4933,12 @@ void ServerGame::dropMcGuffinCarrier(std::size_t playerIndex) {
 void ServerGame::beginMcGuffinRoundEnd(Team winnerTeam) {
   const std::size_t index = winnerTeam == Team::Red ? 0U : 1U;
   if (!isPlayableTeam(winnerTeam)) return;
+  if (combatBatch_.active) {
+    if (!combatBatch_.mcguffinRoundWinningTeam.has_value()) {
+      combatBatch_.mcguffinRoundWinningTeam = winnerTeam;
+    }
+    return;
+  }
   ++snapshot_.mcguffinRoundsWon[index];
   ++snapshot_.mcguffinRound;
   snapshot_.roundWinningTeam = winnerTeam;

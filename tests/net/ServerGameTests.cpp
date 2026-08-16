@@ -3674,6 +3674,114 @@ int main() {
     arena.min = {-20.0F, -20.0F, 0.0F};
     arena.max = {20.0F, 20.0F, 10.0F};
     arena.spawnCount = 2;
+    arena.spawnPositions[0] = {-3.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {3.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+
+    lg::ScenarioSetup setup;
+    setup.seed = 46;
+    setup.match.phase = lg::MatchPhase::Live;
+    for (std::size_t index = 0; index < 2; ++index) {
+      setup.players[index].connected = true;
+      setup.players[index].ready = true;
+      setup.players[index].alive = true;
+      setup.players[index].health = 5;
+      setup.players[index].position = {
+        index == 0 ? -3.0F : 3.0F,
+        0.0F,
+        0.9F,
+      };
+      setup.players[index].onGround = true;
+    }
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "same-tick Duel draw scenario should load"
+    );
+
+    const lg::ServerSnapshot beforeShots = server.snapshot();
+    lg::UserCommand firstShot;
+    firstShot.sequence = 1;
+    firstShot.weapon = lg::Weapon::Railgun;
+    firstShot.attack = true;
+    aimAtPlayerBody(firstShot, beforeShots, 0, 1);
+    lg::UserCommand secondShot = firstShot;
+    aimAtPlayerBody(secondShot, beforeShots, 1, 0);
+    transport.sendCommand(lg::CommandPacket{0, firstShot, false});
+    transport.sendCommand(lg::CommandPacket{1, secondShot, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[0].health == 0 && snapshot.players[1].health == 0 &&
+        snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
+        snapshot.roundWinner == 255U && snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0,
+      "mutual same-tick Duel kills should end the round without an award"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 10.0F};
+    arena.spawnCount = 2;
+    arena.spawnPositions[0] = {-3.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {3.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+
+    lg::ScenarioSetup setup;
+    setup.seed = 47;
+    setup.match.gameMode = lg::GameMode::ClanArena;
+    setup.match.phase = lg::MatchPhase::Live;
+    for (std::size_t index = 0; index < 2; ++index) {
+      setup.players[index].connected = true;
+      setup.players[index].ready = true;
+      setup.players[index].alive = true;
+      setup.players[index].team = index == 0 ? lg::Team::Red : lg::Team::Blue;
+      setup.players[index].health = 5;
+      setup.players[index].position = {
+        index == 0 ? -3.0F : 3.0F,
+        0.0F,
+        0.9F,
+      };
+      setup.players[index].onGround = true;
+    }
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "same-tick Clan Arena draw scenario should load"
+    );
+
+    const lg::ServerSnapshot beforeShots = server.snapshot();
+    lg::UserCommand firstShot;
+    firstShot.sequence = 1;
+    firstShot.weapon = lg::Weapon::Railgun;
+    firstShot.attack = true;
+    aimAtPlayerBody(firstShot, beforeShots, 0, 1);
+    lg::UserCommand secondShot = firstShot;
+    aimAtPlayerBody(secondShot, beforeShots, 1, 0);
+    transport.sendCommand(lg::CommandPacket{0, firstShot, false});
+    transport.sendCommand(lg::CommandPacket{1, secondShot, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[0].health == 0 && snapshot.players[1].health == 0 &&
+        snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
+        snapshot.roundWinningTeam == lg::Team::None &&
+        snapshot.teamScores[0] == 0 && snapshot.teamScores[1] == 0,
+      "mutual same-tick Clan Arena kills should end the round without an award"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 10.0F};
+    arena.spawnCount = 2;
     arena.spawnPositions[0] = {-6.0F, 0.0F, 0.0F};
     arena.spawnPositions[1] = {6.0F, 0.0F, 0.0F};
     server.setArena(arena);

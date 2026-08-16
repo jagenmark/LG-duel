@@ -218,6 +218,7 @@ private:
   void updateEffectiveMatchRules();
   void updateMatchState();
   void beginCountdown();
+  void beginRoundDraw();
   void beginRoundEnd(std::size_t winnerIndex);
   void beginRoundEnd(Team winnerTeam);
   void beginMatchEnd(std::size_t winnerIndex);
@@ -496,8 +497,10 @@ private:
     std::array<bool, kDuelPlayerCount> respawnTargets = {};
     std::optional<std::size_t> roundWinner = {};
     std::optional<Team> roundWinningTeam = {};
+    std::optional<Team> mcguffinRoundWinningTeam = {};
     std::optional<std::size_t> matchWinner = {};
     std::optional<Team> matchWinningTeam = {};
+    bool ffaOvertimeResolutionPending = false;
   } combatBatch_ = {};
 };
 

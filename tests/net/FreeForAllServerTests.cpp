@@ -353,6 +353,39 @@ int main() {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     server.setArena(testArena());
+    lg::ScenarioSetup setup = liveSetup(0, 0, 5);
+    setup.match.overtime = true;
+    setup.players[0].health = 5;
+    setup.players[0].position = {-3.0F, 0.0F, 0.9F};
+    setup.players[1].position = {3.0F, 0.0F, 0.9F};
+    failures += expect(
+      applySetup(server, setup),
+      "FFA overtime batch setup should load"
+    );
+    const lg::ServerSnapshot beforeShots = server.snapshot();
+    transport.sendCommand(aimedRail(beforeShots, 0, 1, 1));
+    transport.sendCommand(aimedRail(beforeShots, 1, 0, 1));
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[0].health == 0 && snapshot.players[1].health == 0,
+      "tied same-tick overtime shots should kill both players"
+    );
+    failures += expect(
+      snapshot.scores[0] == 1 && snapshot.scores[1] == 1,
+      "tied same-tick overtime shots should award both kills"
+    );
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::Live &&
+        snapshot.matchWinner == 255U && snapshot.overtime,
+      "tied same-tick overtime kills should not keep a temporary FFA leader"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setArena(testArena());
     lg::MatchRules rules;
     rules.deathRespawnTicks = 2;
     server.setMatchRules(rules);
