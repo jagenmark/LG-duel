@@ -148,6 +148,14 @@ int main() {
   failures += expect(!wire.empty(), "encoded replay should not be empty");
   const std::vector<std::uint8_t> validWire = wire;
 
+  const auto expectInvalidGameplayConfig = [&](auto mutate, std::string_view message) {
+    lg::replay::ReplayDemo invalid = source;
+    mutate(invalid.metadata.gameplayConfig);
+    invalid.metadata.gameplayConfigHash =
+      lg::replay::canonicalGameplayConfigHash(invalid.metadata.gameplayConfig);
+    return expect(!lg::replay::encodeDemo(invalid, wire, &error), message);
+  };
+
   lg::replay::ReplayDemo decoded;
   failures += expect(lg::replay::decodeDemo(wire, decoded, &error), "valid replay should decode");
   failures += expect(decoded.metadata.mapName == source.metadata.mapName, "metadata should round trip");
@@ -291,22 +299,78 @@ int main() {
     failures += expect(!lg::replay::encodeDemo(invalid, wire, &error), "non-finite command should not encode");
   }
   {
-    lg::replay::ReplayDemo invalid = source;
-    invalid.metadata.gameplayConfig.weaponDamage.railgunDamage = -1;
-    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
-      "negative replay weapon damage should not encode");
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.weaponDamage.railgunDamage = -1; },
+      "negative replay weapon damage should not encode"
+    );
   }
   {
-    lg::replay::ReplayDemo invalid = source;
-    invalid.metadata.gameplayConfig.balance.railgun.damage = -1;
-    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
-      "negative replay hitscan damage should not encode");
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.railgun.damage = -1; },
+      "negative replay hitscan damage should not encode"
+    );
   }
   {
-    lg::replay::ReplayDemo invalid = source;
-    invalid.metadata.gameplayConfig.balance.revolver.knockback = -1.0F;
-    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
-      "negative replay hitscan knockback should not encode");
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.revolver.knockback = -1.0F; },
+      "negative replay hitscan knockback should not encode"
+    );
+  }
+  {
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.range = -1.0F; },
+      "negative machine-gun range should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.damage = -1; },
+      "negative machine-gun damage should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.eyeHeight = -1.0F; },
+      "negative machine-gun eye height should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.knockback = -1.0F; },
+      "negative machine-gun knockback should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.spreadRadians = -1.0F; },
+      "negative machine-gun spread should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.headshotMultiplier = -1.0F; },
+      "negative machine-gun headshot multiplier should not encode"
+    );
+  }
+  {
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.range = -1.0F; },
+      "negative shotgun range should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.pelletCount = 0U; },
+      "zero shotgun pellet count should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.damagePerPellet = -1; },
+      "negative shotgun damage should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.spreadRadians = -1.0F; },
+      "negative shotgun spread should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.eyeHeight = -1.0F; },
+      "negative shotgun eye height should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.knockback = -1.0F; },
+      "negative shotgun knockback should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.headshotMultiplier = -1.0F; },
+      "negative shotgun headshot multiplier should not encode"
+    );
   }
   {
     lg::replay::ReplayDemo invalid = source;

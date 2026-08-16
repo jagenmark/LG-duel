@@ -261,6 +261,24 @@ private:
     validFloatRange(tuning.headshotMultiplier, 0.0F, 100.0F);
 }
 
+[[nodiscard]] bool validMachineGunTuning(const MachineGunTuning& tuning) {
+  return validFloatRange(tuning.range, 0.0F, 100000.0F) &&
+    tuning.damage >= 0 && tuning.damage <= 100000 &&
+    validFloatRange(tuning.eyeHeight, 0.0F, 100.0F) &&
+    validFloatRange(tuning.knockback, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.spreadRadians, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.headshotMultiplier, 0.0F, 100.0F);
+}
+
+[[nodiscard]] bool validShotgunTuning(const ShotgunTuning& tuning) {
+  return validFloatRange(tuning.range, 0.0F, 100000.0F) &&
+    tuning.pelletCount > 0U && tuning.damagePerPellet >= 0 && tuning.damagePerPellet <= 100000 &&
+    validFloatRange(tuning.spreadRadians, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.eyeHeight, 0.0F, 100.0F) &&
+    validFloatRange(tuning.knockback, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.headshotMultiplier, 0.0F, 100.0F);
+}
+
 [[nodiscard]] bool validWeaponDamage(const WeaponDamageTuning& damage) {
   const auto valid = [](int value) { return value >= 0 && value <= 100000; };
   return valid(damage.shotgunDamagePerPellet) && valid(damage.machineGunDamage) &&
@@ -293,6 +311,7 @@ private:
       !validFloatRange(config.icePool.controlScale, 0.0F, 1.0F) ||
       !validFloatRange(config.icePool.mergeDistance, 0.0F, 100000.0F) ||
       !validHitscanTuning(config.railgun) || !validHitscanTuning(config.revolver) ||
+      !validMachineGunTuning(config.machineGun) || !validShotgunTuning(config.shotgun) ||
       !validFloatRange(config.sniperChargeSeconds, 0.0F, 1000.0F) ||
       !validFloatRange(config.sniperMaxDamageMultiplier, 0.0F, 100.0F) ||
       !validFloatRange(config.rocketLauncher.speed, 0.0F, 100000.0F) ||
@@ -321,11 +340,10 @@ private:
     return false;
   }
   const auto validDamage = [](int value) { return value >= 0 && value <= 100000; };
-  if (!validDamage(config.revolver.damage) || !validDamage(config.machineGun.damage) ||
-      !validDamage(config.shotgun.damagePerPellet) || !validDamage(config.rocketLauncher.directDamage) ||
+  if (!validDamage(config.revolver.damage) || !validDamage(config.rocketLauncher.directDamage) ||
       !validDamage(config.rocketLauncher.splashDamage) || !validDamage(config.grenadeLauncher.directDamage) ||
       !validDamage(config.grenadeLauncher.splashDamage) || !validDamage(config.plasmaGun.damage) ||
-      config.shotgun.pelletCount == 0U || config.railgunCooldownTicks == 0U ||
+      config.railgunCooldownTicks == 0U ||
       config.revolverCooldownTicks == 0U || config.machineGunCooldownTicks == 0U ||
       config.shotgunCooldownTicks == 0U || config.rocketLauncherCooldownTicks == 0U ||
       config.grenadeLauncher.cooldownTicks == 0U || config.plasmaGun.cooldownTicks == 0U ||
