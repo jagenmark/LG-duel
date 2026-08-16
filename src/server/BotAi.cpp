@@ -22,6 +22,11 @@ constexpr float kNavReachRadius = 0.55F;
 constexpr float kBotNavDt = 1.0F / 125.0F;
 constexpr float kCommonBotTargetFovDegrees = 108.0F;
 constexpr float kMaximumObservedSpeed = 60.0F;
+// Retain a still-visible opponent unless a challenger is clearly closer.
+// The absolute floor protects close-range fights; the relative term scales
+// the commitment margin at long range.
+constexpr float kTargetSwitchMinimumDistanceAdvantage = 0.75F;
+constexpr float kTargetSwitchRelativeDistanceAdvantage = 0.12F;
 
 struct NavSamplingBounds {
   Vec3 min = {};
@@ -2276,6 +2281,10 @@ BotMotor BotBrain::tick(
   float visibleDistance = std::numeric_limits<float>::infinity();
   bool visibleTargetGrounded = false;
   bool visibleTargetSplashSurface = false;
+  std::size_t currentVisibleTarget = kDuelPlayerCount;
+  float currentVisibleDistance = std::numeric_limits<float>::infinity();
+  bool currentVisibleTargetGrounded = false;
+  bool currentVisibleTargetSplashSurface = false;
   for (std::size_t index = 0; index < sense.visibleEnemyCount; ++index) {
     const BotObservedEnemy& enemy = sense.visibleEnemies[index];
     if (enemy.playerIndex >= kDuelPlayerCount) continue;
@@ -2303,11 +2312,32 @@ BotMotor BotBrain::tick(
       memory.valid = true;
     }
     const float distance = horizontalDistance(sense.self.position, enemy.position);
-    if (distance < visibleDistance) {
+    const bool betterCandidate = distance < visibleDistance ||
+      (distance == visibleDistance && enemy.playerIndex < visibleTarget);
+    if (betterCandidate) {
       visibleDistance = distance;
       visibleTarget = enemy.playerIndex;
       visibleTargetGrounded = enemy.onGround;
       visibleTargetSplashSurface = enemy.nearbySplashSurface;
+    }
+    if (enemy.playerIndex == targetPlayerIndex_) {
+      currentVisibleTarget = enemy.playerIndex;
+      currentVisibleDistance = distance;
+      currentVisibleTargetGrounded = enemy.onGround;
+      currentVisibleTargetSplashSurface = enemy.nearbySplashSurface;
+    }
+  }
+  if (currentVisibleTarget < kDuelPlayerCount &&
+      visibleTarget != currentVisibleTarget) {
+    const float switchAdvantage = std::max(
+      kTargetSwitchMinimumDistanceAdvantage,
+      currentVisibleDistance * kTargetSwitchRelativeDistanceAdvantage
+    );
+    if (visibleDistance + switchAdvantage >= currentVisibleDistance) {
+      visibleTarget = currentVisibleTarget;
+      visibleDistance = currentVisibleDistance;
+      visibleTargetGrounded = currentVisibleTargetGrounded;
+      visibleTargetSplashSurface = currentVisibleTargetSplashSurface;
     }
   }
 

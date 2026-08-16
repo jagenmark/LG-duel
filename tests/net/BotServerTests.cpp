@@ -422,6 +422,64 @@ int main() {
   }
 
   {
+    lg::BotDifficultyProfile profile =
+      lg::botDifficultyProfile(lg::BotAttackMode::Hard);
+    profile.reactionMinSeconds = 0.05F;
+    profile.reactionMaxSeconds = 0.05F;
+    profile.maxTurnRadiansPerSecond = 100.0F;
+    profile.turnAccelerationRadiansPerSecond2 = 10000.0F;
+    profile.trackingErrorRadians = 0.0F;
+    profile.fireToleranceRadians = 0.20F;
+    profile.predictionSeconds = 0.0F;
+
+    lg::BotSenseFrame sense;
+    sense.fixedDt = 0.10F;
+    sense.serverTick = 1U;
+    sense.self.position = {0.0F, 0.0F, 0.9F};
+    sense.self.viewYawRadians = 0.0F;
+    sense.self.halfHeight = 0.9F;
+    sense.combatEnabled = true;
+    sense.selectedWeapon = lg::Weapon::LightningGun;
+    sense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {true, true, 18.0F, 6.0F, 0.05F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    sense.visibleEnemies[0] = {1U, {6.0F, 0.0F, 0.9F}, 1U, true, false};
+    sense.visibleEnemies[1] = {2U, {6.4F, 0.0F, 0.9F}, 1U, true, false};
+    sense.visibleEnemyCount = 2U;
+
+    lg::BotBrain brain;
+    brain.reset(0x57AB1E5U);
+    const lg::BotMotor acquired = brain.tick(sense, profile, {});
+    ++sense.serverTick;
+    sense.visibleEnemies[0].observationServerTick = sense.serverTick;
+    sense.visibleEnemies[1].observationServerTick = sense.serverTick;
+    const lg::BotMotor reacted = brain.tick(sense, profile, {});
+    failures += expect(acquired.targetPlayerIndex == 1U &&
+      reacted.targetPlayerIndex == 1U &&
+      reacted.noFireReason != lg::BotNoFireReason::Reaction,
+      "a stable visible target should finish its sampled reaction delay");
+
+    ++sense.serverTick;
+    sense.visibleEnemies[0] = {1U, {6.2F, 0.0F, 0.9F},
+      sense.serverTick, true, false};
+    sense.visibleEnemies[1] = {2U, {5.9F, 0.0F, 0.9F},
+      sense.serverTick, true, false};
+    const lg::BotMotor retained = brain.tick(sense, profile, {});
+    failures += expect(retained.targetPlayerIndex == 1U &&
+      retained.noFireReason != lg::BotNoFireReason::Reaction,
+      "a marginally closer visible enemy should not restart acquisition");
+
+    ++sense.serverTick;
+    sense.visibleEnemies[0] = {1U, {7.0F, 0.0F, 0.9F},
+      sense.serverTick, true, false};
+    sense.visibleEnemies[1] = {2U, {5.0F, 0.0F, 0.9F},
+      sense.serverTick, true, false};
+    const lg::BotMotor switched = brain.tick(sense, profile, {});
+    failures += expect(switched.targetPlayerIndex == 2U &&
+      switched.noFireReason == lg::BotNoFireReason::Reaction,
+      "a clearly closer visible enemy should still trigger a deliberate switch");
+  }
+
+  {
     // BotObservedEnemy has no velocity. This uses only position/tick samples
     // and proves lead appears only after a later visible observation.
     lg::BotDifficultyProfile instant = lg::botDifficultyProfile(lg::BotAttackMode::Hard);
