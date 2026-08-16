@@ -81,6 +81,13 @@ std::optional<lg::replay::ReplayIoService::Result> waitFor(
 
 int main() {
   int failures = 0;
+  const std::filesystem::path defaultDirectory =
+    lg::replay::ReplayStorage::defaultDirectory();
+  failures += expect(defaultDirectory.filename() == "demos" &&
+                     defaultDirectory.parent_path().filename() == "LG Duel" &&
+                     defaultDirectory.parent_path().parent_path().filename() == "LG Duel",
+    "default demo path should follow the shared SDL preference policy");
+
   const std::filesystem::path directory = temporaryDirectory();
   failures += expect(!directory.empty(), "test should create a private demo directory");
   if (directory.empty()) return 1;

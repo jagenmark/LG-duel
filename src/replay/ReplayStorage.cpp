@@ -68,17 +68,23 @@ ReplayStorage::ReplayStorage(std::filesystem::path directory)
 std::filesystem::path ReplayStorage::defaultDirectory() {
 #if defined(_WIN32)
     if (const char* appData = std::getenv("APPDATA"); appData != nullptr && *appData != '\0') {
-        return std::filesystem::path(appData) / "LG Duel" / "demos";
+        return std::filesystem::path(appData) / "LG Duel" / "LG Duel" / "demos";
+    }
+#elif defined(__APPLE__)
+    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+        return std::filesystem::path(home) / "Library" / "Application Support" /
+            "LG Duel" / "LG Duel" / "demos";
     }
 #else
     if (const char* dataHome = std::getenv("XDG_DATA_HOME"); dataHome != nullptr && *dataHome != '\0') {
-        return std::filesystem::path(dataHome) / "lg-duel" / "demos";
+        return std::filesystem::path(dataHome) / "LG Duel" / "LG Duel" / "demos";
     }
     if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
-        return std::filesystem::path(home) / ".local" / "share" / "lg-duel" / "demos";
+        return std::filesystem::path(home) / ".local" / "share" /
+            "LG Duel" / "LG Duel" / "demos";
     }
 #endif
-    return std::filesystem::current_path() / "demos";
+    return std::filesystem::current_path() / "LG Duel" / "LG Duel" / "demos";
 }
 
 bool ReplayStorage::ensureDirectory(std::string* error) const {

@@ -5143,7 +5143,7 @@ int GameApp::run() const {
   InputBindings bindings;
   const std::string configPath = clientConfigPath();
   const std::filesystem::path replayDirectory =
-    std::filesystem::path(configPath).parent_path() / "demos";
+    replay::ReplayStorage::defaultDirectory();
   const std::filesystem::path replayMapDirectory =
     std::filesystem::exists(assetBasePath / "maps")
       ? assetBasePath / "maps"
@@ -5151,6 +5151,7 @@ int GameApp::run() const {
   replay::ReplayStorage replayStorage(replayDirectory);
   replay::ReplayIoService replayIo;
   std::unique_ptr<replay::ReplayRuntime> replayRuntime;
+  bool replayPresentationResetRequested = false;
   std::optional<replay::ReplayIoService::JobId> pendingReplayLoad;
   std::optional<replay::ReplayIoService::JobId> pendingReplayList;
   std::optional<replay::ReplayIoService::JobId> pendingReplayDelete;
@@ -5324,7 +5325,8 @@ int GameApp::run() const {
   console.registerCommand(
     "demo_play",
     "Load and play a local demo: demo_play <name>.",
-    [&session, &replayIo, &replayStorage, &pendingReplayLoad, &replayRuntime](
+    [&session, &replayIo, &replayStorage, &pendingReplayLoad, &replayRuntime,
+     &replayPresentationResetRequested](
       const std::vector<std::string>& arguments
     ) {
       if (arguments.size() != 2) return std::string("usage: demo_play <name>");
@@ -5349,11 +5351,12 @@ int GameApp::run() const {
   console.registerCommand(
     "demo_stop",
     "Stop local replay playback.",
-    [&replayRuntime](const std::vector<std::string>&) {
+    [&replayRuntime, &replayPresentationResetRequested](const std::vector<std::string>&) {
       if (replayRuntime == nullptr || !replayRuntime->started()) {
         return std::string("no local replay is active");
       }
       replayRuntime->stop();
+      replayPresentationResetRequested = true;
       return std::string("replay stopped");
     }
   );
@@ -5387,7 +5390,7 @@ int GameApp::run() const {
   console.registerCommand(
     "demo_step",
     "Step local replay ticks: demo_step [ticks].",
-    [&replayRuntime](const std::vector<std::string>& arguments) {
+    [&replayRuntime, &replayPresentationResetRequested](const std::vector<std::string>& arguments) {
       if (arguments.size() > 2) return std::string("usage: demo_step [ticks]");
       std::int32_t ticks = 1;
       if (arguments.size() == 2) {
@@ -5403,13 +5406,14 @@ int GameApp::run() const {
       if (replayRuntime == nullptr || !replayRuntime->step(ticks, &error)) {
         return "demo step failed: " + (error.empty() ? "no local replay is active" : error);
       }
+      replayPresentationResetRequested = true;
       return "replay tick " + std::to_string(replayRuntime->state().currentTick);
     }
   );
   console.registerCommand(
     "demo_seek",
     "Seek local replay seconds or tick:<n>: demo_seek <time>.",
-    [&replayRuntime](const std::vector<std::string>& arguments) {
+    [&replayRuntime, &replayPresentationResetRequested](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) return std::string("usage: demo_seek <seconds|tick:n>");
       std::string error;
       bool ok = false;
@@ -5435,6 +5439,7 @@ int GameApp::run() const {
         ok = replayRuntime != nullptr && replayRuntime->seekSeconds(seconds, &error);
       }
       if (!ok) return "demo seek failed: " + (error.empty() ? "no local replay is active" : error);
+      replayPresentationResetRequested = true;
       return "replay tick " + std::to_string(replayRuntime->state().currentTick);
     }
   );
@@ -5455,7 +5460,7 @@ int GameApp::run() const {
   console.registerCommand(
     "demo_camera",
     "Set replay camera: first|chase|free.",
-    [&replayRuntime](const std::vector<std::string>& arguments) {
+    [&replayRuntime, &replayPresentationResetRequested](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) return std::string("usage: demo_camera first|chase|free");
       replay::ReplayCameraMode mode;
       if (arguments[1] == "first" || arguments[1] == "firstperson") {
@@ -5470,13 +5475,14 @@ int GameApp::run() const {
       if (replayRuntime == nullptr || !replayRuntime->setCameraMode(mode)) {
         return std::string("no local replay is active");
       }
+      replayPresentationResetRequested = true;
       return "replay camera " + arguments[1];
     }
   );
   console.registerCommand(
     "demo_follow",
     "Follow a replay player slot: demo_follow <1..16>.",
-    [&replayRuntime](const std::vector<std::string>& arguments) {
+    [&replayRuntime, &replayPresentationResetRequested](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) return std::string("usage: demo_follow <slot>");
       std::uint32_t slot = 0;
       const auto parsed = std::from_chars(
@@ -5487,6 +5493,7 @@ int GameApp::run() const {
           !replayRuntime->setFollowSlot(static_cast<std::uint8_t>(slot - 1U))) {
         return std::string("demo follow failed");
       }
+      replayPresentationResetRequested = true;
       return "replay follow " + std::to_string(slot);
     }
   );
@@ -6727,6 +6734,71 @@ int GameApp::run() const {
     CombatEffects::kDecalCapacity
   );
   std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
+
+  const auto resetReplayPresentationState = [&]() {
+    presentationView = {};
+    presentationViewGame = nullptr;
+    previousFrameUsedPresentationView = false;
+    playerPresentationStates = {};
+    viewModelPresentation.reset();
+    localWeaponSwitchPresentation.reset();
+    remoteWeaponSwitchPresentations = {};
+    weaponPresentationLifecycle.reset();
+    weaponPresentationMapRevision.reset();
+    remoteWeaponPresentationLifecycles = {};
+    pendingLateViewModelMouseDeltaX = 0.0F;
+    pendingLateViewModelMouseDeltaY = 0.0F;
+    lastRemoteHealth = {};
+    hasLastRemoteHealth = {};
+    remoteDeathFadeAgeSeconds = {};
+    lastRemoteDamageTime = {};
+    hasLastRemoteDamageTime = {};
+    localTracerAimHistory = {};
+    transientTracerStore = TransientTracerStore{};
+    combatEffects.clear();
+    activeTransientTracers.clear();
+    activeTransientEffects.clear();
+    resetKillFeedState(killFeedState);
+    damageNumberState.reset();
+    directionalDamageState.reset();
+    directionalDamageGame = nullptr;
+    directionalDamageHasBody = false;
+    directionalDamageBodyIndex = kDuelPlayerCount;
+    directionalDamageMapRevision = 0;
+    directionalDamageTimelineRevision = 0;
+    localHitFeedbackDedupe = {};
+    lingeringRailBeams = {};
+    revolverCylinderSteps = {};
+    machineGunBarrelSpin = {};
+    machineGunFiringResponse = {};
+    lastMachineGunResponseFire = {};
+    hasLastMachineGunResponseFire = false;
+    rocketLauncherFiringResponse = {};
+    freezeGunFiringResponse = {};
+    freezeGunPulseSeconds = {};
+    freezeGunPulseSerials = {};
+    lastRocketLauncherResponseFire = {};
+    hasLastRocketLauncherResponseFire = {};
+    plasmaGunFiringResponse = {};
+    lastPlasmaGunResponseFire = {};
+    hasLastPlasmaGunResponseFire = {};
+    sniperAdsAmount = 0.0F;
+    hasEnemyHitTime = false;
+    hasEnemyHitTimeByTarget = {};
+    hasBeamHitTime = false;
+    hasLocalPlayerAliveState = false;
+    wasLocalPlayerAlive = false;
+    replayAudioRuntime = nullptr;
+    replayAudioHasTick = false;
+    lastReplayAudioTick = 0;
+    replayLastPlayedWeaponFires = {};
+    replayLastPlayedWeaponFireAudioTicks = {};
+    replayHasLastPlayedWeaponFire = {};
+    replayLastPlayedRocketExplosions = {};
+    replayLastPlayedRocketExplosionAudioTicks = {};
+    replayHasLastPlayedRocketExplosion = {};
+    audio.resetLightningGunFire();
+  };
 
   const auto currentMapName = [&session]() -> std::string {
     const ClientGame* game = session.game();
@@ -8728,6 +8800,7 @@ int GameApp::run() const {
             );
           } else {
             replayRuntime = std::move(candidate);
+            replayPresentationResetRequested = true;
             pendingReplayConsoleOutput.push_back(
               "demo playback started: " + replayRuntime->demo().metadata.mapName
             );
@@ -8758,6 +8831,10 @@ int GameApp::run() const {
     while (!pendingReplayConsoleOutput.empty()) {
       appendConsoleOutput(consoleState, pendingReplayConsoleOutput.front());
       pendingReplayConsoleOutput.pop_front();
+    }
+    if (replayPresentationResetRequested) {
+      resetReplayPresentationState();
+      replayPresentationResetRequested = false;
     }
     const bool currentCompatVSync = console.getBool("r_vsync");
     const int currentPresentModeInt = console.getInt("r_present_mode");
@@ -9519,7 +9596,31 @@ int GameApp::run() const {
         session.playerIndex(),
         session.spectator()
       );
-    if (const ClientGame* weaponGame = session.game();
+    if (replayPresentationActive && replayRuntime->frame().valid) {
+      const replay::ReplayPresentationFrame& replayFrame = replayRuntime->frame();
+      const std::size_t replaySubject = replayRuntime->state().followSlot;
+      const std::uint32_t replayRevision = replayFrame.snapshot.mapRevision;
+      if (
+        !weaponPresentationMapRevision.has_value() ||
+        *weaponPresentationMapRevision != replayRevision
+      ) {
+        localWeaponSwitchPresentation.reset();
+        remoteWeaponSwitchPresentations = {};
+        weaponPresentationLifecycle.reset();
+        remoteWeaponPresentationLifecycles = {};
+        weaponPresentationMapRevision = replayRevision;
+      }
+      displayedSelectedWeapon = replayFrame.snapshot.selectedWeapons[replaySubject];
+      if (weaponPresentationLifecycle.observe(
+            replayRevision,
+            replaySubject < kDuelPlayerCount
+              ? std::optional<std::size_t>(replaySubject)
+              : std::nullopt,
+            static_cast<std::uint8_t>(replayFrame.cameraMode)
+          )) {
+        localWeaponSwitchPresentation.reset();
+      }
+    } else if (const ClientGame* weaponGame = session.game();
         weaponGame != nullptr && weaponGame->hasSnapshot()) {
       const std::uint32_t currentRevision = weaponGame->snapshot().mapRevision;
       if (
@@ -9557,7 +9658,7 @@ int GameApp::run() const {
       console.getBool("r_weapon_switch_animation")
     );
 
-    const ClientGame* currentAudioGame = session.game();
+    const ClientGame* currentAudioGame = replayPresentationActive ? nullptr : session.game();
     if (currentAudioGame != audioGame) {
       audioGame = currentAudioGame;
       netGraphCorrectionSerials = {};
@@ -9619,6 +9720,7 @@ int GameApp::run() const {
       audio.resetLightningGunFire();
     }
     const bool directionalDamageNowHasBody =
+      !replayPresentationActive &&
       currentAudioGame != nullptr &&
       currentAudioGame->hasSnapshot() &&
       !session.spectator() &&
@@ -10647,6 +10749,8 @@ int GameApp::run() const {
         const int currentRemoteHealth = renderSnapshot.players[playerIndex].health;
         if (!renderSnapshot.participatingPlayers[playerIndex]) {
           playerPresentationStates[playerIndex] = {};
+          remoteWeaponPresentationLifecycles[playerIndex].reset();
+          remoteWeaponSwitchPresentations[playerIndex].reset();
           continue;
         }
         if (suppressRemoteBodyForPresentation(renderViewOwnership, playerIndex)) {
@@ -10654,6 +10758,13 @@ int GameApp::run() const {
           remoteWeaponSwitchPresentations[playerIndex].reset();
           remoteWeaponPresentationLifecycles[playerIndex].reset();
           continue;
+        }
+        if (remoteWeaponPresentationLifecycles[playerIndex].observe(
+              true,
+              renderSnapshot.playerNames[playerIndex],
+              renderSnapshot.players[playerIndex].health > 0
+            )) {
+          remoteWeaponSwitchPresentations[playerIndex].reset();
         }
         const bool teammate = playerPresentedAsTeammate(
           renderSnapshot, renderLocalPlayerIndex, playerIndex
@@ -11227,7 +11338,8 @@ int GameApp::run() const {
       directionalDamageHudConfig(console)
     );
     updateKillFeedState(killFeedState, outerFrameElapsed.count());
-    if (session.game() != nullptr && session.game()->hasSnapshot()) {
+    if (!replayPresentationActive &&
+        session.game() != nullptr && session.game()->hasSnapshot()) {
       consumeKillFeedEvents(killFeedState, session.game()->snapshot());
     }
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
@@ -11423,15 +11535,18 @@ int GameApp::run() const {
     hud.damageNumbers = damageNumberState.presentation();
     const bool damageIndicatorsEnabled =
       console.getBool("r_damage_indicator") &&
+      !replayPresentationActive &&
       !session.spectator() &&
       session.game() != nullptr &&
       session.game()->hasSnapshot() &&
       session.playerIndex() < kDuelPlayerCount;
-    hud.directionalDamage = directionalDamageState.presentation(
-      renderPlayer.viewYawRadians,
-      directionalDamageHudConfig(console),
-      damageIndicatorsEnabled
-    );
+    hud.directionalDamage = replayPresentationActive
+      ? DirectionalDamagePresentation{}
+      : directionalDamageState.presentation(
+          renderPlayer.viewYawRadians,
+          directionalDamageHudConfig(console),
+          damageIndicatorsEnabled
+        );
     hud.killFeedLines = killFeedPresentation(killFeedState);
     if (console.getBool("cl_showfps")) {
       hud.fpsText = std::to_string(static_cast<int>(
