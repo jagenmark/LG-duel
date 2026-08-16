@@ -66,6 +66,9 @@ add_library(lg_duel_core
   src/replay/ReplayRuntime.cpp
   src/replay/ReplayStorage.cpp
   src/replay/ReplayTransfer.cpp
+  src/replay/ReplayTransferServer.cpp
+  src/replay/KillcamClientReceiver.cpp
+  src/replay/KillcamServerCoordinator.cpp
   src/scenario/LiveScenarioSession.cpp
   src/scenario/ScenarioEvidence.cpp
   src/scenario/ScenarioRuntime.cpp

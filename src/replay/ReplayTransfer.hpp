@@ -4,7 +4,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <optional>
+#include <variant>
 #include <vector>
 
 namespace lg::replay {
@@ -12,6 +14,11 @@ namespace lg::replay {
 inline constexpr std::size_t kReplayTransferMaxDatagramBytes = 1200U;
 inline constexpr std::size_t kReplayTransferMaxSegmentBytes = 512U * 1024U;
 inline constexpr std::uint16_t kReplayTransferMaxChunks = 512U;
+// NetCodec owns a 12-byte normal packet header and the replay chunk payload
+// has 23 bytes of fixed fields, including subtype and CRC.
+inline constexpr std::size_t kReplayTransferMaxChunkPayloadBytes =
+    kReplayTransferMaxDatagramBytes - 12U - 23U;
+inline constexpr std::size_t kReplayTransferSha256Bytes = 32U;
 // Acks use this reserved index for the begin packet. Chunk indexes stay below
 // it.
 inline constexpr std::uint16_t kReplayTransferBeginAck =
@@ -36,6 +43,8 @@ struct ReplayTransferBegin {
   std::uint32_t generation = 0;
   std::uint16_t chunkCount = 0;
   std::uint32_t byteCount = 0;
+  std::uint32_t sessionId = 1;
+  std::array<std::uint8_t, kReplayTransferSha256Bytes> sha256 = {};
 };
 struct ReplayTransferChunk {
   std::uint32_t transferId = 0;
@@ -43,17 +52,32 @@ struct ReplayTransferChunk {
   std::uint16_t index = 0;
   std::uint16_t count = 0;
   std::vector<std::uint8_t> payload;
+  std::uint32_t crc32 = 0;
+  std::uint32_t sessionId = 1;
 };
 struct ReplayTransferAck {
   std::uint32_t transferId = 0;
   std::uint32_t generation = 0;
   std::uint16_t index = 0;
+  std::uint32_t sessionId = 1;
 };
 struct ReplayTransferCancel {
   std::uint32_t transferId = 0;
   std::uint32_t generation = 0;
   ReplayTransferCancelReason reason = ReplayTransferCancelReason::None;
+  std::uint32_t sessionId = 1;
 };
+
+using ReplayTransferMessage = std::variant<
+    ReplayTransferBegin,
+    ReplayTransferChunk,
+    ReplayTransferAck,
+    ReplayTransferCancel>;
+
+[[nodiscard]] std::uint32_t replayTransferCrc32(
+    const std::vector<std::uint8_t>& bytes);
+[[nodiscard]] std::array<std::uint8_t, kReplayTransferSha256Bytes>
+replayTransferSha256(const std::vector<std::uint8_t>& bytes);
 
 [[nodiscard]] bool encodeReplayTransferBegin(const ReplayTransferBegin &,
                                              std::vector<std::uint8_t> &);
@@ -73,6 +97,7 @@ struct ReplayTransferCancel {
                                               ReplayTransferCancel &);
 
 struct ReplayTransferConfig {
+  std::uint32_t sessionId = 1U;
   std::uint32_t retryMilliseconds = 100U;
   std::uint32_t timeoutMilliseconds = 3000U;
   std::uint32_t minimumPacketIntervalMilliseconds = 2U;
@@ -95,12 +120,17 @@ public:
                            std::vector<std::uint8_t> bytes,
                            std::uint64_t nowMilliseconds,
                            ReplayTransferConfig config = {});
+  [[nodiscard]] std::optional<ReplayTransferMessage>
+  nextMessage(std::uint64_t nowMilliseconds);
+  // Compatibility helper for the pre-NetCodec unit tests. Live transport must
+  // use nextMessage and encodeReplayTransferPacket instead.
   [[nodiscard]] std::optional<std::vector<std::uint8_t>>
   nextPacket(std::uint64_t nowMilliseconds);
   void acknowledge(const ReplayTransferAck &ack);
   void cancel(ReplayTransferCancelReason reason);
   [[nodiscard]] ReplayTransferStats stats() const;
   [[nodiscard]] bool complete() const;
+  [[nodiscard]] const ReplayTransferBegin& beginMessage() const { return begin_; }
 
 private:
   ReplayTransferBegin begin_ = {};
@@ -133,6 +163,9 @@ public:
   [[nodiscard]] bool expire(std::uint64_t nowMilliseconds);
   [[nodiscard]] std::optional<std::vector<std::uint8_t>> takeCompleted();
   [[nodiscard]] bool failed() const;
+  [[nodiscard]] bool active() const { return active_; }
+  [[nodiscard]] std::size_t receivedBytes() const { return bytes_; }
+  [[nodiscard]] const ReplayTransferBegin& beginMessage() const { return begin_; }
 
 private:
   ReplayTransferBegin begin_ = {};

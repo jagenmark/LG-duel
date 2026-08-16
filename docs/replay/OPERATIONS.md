@@ -1,9 +1,10 @@
 # Recording, killcam, transfer, and operations
 
-The local runtime controls in this page are implemented. Remote transfer and
-remote killcam controls remain outside this work. The core records a
-`ReplayDemo`, and the app/server layers use a bounded worker for codec and disk
-work.
+The local runtime controls in this page are implemented. PR-C also wires a
+narrow remote Duel transfer and killcam path. Team-mode visibility filters,
+HUD progress, and cinematic controls remain outside this work. The core records
+a `ReplayDemo`, and the app/server layers use bounded workers for codec and
+disk work.
 
 ## Planned recording and playback controls
 
@@ -20,7 +21,11 @@ work.
 | Set playback speed | `demo_speed <0.25..4>` | Implemented |
 | Set first-person, chase, or free camera | `demo_camera first|chase|free` | Implemented; free mode starts at the followed body |
 | Follow or cycle a player | `demo_follow <slot>` | Implemented |
-| Enable rolling buffer and set retention | Pending | Core archive exists; no runtime setting |
+| Enable rolling buffer and set retention | `sv_replay_rolling_seconds`, `sv_replay_rolling_max_mb` | Implemented on the server |
+| Enable remote Duel killcam | `sv_killcam` | Implemented; Duel only for ordinary clients |
+| Set remote segment window | `sv_killcam_before_seconds`, `sv_killcam_after_seconds` | Implemented |
+| Set remote transfer bounds | `sv_killcam_transfer_timeout_ms`, `sv_killcam_max_segment_kb`, `sv_killcam_packets_per_tick` | Implemented |
+| Inspect or skip the remote killcam | `killcam_status`, `killcam_skip` | Implemented |
 
 `ReplayFile` saves only a new `.lgdemo` file and refuses to replace an existing
 recording. It creates an exclusive, uniquely named temporary file, flushes it,
@@ -46,7 +51,8 @@ lethal records, estimated bytes, and dropped records.
 
 The tick path asks whether a completed checkpoint is due before it copies one.
 It does not capture a checkpoint on every rolling tick. Rolling reset and
-self-contained lethal-segment extraction are built; no app killcam calls them.
+self-contained lethal-segment extraction are built; the post-tick coordinator
+consumes the segments for the remote Duel path.
 
 ```text
 authoritative lethal event
@@ -56,13 +62,19 @@ authoritative lethal event
   -> find a retained checkpoint at or before the segment start
   -> copy that checkpoint plus all needed inputs and hashes through the segment end
   -> validate the self-contained segment and generation
-  -> return a `ReplayDemo` for a future local session or transfer
+  -> queue bounded encode work outside ServerGame::tick
+  -> send typed Begin/Chunk messages with retry, ACK, timeout, and cancel
+  -> client verifies CRC/SHA and queues decode through ReplayIoService
+  -> start the existing ReplayRuntime presentation source
 ```
 
 A segment that has no valid checkpoint, crosses a map/reset generation, exceeds
 its cap, crosses a dropped authority boundary, or has missing data is rejected.
-The archive returns a self-contained `ReplayDemo`; no client currently receives
-or presents it.
+The archive returns a self-contained `ReplayDemo` for the post-tick coordinator.
+The coordinator encodes it on its bounded worker and sends it through the
+authenticated transfer path. The client decodes it on `ReplayIoService` and
+uses the existing replay runtime and presentation adapter. Server tick and
+render do not do replay file I/O.
 
 Lethal provenance distinguishes direct, splash, self, and world cases. Each
 event carries a nonzero sequence within the replay generation and preserves a
@@ -75,7 +87,7 @@ HUD, projectile effects, transient effects, and camera code read that source.
 The replay runtime owns its `ServerGame` and `ReplayPlaybackRunner`; it never
 rewinds or writes the live `ClientGame`.
 
-The future killcam must never pause or rewind the server, change respawn rules,
+The remote killcam must never pause or rewind the server, change respawn rules,
 delay a round or match, inject replay commands into the live player, or replace
 live client state. It must abort on control return, skip, respawn, round/match
 transition, map change, disconnect, generation mismatch, incomplete data, or
@@ -84,28 +96,34 @@ transfer failure.
 ## Replay transfer
 
 The bounded transfer codec and sender/receiver state machine are built in
-`ReplayTransfer`. They are not wired into `NetCodec` or `UdpTransport`, so no
-live server sends a replay and no remote client receives one. Replay bytes do
-not appear in ordinary gameplay snapshots.
+`ReplayTransfer` and wired as typed messages through `NetCodec`, loopback, and
+`UdpTransport`. Replay bytes do not appear in ordinary gameplay snapshots.
 
 The state machine has explicit `Begin`, `Chunk`, `Ack`, and `Cancel` packet
 types. Its records carry:
 
 - transfer ID and replay generation;
+- authenticated session ID;
 - segment byte count and chunk count;
 - chunk index/count and payload;
+- per-chunk CRC-32 and whole-segment SHA-256;
 - acknowledgements; and
 - cancellation reason.
 
 Every application datagram, including headers, stays at or below 1,200 bytes.
-The transfer caps a segment at 512 KiB and 512 chunks. This remains separate
-from the 512 MiB saved-demo and recorder limits. It handles duplicate and
-out-of-order chunks, retries acknowledged gaps, supports cancellation, times
-out safely, and rate-limits sends. A receiver expires on idle or overall timeout
-when a cancel packet is lost, so stale transfer state cannot remain pinned. A
-future transport hookup must give commands,
-snapshots, projectile updates, and other live traffic priority. A failed
-transfer must only skip the killcam.
+The transfer caps a segment at 512 KiB and 512 chunks; each chunk carries at
+most 1,165 bytes. These limits stay separate from the 512 MiB saved-demo and
+recorder limits. It handles duplicate and out-of-order chunks, retries missing
+chunks, supports cancellation, times out safely, and rate-limits sends. A
+receiver expires on idle or overall timeout when a cancel packet is lost, so
+stale transfer state cannot remain pinned. The server sends at a per-tick
+packet budget, and a failed transfer only skips the killcam.
+
+The server accepts only ACK/Cancel messages from the authenticated endpoint
+that owns the matching client session. The client accepts only Begin/Chunk
+messages for its current session and active transfer. The coordinator rejects
+missing clients, stale sessions or generations, non-Duel modes, bot victims,
+oversized segments, malformed chunks, and cross-match map/content data.
 
 ## Hidden-information policy
 
@@ -121,15 +139,17 @@ reviewed team-visibility filter proves this rule for each team mode:
 - local/developer use follows a separate explicit authorization policy; and
 - a developer full-state demo must not become the ordinary killcam export path.
 
-The transfer has no live hookup, so this policy does not yet enable a remote
-killcam for any player.
+The coordinator applies this policy before encode and the client applies it
+again before presentation. Ordinary remote killcams therefore run only in
+Duel in this slice.
 
 ## Measures and telemetry
 
 `ReplayRecorderStats` reports recorded ticks, checkpoints, hashes, and estimated
 bytes. Rolling stats add retained records, bytes, and drops. Transfer stats add
-chunks, acknowledgements, retries, and cancellation. The app still needs
-diagnostics for file bytes, segment bytes, and live transfer.
+chunks, acknowledgements, retries, and cancellation. `killcam_status` reports
+coordinator pending events, encode jobs, active transfers, and packet sends;
+the app still needs richer HUD progress and persistent transfer telemetry.
 
 `lg_duel_replay_performance_tests` recorded this focused 512-tick measure:
 
@@ -157,9 +177,13 @@ full recording can use close to 512 MiB, but stops cleanly at the cap.
   does not reproduce the original client prediction frame.
 - Free camera has no separate movement command yet; it starts at the followed
   body.
-- Rolling retention has no player-facing runtime setting yet.
-- `ReplayTransfer` has no `NetCodec` or `UdpTransport` hookup; no remote replay
-  transfer or player-facing killcam exists.
+- The remote slice has no HUD progress, replay timeline, or cinematic director.
+- There is no full two-process lethal-to-playback soak test yet; focused codec,
+  retry/timeout, quota, receiver, coordinator, and UDP loopback tests cover the
+  current seams.
+- Team-mode visibility filtering is not implemented; ordinary remote transfer
+  stays disabled outside Duel.
+- Transfer and replay telemetry is not persistent.
 - It does not reproduce raw packet timing or pixel-identical local prediction.
 - It does not run bot AI during playback or save bot AI state.
 - Lethal provenance records direct, splash, self, and world causes plus
@@ -177,8 +201,8 @@ full recording can use close to 512 MiB, but stops cleanly at the cap.
    configuration, protocol/build data, and checksum failure named by the reader.
 3. Restore the exact required map/content/build when the diagnostic says the
    file is incompatible. Otherwise record a new demo.
-4. If a future transfer fails, skip the killcam. Do not place replay bytes in
-   gameplay snapshots.
+4. If a transfer fails, skip the killcam. Do not place replay bytes in gameplay
+   snapshots.
 
 ### Divergent demo
 

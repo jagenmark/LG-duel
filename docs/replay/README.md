@@ -9,10 +9,11 @@ recording memory). It is not a list of player-facing controls.
 
 The system has a bot-free v5 format, recorder, headless playback runner,
 checkpoint restore, hash checks, seek, rolling archive, self-contained
-lethal-segment extraction, transfer state, strict file helpers, a bounded local
-file worker, a replay-only runtime, and a `GameApp` presentation source. The
-local demo path has controls and uses the normal renderer, HUD, effects, and
-camera inputs. Remote transfer and remote killcam remain outside this work.
+lethal-segment extraction, transfer state, strict file helpers, bounded replay
+workers, a replay-only runtime, and a `GameApp` presentation source. The local
+demo path and the narrow PR-C remote Duel transfer path use the existing replay
+runtime and presentation source. HUD progress, team-mode visibility filters,
+and cinematic killcam controls remain outside this work.
 
 ## Reading order
 
@@ -20,8 +21,8 @@ camera inputs. Remote transfer and remote killcam remain outside this work.
   checkpoints, hashes, and client state.
 - [Format and validation](FORMAT.md) covers `.lgdemo` versioning, chunks, and
   clean failure.
-- [Operations and killcam](OPERATIONS.md) covers planned controls, rolling
-  retention, transfer, privacy, measures, limits, and fixes for bad demos.
+- [Operations and killcam](OPERATIONS.md) covers controls, rolling retention,
+  transfer, privacy, measures, limits, and fixes for bad demos.
 - [Bot merge contract](BOT-MERGE.md) records the bot boundary, known overlap,
   and the required post-merge test.
 
@@ -50,9 +51,10 @@ fixed-step gameplay code without fake UDP clients.
 | Bounded local replay I/O | Implemented in `ReplayIoService`; save, load, decode, list, and delete run on one owned worker |
 | Replay-only runtime and controls | Implemented in `ReplayRuntime` and `GameApp`; pause, step, speed, seek, camera, and follow are local |
 | Replay presentation source | Implemented in `GameApp`; replay state feeds the same renderer, HUD, projectile, effects, and camera inputs |
-| Rolling server buffer and self-contained lethal segment extraction | Implemented; no player-facing killcam consumes it |
-| Bounded transfer codec and sender/receiver state machine | Implemented with receiver expiry; no `NetCodec` or `UdpTransport` live hookup |
-| Team-mode visibility guard | Implemented in transfer policy; ordinary remote delivery remains unhooked |
+| Rolling server buffer and self-contained lethal segment extraction | Implemented; the PR-C coordinator consumes Duel segments after the tick |
+| Bounded transfer codec and sender/receiver state machine | Implemented with typed `NetCodec`, loopback, and UDP transport messages; covered by focused tests |
+| Remote Duel coordinator and client receiver | Implemented as a bounded post-tick encode/transfer/decode path; one server worker and one active transfer per client |
+| Team-mode visibility guard | Implemented in transfer policy; ordinary remote delivery is limited to Duel |
 | Replay measures | Recorded by `lg_duel_replay_performance_tests`; see [Operations](OPERATIONS.md) |
 | Replay and bot compatibility test | Implemented in `lg_duel_replay_playback_tests`; required after bot merges |
 
@@ -105,6 +107,36 @@ The server adds `demo_record [name]`, `demo_stop`, `demo_status`, `demo_list`,
 and `demo_delete`. `sv_demo_autorecord` starts a local recording when a match
 enters live play. `sv_demo_checkpoint_ticks`, `sv_demo_hash_ticks`,
 `sv_demo_max_file_mb`, and `sv_demo_max_resident_mb` set recorder bounds.
+
+The PR-C remote controls are:
+
+```text
+sv_killcam 0|1
+sv_killcam_before_seconds <0.1..30>
+sv_killcam_after_seconds <0..10>
+sv_killcam_transfer_timeout_ms <100..30000>
+sv_killcam_max_segment_kb <1..512>
+sv_killcam_packets_per_tick <1..64>
+sv_replay_rolling_seconds <3..80>
+sv_replay_rolling_max_mb <1..64>
+killcam_status
+killcam_skip
+```
+
+After `ServerGame::tick` completes, the server coordinator accepts a lethal
+event only when the victim has an authenticated live client, the session and
+replay generation still match, and the mode is ordinary Duel. It extracts the
+rolling segment, queues encoding on the server-owned bounded worker, then sends
+typed Begin/Chunk messages over the authenticated UDP endpoint. The client
+validates the session, transfer IDs, generation, chunk CRCs, and whole-demo
+SHA-256 before it queues decode on its `ReplayIoService`. A valid demo starts
+the existing `ReplayRuntime`; a bad, stale, cross-match, oversized, or
+unauthorized transfer is cancelled and never replaces the live source.
+
+The coordinator and client receiver run outside `ServerGame::tick` and render.
+They do not read or write replay files on the server tick path. `killcam_skip`,
+disconnect, timeout, map/reset generation changes, and failed decode clear the
+remote session without pausing or rewinding live play.
 
 ## Terms
 

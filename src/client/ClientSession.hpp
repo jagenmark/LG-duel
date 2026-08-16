@@ -2,6 +2,7 @@
 
 #include "client/ClientGame.hpp"
 #include "net/UdpTransport.hpp"
+#include "replay/ReplayTransfer.hpp"
 
 #include <cstdint>
 #include <chrono>
@@ -26,6 +27,10 @@ public:
   bool reconnect();
   void update();
   void setNetworkSimulationConfig(const ClientNetworkSimulationConfig& config);
+  [[nodiscard]] bool sendReplayTransferMessage(
+      const replay::ReplayTransferMessage& message);
+  [[nodiscard]] bool receiveReplayTransferMessage(
+      replay::ReplayTransferMessage& message);
 
   void sendCommand(
     const UserCommand& command,

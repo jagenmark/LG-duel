@@ -7,6 +7,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <tuple>
 #include <utility>
 
@@ -1701,7 +1702,7 @@ bool inspectPacketType(const WirePacket& wire, PacketType& type) {
     reserved != 0 ||
     payloadBytes != wire.size() - kHeaderBytes ||
     encodedType < static_cast<std::uint8_t>(PacketType::ConnectRequest) ||
-    encodedType > static_cast<std::uint8_t>(PacketType::ProjectileUpdates)
+    encodedType > static_cast<std::uint8_t>(PacketType::ReplayTransfer)
   ) {
     return false;
   }
@@ -3086,6 +3087,170 @@ bool decodeProjectileUpdatePacket(
   }
   packet = decoded;
   return true;
+}
+
+bool encodeReplayTransferPacket(
+  const replay::ReplayTransferMessage& message,
+  WirePacket& wire
+) {
+  wire.clear();
+  Writer writer(wire);
+  if (!writeHeader(writer, PacketType::ReplayTransfer)) {
+    wire.clear();
+    return false;
+  }
+  bool ok = std::visit([&writer](const auto& value) {
+    using Message = std::decay_t<decltype(value)>;
+    if constexpr (std::is_same_v<Message, replay::ReplayTransferBegin>) {
+      WirePacket validation;
+      if (!replay::encodeReplayTransferBegin(value, validation)) return false;
+      if (!writer.writeU8(static_cast<std::uint8_t>(
+              replay::ReplayTransferPacketType::Begin)) ||
+          !writer.writeU32(value.transferId) ||
+          !writer.writeU32(value.generation) ||
+          !writer.writeU32(value.sessionId) ||
+          !writer.writeU16(value.chunkCount) ||
+          !writer.writeU32(value.byteCount)) {
+        return false;
+      }
+      for (const std::uint8_t byte : value.sha256) {
+        if (!writer.writeU8(byte)) return false;
+      }
+      return true;
+    } else if constexpr (std::is_same_v<Message, replay::ReplayTransferChunk>) {
+      if (value.payload.size() > replay::kReplayTransferMaxChunkPayloadBytes ||
+          value.crc32 != replay::replayTransferCrc32(value.payload)) {
+        return false;
+      }
+      WirePacket validation;
+      if (!replay::encodeReplayTransferChunk(value, validation)) return false;
+      if (!writer.writeU8(static_cast<std::uint8_t>(
+              replay::ReplayTransferPacketType::Chunk)) ||
+          !writer.writeU32(value.transferId) ||
+          !writer.writeU32(value.generation) ||
+          !writer.writeU32(value.sessionId) ||
+          !writer.writeU16(value.index) || !writer.writeU16(value.count) ||
+          !writer.writeU32(value.crc32) ||
+          !writer.writeU16(static_cast<std::uint16_t>(value.payload.size()))) {
+        return false;
+      }
+      for (const std::uint8_t byte : value.payload) {
+        if (!writer.writeU8(byte)) return false;
+      }
+      return true;
+    } else if constexpr (std::is_same_v<Message, replay::ReplayTransferAck>) {
+      WirePacket validation;
+      if (!replay::encodeReplayTransferAck(value, validation)) return false;
+      return writer.writeU8(static_cast<std::uint8_t>(
+                 replay::ReplayTransferPacketType::Ack)) &&
+             writer.writeU32(value.transferId) &&
+             writer.writeU32(value.generation) &&
+             writer.writeU32(value.sessionId) && writer.writeU16(value.index);
+    } else {
+      WirePacket validation;
+      if (!replay::encodeReplayTransferCancel(value, validation)) return false;
+      return writer.writeU8(static_cast<std::uint8_t>(
+                 replay::ReplayTransferPacketType::Cancel)) &&
+             writer.writeU32(value.transferId) &&
+             writer.writeU32(value.generation) &&
+             writer.writeU32(value.sessionId) &&
+             writer.writeU8(static_cast<std::uint8_t>(value.reason));
+    }
+  }, message);
+  if (!ok || !finishPacket(writer) ||
+      writer.size() > kMaxUdpApplicationDatagramBytes) {
+    wire.clear();
+    return false;
+  }
+  return true;
+}
+
+bool decodeReplayTransferPacket(
+  const WirePacket& wire,
+  replay::ReplayTransferMessage& message
+) {
+  if (wire.size() > kMaxUdpApplicationDatagramBytes) return false;
+  Reader reader(wire);
+  if (!readHeader(reader, PacketType::ReplayTransfer, wire.size())) return false;
+  std::uint8_t subtype = 0U;
+  if (!reader.readU8(subtype)) return false;
+
+  if (subtype == static_cast<std::uint8_t>(
+                    replay::ReplayTransferPacketType::Begin)) {
+    replay::ReplayTransferBegin begin;
+    if (!reader.readU32(begin.transferId) ||
+        !reader.readU32(begin.generation) ||
+        !reader.readU32(begin.sessionId) ||
+        !reader.readU16(begin.chunkCount) ||
+        !reader.readU32(begin.byteCount)) {
+      return false;
+    }
+    for (std::uint8_t& byte : begin.sha256) {
+      if (!reader.readU8(byte)) return false;
+    }
+    if (reader.remaining() != 0U) return false;
+    WirePacket validation;
+    if (!replay::encodeReplayTransferBegin(begin, validation)) return false;
+    message = begin;
+    return true;
+  }
+
+  if (subtype == static_cast<std::uint8_t>(
+                    replay::ReplayTransferPacketType::Chunk)) {
+    replay::ReplayTransferChunk chunk;
+    std::uint16_t payloadBytes = 0U;
+    if (!reader.readU32(chunk.transferId) ||
+        !reader.readU32(chunk.generation) ||
+        !reader.readU32(chunk.sessionId) || !reader.readU16(chunk.index) ||
+        !reader.readU16(chunk.count) || !reader.readU32(chunk.crc32) ||
+        !reader.readU16(payloadBytes) ||
+        payloadBytes == 0U ||
+        payloadBytes > replay::kReplayTransferMaxChunkPayloadBytes ||
+        reader.remaining() != payloadBytes) {
+      return false;
+    }
+    chunk.payload.resize(payloadBytes);
+    for (std::uint8_t& byte : chunk.payload) {
+      if (!reader.readU8(byte)) return false;
+    }
+    if (chunk.crc32 != replay::replayTransferCrc32(chunk.payload)) return false;
+    WirePacket validation;
+    if (!replay::encodeReplayTransferChunk(chunk, validation)) return false;
+    message = std::move(chunk);
+    return true;
+  }
+
+  if (subtype == static_cast<std::uint8_t>(
+                    replay::ReplayTransferPacketType::Ack)) {
+    replay::ReplayTransferAck ack;
+    if (!reader.readU32(ack.transferId) ||
+        !reader.readU32(ack.generation) || !reader.readU32(ack.sessionId) ||
+        !reader.readU16(ack.index) || reader.remaining() != 0U) {
+      return false;
+    }
+    WirePacket validation;
+    if (!replay::encodeReplayTransferAck(ack, validation)) return false;
+    message = ack;
+    return true;
+  }
+
+  if (subtype == static_cast<std::uint8_t>(
+                    replay::ReplayTransferPacketType::Cancel)) {
+    replay::ReplayTransferCancel cancel;
+    std::uint8_t reason = 0U;
+    if (!reader.readU32(cancel.transferId) ||
+        !reader.readU32(cancel.generation) ||
+        !reader.readU32(cancel.sessionId) || !reader.readU8(reason) ||
+        reader.remaining() != 0U) {
+      return false;
+    }
+    cancel.reason = static_cast<replay::ReplayTransferCancelReason>(reason);
+    WirePacket validation;
+    if (!replay::encodeReplayTransferCancel(cancel, validation)) return false;
+    message = cancel;
+    return true;
+  }
+  return false;
 }
 
 } // namespace lg

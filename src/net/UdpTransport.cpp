@@ -39,6 +39,13 @@ namespace {
 // The simulation runs at 125 Hz, so 25 ticks keeps scoreboard data at 5 Hz.
 constexpr std::uint32_t kCombatStatsRefreshTicks = 25;
 constexpr std::size_t kCombatStatsPlayersPerPacket = 4;
+constexpr std::size_t kMaxQueuedReplayTransferMessages = 256;
+
+std::uint32_t replayMessageSession(
+    const replay::ReplayTransferMessage& message) {
+  return std::visit(
+      [](const auto& value) { return value.sessionId; }, message);
+}
 
 void copySnapshotConfiguration(ServerSnapshot& destination,
                                const ServerSnapshot& source) {
@@ -284,6 +291,7 @@ struct UdpServerTransport::Impl {
     bool wantsScoreboardStats = false;
     std::uint8_t playerIndex = kNoAssignedPlayer;
     Clock::time_point lastChatSend = Clock::time_point::min();
+    std::deque<replay::ReplayTransferMessage> replayMessages;
   };
 
   explicit Impl(std::uint16_t requestedPort) : port(requestedPort) {}
@@ -410,6 +418,7 @@ struct UdpServerTransport::Impl {
           clients[slotIndex].lastCombatStatsTick = 0;
           clients[slotIndex].wantsScoreboardStats = false;
           clients[slotIndex].lastChatSend = Clock::time_point::min();
+          clients[slotIndex].replayMessages.clear();
         }
         clients[slotIndex].lastHeard = Clock::now();
         WirePacket response;
@@ -525,6 +534,19 @@ struct UdpServerTransport::Impl {
           // only throttles retransmission when an acknowledgement is lost.
           clients[slotIndex].lastChatSend = Clock::time_point::min();
         }
+      } else if (type == PacketType::ReplayTransfer) {
+        replay::ReplayTransferMessage message;
+        if (!decodeReplayTransferPacket(wire, message) ||
+            replayMessageSession(message) != clients[slotIndex].session ||
+            (!std::holds_alternative<replay::ReplayTransferAck>(message) &&
+             !std::holds_alternative<replay::ReplayTransferCancel>(message))) {
+          continue;
+        }
+        if (clients[slotIndex].replayMessages.size() >=
+            kMaxQueuedReplayTransferMessages) {
+          clients[slotIndex].replayMessages.pop_front();
+        }
+        clients[slotIndex].replayMessages.push_back(std::move(message));
       }
     }
 
@@ -805,6 +827,61 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
 
 void UdpServerTransport::publishChatHistory(const ChatHistory& history) {
   impl_->chatHistory = history;
+}
+
+bool UdpServerTransport::sendReplayTransferMessage(
+    std::uint8_t clientIndex,
+    const replay::ReplayTransferMessage& message) {
+  if (clientIndex >= impl_->clients.size() ||
+      !impl_->clients[clientIndex].active ||
+      replayMessageSession(message) != impl_->clients[clientIndex].session) {
+    return false;
+  }
+  WirePacket wire;
+  if (!encodeReplayTransferPacket(message, wire)) {
+    impl_->error = "invalid or oversized replay transfer packet";
+    return false;
+  }
+  return sendWire(impl_->socket, impl_->clients[clientIndex].endpoint, wire);
+}
+
+bool UdpServerTransport::receiveReplayTransferMessage(
+    std::uint8_t& clientIndex,
+    replay::ReplayTransferMessage& message) {
+  for (std::size_t index = 0; index < impl_->clients.size(); ++index) {
+    auto& client = impl_->clients[index];
+    while (!client.replayMessages.empty()) {
+      replay::ReplayTransferMessage candidate =
+          std::move(client.replayMessages.front());
+      client.replayMessages.pop_front();
+      if (!client.active || replayMessageSession(candidate) != client.session) {
+        continue;
+      }
+      clientIndex = static_cast<std::uint8_t>(index);
+      message = std::move(candidate);
+      return true;
+    }
+  }
+  return false;
+}
+
+std::optional<std::uint8_t> UdpServerTransport::clientIndexForPlayer(
+    std::uint8_t playerIndex) const {
+  for (std::size_t index = 0; index < impl_->clients.size(); ++index) {
+    const auto& client = impl_->clients[index];
+    if (client.active && client.playerIndex == playerIndex) {
+      return static_cast<std::uint8_t>(index);
+    }
+  }
+  return std::nullopt;
+}
+
+std::uint32_t UdpServerTransport::clientSession(std::uint8_t clientIndex) const {
+  if (clientIndex >= impl_->clients.size() ||
+      !impl_->clients[clientIndex].active) {
+    return 0U;
+  }
+  return impl_->clients[clientIndex].session;
 }
 
 void UdpServerTransport::sendProjectileUpdates(
@@ -1202,6 +1279,18 @@ struct UdpClientTransport::Impl {
         }
         lastServerPacket = now;
       }
+    } else if (type == PacketType::ReplayTransfer && connected) {
+      replay::ReplayTransferMessage message;
+      if (decodeReplayTransferPacket(wire, message) &&
+          !std::holds_alternative<replay::ReplayTransferAck>(message) &&
+          !std::holds_alternative<replay::ReplayTransferCancel>(message)) {
+        if (replayTransferMessages.size() >=
+            kMaxQueuedReplayTransferMessages) {
+          replayTransferMessages.pop_front();
+        }
+        replayTransferMessages.push_back(wire);
+        lastServerPacket = now;
+      }
     } else if (type == PacketType::Pong && connected) {
       PingPacket pong;
       if (
@@ -1289,6 +1378,8 @@ struct UdpClientTransport::Impl {
           snapshots.clear();
           projectileUpdates.clear();
           chatHistory.clear();
+          replayTransferMessages.clear();
+          networkSim.clear();
           latestProjectileMapRevision = 0U;
           latestProjectileRevision = 0U;
           configurationRevision = 0;
@@ -1339,6 +1430,7 @@ struct UdpClientTransport::Impl {
       snapshots.clear();
       projectileUpdates.clear();
       chatHistory.clear();
+      replayTransferMessages.clear();
       latestProjectileMapRevision = 0U;
       latestProjectileRevision = 0U;
       configurationRevision = 0;
@@ -1365,6 +1457,7 @@ struct UdpClientTransport::Impl {
   std::deque<WirePacket> snapshots;
   std::deque<WirePacket> projectileUpdates;
   std::deque<WirePacket> chatHistory;
+  std::deque<WirePacket> replayTransferMessages;
   SnapshotDiagnostics snapshotDiagnostics = {};
   NetworkTelemetry telemetry = {};
   std::array<std::uint32_t, 256> snapshotTickTags = {};
@@ -1500,6 +1593,8 @@ void UdpClientTransport::disconnect() {
   impl_->pendingRoundCombatStats = {};
   impl_->pendingMatchCombatStats = {};
   impl_->chatHistory.clear();
+  impl_->replayTransferMessages.clear();
+  impl_->networkSim.clear();
   impl_->telemetry.valid = false;
 }
 
@@ -1680,6 +1775,34 @@ bool UdpClientTransport::receiveChatHistory(ChatHistoryChunk& chunk) {
   const WirePacket wire = std::move(impl_->chatHistory.front());
   impl_->chatHistory.pop_front();
   return decodeChatHistoryChunk(wire, chunk);
+}
+
+bool UdpClientTransport::sendReplayTransferMessage(
+    const replay::ReplayTransferMessage& message) {
+  impl_->pump();
+  if (!impl_->connected) {
+    return false;
+  }
+  WirePacket wire;
+  if (!encodeReplayTransferPacket(message, wire)) {
+    impl_->error = "invalid or oversized replay transfer packet";
+    return false;
+  }
+  impl_->sendConnectedWire(wire, Clock::now());
+  return true;
+}
+
+bool UdpClientTransport::receiveReplayTransferMessage(
+    replay::ReplayTransferMessage& message) {
+  impl_->pump();
+  while (!impl_->replayTransferMessages.empty()) {
+    WirePacket wire = std::move(impl_->replayTransferMessages.front());
+    impl_->replayTransferMessages.pop_front();
+    if (decodeReplayTransferPacket(wire, message)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 SnapshotDiagnostics UdpClientTransport::snapshotDiagnostics() const {

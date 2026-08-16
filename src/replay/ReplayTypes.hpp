@@ -1,6 +1,6 @@
 #pragma once
 
-#include "net/NetCodec.hpp"
+#include "net/NetProtocol.hpp"
 #include "sim/BalanceConfig.hpp"
 
 #include <array>

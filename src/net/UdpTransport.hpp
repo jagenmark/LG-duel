@@ -8,6 +8,7 @@
 #include <array>
 #include <memory>
 #include <deque>
+#include <optional>
 #include <string>
 
 namespace lg {
@@ -18,6 +19,8 @@ inline constexpr std::size_t kMaxQueuedProjectileUpdatePackets = 64;
 
 class UdpServerTransport final : public NetTransport {
 public:
+  using NetTransport::receiveReplayTransferMessage;
+  using NetTransport::sendReplayTransferMessage;
   explicit UdpServerTransport(std::uint16_t port);
   ~UdpServerTransport() override;
 
@@ -35,6 +38,16 @@ public:
   [[nodiscard]] bool receiveProjectileUpdates(ProjectileUpdatePacket& packet) override;
   void publishChatHistory(const ChatHistory& history) override;
   [[nodiscard]] bool receiveChatHistory(ChatHistoryChunk& chunk) override;
+  bool sendReplayTransferMessage(
+      std::uint8_t clientIndex,
+      const replay::ReplayTransferMessage& message);
+  [[nodiscard]] bool receiveReplayTransferMessage(
+      std::uint8_t& clientIndex,
+      replay::ReplayTransferMessage& message);
+  [[nodiscard]] std::optional<std::uint8_t> clientIndexForPlayer(
+      std::uint8_t playerIndex) const;
+  [[nodiscard]] std::uint32_t clientSession(
+      std::uint8_t clientIndex) const;
 
   [[nodiscard]] std::uint16_t localPort() const;
   [[nodiscard]] std::size_t connectedClientCount() const;
@@ -69,6 +82,10 @@ public:
   [[nodiscard]] bool receiveProjectileUpdates(ProjectileUpdatePacket& packet) override;
   void publishChatHistory(const ChatHistory& history) override;
   [[nodiscard]] bool receiveChatHistory(ChatHistoryChunk& chunk) override;
+  bool sendReplayTransferMessage(
+      const replay::ReplayTransferMessage& message) override;
+  [[nodiscard]] bool receiveReplayTransferMessage(
+      replay::ReplayTransferMessage& message) override;
   [[nodiscard]] SnapshotDiagnostics snapshotDiagnostics() const override;
   [[nodiscard]] NetworkTelemetry networkTelemetry() const override;
 

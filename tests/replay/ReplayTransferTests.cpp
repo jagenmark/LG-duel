@@ -1,8 +1,10 @@
 #include "replay/ReplayTransfer.hpp"
 
+#include "net/LoopbackTransport.hpp"
 #include "net/NetCodec.hpp"
 #include "replay/ReplayCodec.hpp"
 
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -88,6 +90,17 @@ lg::replay::ReplayDemo compactDuelDemo() {
 
 int main() {
   int failures = 0;
+  const std::vector<std::uint8_t> abc = {'a', 'b', 'c'};
+  constexpr std::array<std::uint8_t, lg::replay::kReplayTransferSha256Bytes>
+      kSha256Abc = {
+          0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea,
+          0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
+          0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
+          0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad};
+  failures += expect(lg::replay::replayTransferCrc32(abc) == 0x352441c2U,
+                     "CRC-32 should match the transfer integrity vector");
+  failures += expect(lg::replay::replayTransferSha256(abc) == kSha256Abc,
+                     "SHA-256 should match the transfer integrity vector");
   std::vector<std::uint8_t> source(2500U);
   for (std::size_t index = 0U; index < source.size(); ++index) {
     source[index] = static_cast<std::uint8_t>(index & 0xffU);
@@ -115,6 +128,56 @@ int main() {
   lg::replay::ReplayTransferBegin begin;
   failures += expect(beginWire.has_value() && decodeBegin(*beginWire, begin),
                      "begin should decode strictly");
+  lg::WirePacket typedBeginWire;
+  const lg::replay::ReplayTransferMessage typedBegin = begin;
+  lg::PacketType typedPacketType = lg::PacketType::Snapshot;
+  lg::replay::ReplayTransferMessage decodedTypedBegin;
+  failures += expect(
+      lg::encodeReplayTransferPacket(typedBegin, typedBeginWire) &&
+          lg::inspectPacketType(typedBeginWire, typedPacketType) &&
+          typedPacketType == lg::PacketType::ReplayTransfer &&
+          lg::decodeReplayTransferPacket(typedBeginWire, decodedTypedBegin) &&
+          std::holds_alternative<lg::replay::ReplayTransferBegin>(
+              decodedTypedBegin),
+      "typed begin should use the normal bounded protocol frame");
+  lg::LoopbackTransport loopback;
+  lg::replay::ReplayTransferMessage loopbackMessage;
+  failures += expect(
+      loopback.sendReplayTransferMessage(typedBegin) &&
+          loopback.receiveReplayTransferMessage(loopbackMessage) &&
+          std::holds_alternative<lg::replay::ReplayTransferBegin>(
+              loopbackMessage),
+      "loopback should carry typed replay messages through NetCodec");
+
+  lg::replay::ReplayTransferSender boundarySender;
+  failures += expect(
+      boundarySender.begin(
+          70U, 3U,
+          std::vector<std::uint8_t>(
+              lg::replay::kReplayTransferMaxChunkPayloadBytes, 0x7fU),
+          1U, config),
+      "maximum typed chunk fixture should start");
+  const auto boundaryBegin = boundarySender.nextMessage(1U);
+  failures += expect(boundaryBegin.has_value(),
+                     "maximum typed chunk fixture should send begin");
+  if (boundaryBegin.has_value()) {
+    const auto* beginMessage =
+        std::get_if<lg::replay::ReplayTransferBegin>(&*boundaryBegin);
+    if (beginMessage != nullptr) {
+      boundarySender.acknowledge(
+          {beginMessage->transferId, beginMessage->generation,
+           lg::replay::kReplayTransferBeginAck, beginMessage->sessionId});
+    }
+  }
+  const auto boundaryChunk = boundarySender.nextMessage(2U);
+  lg::WirePacket boundaryWire;
+  failures += expect(
+      boundaryChunk.has_value() &&
+          std::holds_alternative<lg::replay::ReplayTransferChunk>(
+              *boundaryChunk) &&
+          lg::encodeReplayTransferPacket(*boundaryChunk, boundaryWire) &&
+          boundaryWire.size() == lg::kMaxUdpApplicationDatagramBytes,
+      "maximum typed chunk must fill but not exceed the UDP datagram limit");
   lg::replay::ReplayTransferReceiver receiver;
   const std::optional<lg::replay::ReplayTransferAck> beginAck =
       receiver.receiveBegin(begin);
@@ -263,14 +326,23 @@ int main() {
       !lg::replay::permitsRemoteKillcam(metadata, false),
       "developer-full metadata must not cross the ordinary remote boundary");
 
+  lg::replay::ReplayTransferSender expirySender;
+  failures += expect(expirySender.begin(90U, 1U, {1U}, 1U, config),
+                     "expiry fixture should build a valid begin");
+  const lg::replay::ReplayTransferBegin expiryBegin =
+      expirySender.beginMessage();
   lg::replay::ReplayTransferReceiver expiringReceiver({5U, 20U});
   failures += expect(
-      expiringReceiver.receiveBegin({90U, 1U, 1U, 1U}, 1U).has_value() &&
+      expiringReceiver.receiveBegin(expiryBegin, 1U).has_value() &&
           !expiringReceiver.expire(5U) && expiringReceiver.expire(6U),
       "a lost cancel should expire a stalled receiver instead of pinning it "
       "forever");
+  lg::replay::ReplayTransferSender laterExpirySender;
+  failures += expect(laterExpirySender.begin(91U, 1U, {1U}, 7U, config),
+                     "later expiry fixture should build a valid begin");
   failures += expect(
-      expiringReceiver.receiveBegin({91U, 1U, 1U, 1U}, 7U).has_value() &&
+      expiringReceiver.receiveBegin(laterExpirySender.beginMessage(), 7U)
+              .has_value() &&
           !expiringReceiver.failed(),
       "receiver expiry should reset state and accept a later transfer");
 

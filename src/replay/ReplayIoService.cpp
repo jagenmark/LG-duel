@@ -55,6 +55,18 @@ bool ReplayIoService::enqueueDecode(std::vector<std::uint8_t> bytes,
     return enqueue(JobKind::Decode, DecodeJob{std::move(bytes)}, id, error);
 }
 
+bool ReplayIoService::enqueueEncode(ReplayDemo demo,
+                                    std::size_t maximumBytes,
+                                    JobId& id,
+                                    std::string* error) {
+    if (maximumBytes == 0U) {
+        setError(error, "replay encode size limit is zero");
+        return false;
+    }
+    return enqueue(JobKind::Encode,
+                   EncodeJob{std::move(demo), maximumBytes}, id, error);
+}
+
 bool ReplayIoService::enqueueList(const std::filesystem::path& directory,
                                   JobId& id,
                                   std::string* error) {
@@ -179,6 +191,16 @@ ReplayIoService::Result ReplayIoService::runJob(const Job& job) const {
             result.ok = decodeDemo(payload.bytes, demo, &result.error);
             if (result.ok) {
                 result.demo = std::move(demo);
+            }
+        } else if constexpr (std::is_same_v<Payload, EncodeJob>) {
+            std::vector<std::uint8_t> bytes;
+            result.ok = encodeDemo(payload.demo, bytes, &result.error);
+            if (result.ok && bytes.size() > payload.maximumBytes) {
+                result.ok = false;
+                result.error = "encoded replay exceeds the requested size limit";
+            }
+            if (result.ok) {
+                result.bytes = std::move(bytes);
             }
         } else if constexpr (std::is_same_v<Payload, ListJob>) {
             result.path = payload.directory;

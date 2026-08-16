@@ -3,6 +3,7 @@
 #include "console/ConsoleSystem.hpp"
 #include "console/ConsoleConfig.hpp"
 #include "net/UdpTransport.hpp"
+#include "replay/KillcamServerCoordinator.hpp"
 #include "replay/ReplayIoService.hpp"
 #include "replay/ReplayStorage.hpp"
 #include "server/ServerGame.hpp"
@@ -401,6 +402,7 @@ int ServerApp::run() const {
   );
   server.setMapDirectory(defaultMapDirectory(options_.executablePath));
   (void)server.loadRequestedMap(kDefaultMapName);
+  replay::KillcamServerCoordinator killcamCoordinator(server, transport);
   std::cout << "LG Duel server listening on UDP port " << transport.localPort() << '\n';
 
   replay::ReplayStorage replayStorage;
@@ -426,6 +428,14 @@ int ServerApp::run() const {
   console.registerCvar({"sv_demo_hash_ticks", "State hash interval for saved demos.", 125, CvarFlag::None, 1.0F, 4096.0F});
   console.registerCvar({"sv_demo_max_file_mb", "Maximum saved demo size in MiB.", 512, CvarFlag::None, 1.0F, 512.0F});
   console.registerCvar({"sv_demo_max_resident_mb", "Maximum resident recorder size in MiB.", 512, CvarFlag::None, 1.0F, 512.0F});
+  console.registerCvar({"sv_killcam", "Enable remote duel killcam transfers.", true, CvarFlag::None, {}, {}});
+  console.registerCvar({"sv_killcam_before_seconds", "Remote killcam seconds before the lethal tick.", 3.0F, CvarFlag::None, 0.1F, 30.0F});
+  console.registerCvar({"sv_killcam_after_seconds", "Remote killcam seconds after the lethal tick.", 0.0F, CvarFlag::None, 0.0F, 10.0F});
+  console.registerCvar({"sv_killcam_transfer_timeout_ms", "Remote killcam transfer timeout.", 5000, CvarFlag::None, 100.0F, 30000.0F});
+  console.registerCvar({"sv_killcam_max_segment_kb", "Remote killcam encoded segment cap.", 512, CvarFlag::None, 1.0F, 512.0F});
+  console.registerCvar({"sv_killcam_packets_per_tick", "Remote killcam datagrams per server tick.", 1, CvarFlag::None, 1.0F, 64.0F});
+  console.registerCvar({"sv_replay_rolling_seconds", "Rolling replay retention window.", 12.0F, CvarFlag::None, 3.0F, 80.0F});
+  console.registerCvar({"sv_replay_rolling_max_mb", "Rolling replay resident memory cap.", 16, CvarFlag::None, 1.0F, 64.0F});
   console.registerCvar({"sv_mcg_scorelimit", "McGuffin points required to win a round.", 100, CvarFlag::None, 1.0F, 1000.0F});
   console.registerCvar({"sv_mcg_points_per_second", "McGuffin installed scoring rate.", 1, CvarFlag::None, 1.0F, 20.0F});
   console.registerCvar({"sv_mcg_carry_points_per_second", "McGuffin unbanked carry-credit rate.", 1, CvarFlag::None, 1.0F, 20.0F});
@@ -467,6 +477,35 @@ int ServerApp::run() const {
       1024U * 1024U;
     config.maximumResidentBytes = static_cast<std::size_t>(
       console.getInt("sv_demo_max_resident_mb")
+    ) * 1024U * 1024U;
+    return config;
+  };
+
+  const auto killcamConfig = [&console] {
+    replay::KillcamServerCoordinatorConfig config;
+    config.enabled = console.getBool("sv_killcam");
+    config.beforeTicks = static_cast<std::uint32_t>(std::lround(
+      console.getFloat("sv_killcam_before_seconds") / kFixedTickSeconds
+    ));
+    config.afterTicks = static_cast<std::uint32_t>(std::lround(
+      console.getFloat("sv_killcam_after_seconds") / kFixedTickSeconds
+    ));
+    config.transferTimeoutMilliseconds = static_cast<std::uint32_t>(
+      console.getInt("sv_killcam_transfer_timeout_ms")
+    );
+    config.maximumSegmentBytes = static_cast<std::size_t>(
+      console.getInt("sv_killcam_max_segment_kb")
+    ) * 1024U;
+    config.packetsPerTick = static_cast<std::size_t>(
+      console.getInt("sv_killcam_packets_per_tick")
+    );
+    config.rolling.retainedTicks = static_cast<std::uint32_t>(std::lround(
+      console.getFloat("sv_replay_rolling_seconds") / kFixedTickSeconds
+    ));
+    config.rolling.checkpointIntervalTicks = 250U;
+    config.rolling.hashIntervalTicks = 125U;
+    config.rolling.maximumBytes = static_cast<std::size_t>(
+      console.getInt("sv_replay_rolling_max_mb")
     ) * 1024U * 1024U;
     return config;
   };
@@ -548,6 +587,21 @@ int ServerApp::run() const {
       if (replaySaveJob.has_value()) result += " save=pending";
       if (!lastReplayResult.empty()) result += " last=" + lastReplayResult;
       return result;
+    }
+  );
+  console.registerCommand(
+    "killcam_status",
+    "Show remote duel killcam transfer state.",
+    [&killcamCoordinator](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 1) return std::string("usage: killcam_status");
+      const replay::KillcamServerCoordinatorStats stats =
+        killcamCoordinator.stats();
+      return std::string("killcam enabled=") +
+        (killcamCoordinator.config().enabled ? "1" : "0") +
+        " pending=" + std::to_string(stats.pendingEvents) +
+        " encode=" + std::to_string(stats.pendingEncodes) +
+        " active=" + std::to_string(stats.activeTransfers) +
+        " sent=" + std::to_string(stats.sentPackets);
     }
   );
   console.registerCommand(
@@ -1080,6 +1134,11 @@ int ServerApp::run() const {
       resetRequested = false;
     }
 
+    std::string killcamError;
+    if (!killcamCoordinator.configure(killcamConfig(), &killcamError)) {
+      std::cerr << "Killcam configuration rejected: " << killcamError << '\n';
+    }
+
     const bool autoRecordEnabled = console.getBool("sv_demo_autorecord");
     if (autoRecordEnabled && !autoRecording && !server.replayRecordingActive() &&
         !recordingStem.has_value() &&
@@ -1098,6 +1157,11 @@ int ServerApp::run() const {
     }
 
     server.tick(kFixedTickSeconds);
+    killcamCoordinator.update(static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+        Clock::now().time_since_epoch()
+      ).count()
+    ));
     // A map change can finish a recorder inside ServerGame. Drain that demo
     // here, after the tick, and keep all encoding and disk work off the tick.
     if (!server.replayRecordingActive() && recordingStem.has_value() &&

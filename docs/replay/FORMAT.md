@@ -127,6 +127,36 @@ No app command, console control, automatic match recording setting, or
 background save/load job calls these helpers yet. The helpers therefore do not
 make saved demos a player-facing feature.
 
+## Remote transfer envelope
+
+The remote killcam does not define a second replay file format. It transfers
+the bytes of a validated v5 `ReplayDemo` through the normal network packet
+framing. The envelope uses protocol version 61 and
+`PacketType::ReplayTransfer`, with a typed subtype for `Begin`, `Chunk`, `Ack`,
+or `Cancel`.
+
+`Begin` carries the transfer ID, replay generation, authenticated session ID,
+chunk count, byte count, and the 32-byte SHA-256 of the complete `.lgdemo`
+payload. Each `Chunk` carries the same transfer, generation, and session IDs,
+its index/count, payload length, payload, and CRC-32. `Ack` identifies one
+chunk (or the reserved Begin acknowledgement index); `Cancel` carries a bounded
+reason. Decoders reject trailing bytes, invalid IDs, invalid counts, wrong
+payload lengths, and datagrams above the wire cap.
+
+The normal packet, including its header, is at most 1,200 bytes. A chunk has a
+maximum payload of 1,165 bytes, a transfer has a maximum of 512 chunks, and a
+segment has a maximum of 512 KiB. The receiver permits duplicate and
+out-of-order chunks but completes only when every index is present, the byte
+count matches, every CRC-32 matches, and the whole payload matches the Begin
+SHA-256. Idle and overall timeouts, disconnects, session changes, generation
+changes, cancel, and map/content checks clear incomplete data.
+
+The server sends only Begin/Chunk messages after a post-tick coordinator check;
+the client sends only Ack/Cancel messages through the authenticated session.
+Transfer bytes never enter ordinary gameplay snapshots and no transfer file is
+written on `ServerGame::tick` or render. A completed payload goes through the
+existing `ReplayIoService` decode job and `ReplayRuntime` path.
+
 ## Compatibility and clean failure
 
 The decoder checks the format, tick rate, protocol revision, build fingerprint,

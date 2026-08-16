@@ -100,6 +100,18 @@ void ClientSession::setNetworkSimulationConfig(
   }
 }
 
+bool ClientSession::sendReplayTransferMessage(
+  const replay::ReplayTransferMessage& message
+) {
+  return transport_ != nullptr && transport_->sendReplayTransferMessage(message);
+}
+
+bool ClientSession::receiveReplayTransferMessage(
+  replay::ReplayTransferMessage& message
+) {
+  return transport_ != nullptr && transport_->receiveReplayTransferMessage(message);
+}
+
 void ClientSession::sendCommand(
   const UserCommand& command,
   bool requestReset,

@@ -18,6 +18,7 @@
 
 namespace lg {
 
+inline constexpr std::uint16_t kProtocolVersion = 61;
 inline constexpr std::size_t kDuelPlayerCount = kMaxPlayers;
 inline constexpr std::size_t kMaxSpectatorClients = 8;
 inline constexpr std::size_t kMaxNetworkClients =

@@ -24,6 +24,7 @@ public:
         Save,
         Load,
         Decode,
+        Encode,
         List,
         Delete,
     };
@@ -40,6 +41,7 @@ public:
         std::filesystem::path path;
         std::vector<ReplayFileInfo> files;
         std::optional<ReplayDemo> demo;
+        std::vector<std::uint8_t> bytes;
         std::string error;
     };
 
@@ -58,6 +60,10 @@ public:
                                    JobId& id,
                                    std::string* error = nullptr);
     [[nodiscard]] bool enqueueDecode(std::vector<std::uint8_t> bytes,
+                                     JobId& id,
+                                     std::string* error = nullptr);
+    [[nodiscard]] bool enqueueEncode(ReplayDemo demo,
+                                     std::size_t maximumBytes,
                                      JobId& id,
                                      std::string* error = nullptr);
     [[nodiscard]] bool enqueueList(const std::filesystem::path& directory,
@@ -99,13 +105,17 @@ private:
     struct DecodeJob {
         std::vector<std::uint8_t> bytes;
     };
+    struct EncodeJob {
+        ReplayDemo demo;
+        std::size_t maximumBytes = 0;
+    };
     struct ListJob {
         std::filesystem::path directory;
     };
     struct DeleteJob {
         std::filesystem::path path;
     };
-    using JobPayload = std::variant<SaveJob, LoadJob, DecodeJob, ListJob, DeleteJob>;
+    using JobPayload = std::variant<SaveJob, LoadJob, DecodeJob, EncodeJob, ListJob, DeleteJob>;
 
     struct Job {
         JobId id = 0;
