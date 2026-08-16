@@ -1196,6 +1196,58 @@ weapon.gl.gravity -1
 
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::ShotgunTuning tuning = shotgunTuning;
+    tuning.pelletCount = 2U;
+    tuning.spreadRadians = 0.2F;
+    lg::UserCommand command;
+    command.attack = true;
+    const lg::Vec3 start = lg::weaponMuzzlePosition(attacker, tuning.eyeHeight);
+    const lg::Vec3 forward = lg::cameraForward(0.0F, 0.0F);
+    const lg::Vec3 right = lg::Vec3{0.0F, -1.0F, 0.0F};
+    const lg::Vec3 up = lg::Vec3{0.0F, 0.0F, 1.0F};
+    const lg::Vec3 spreadDirection = lg::shotgunPelletDirection(
+      forward,
+      right,
+      up,
+      tuning.spreadRadians,
+      1U,
+      tuning.pelletCount
+    );
+    std::array<lg::ShotgunTargetCandidate, lg::kMaxPlayers> candidates = {};
+    candidates[1].playerIndex = 1U;
+    candidates[1].player.position = start + forward * 4.0F;
+    candidates[1].valid = true;
+    candidates[2].playerIndex = 2U;
+    candidates[2].player.position = start + spreadDirection * 4.0F;
+    candidates[2].valid = true;
+    const lg::ShotgunResolution openResolution = resolveShotgunMultiTarget(
+      attacker,
+      command,
+      arena,
+      tuning,
+      candidates
+    );
+    lg::Arena partialOcclusionArena = arena;
+    partialOcclusionArena.walls[0] = {{2.0F, -0.1F, 0.0F}, {2.2F, 0.1F, 3.0F}};
+    partialOcclusionArena.wallCount = 1U;
+    const lg::ShotgunResolution partialResolution = resolveShotgunMultiTarget(
+      attacker,
+      command,
+      partialOcclusionArena,
+      tuning,
+      candidates
+    );
+    failures += expect(
+      openResolution.fire.pelletHitCount == 2U &&
+        partialResolution.fire.pelletHitCount == 1U &&
+        partialResolution.targets[1].bodyPelletCount == 0U &&
+        partialResolution.targets[2].bodyPelletCount == 1U,
+      "each shotgun pellet should use its own world distance for partial occlusion"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
     lg::PlayerState target = playerAt(1.0F, 0.0F);
     lg::UserCommand command;
     command.attack = true;

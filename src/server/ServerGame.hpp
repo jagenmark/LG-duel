@@ -479,11 +479,16 @@ private:
   std::uint32_t replayGeneration_ = 1;
   std::optional<replay::ReplayTickInput> pendingReplayInput_ = {};
   bool replayPlayback_ = false;
-  // Shotgun target rows resolve as one frozen batch. Delay only the match-end
-  // phase transition so every row can score and apply before later attackers
-  // observe MatchEnd.
-  bool deferMatchEndTransitions_ = false;
-  std::optional<std::size_t> deferredMatchEndWinner_ = {};
+  // Shotgun rows share one frozen gameplay phase. End/round transitions and
+  // death respawns wait until every row has applied in slot order.
+  struct ShotgunBatchState {
+    bool active = false;
+    std::array<bool, kDuelPlayerCount> respawnTargets = {};
+    std::optional<std::size_t> roundWinner = {};
+    std::optional<Team> roundWinningTeam = {};
+    std::optional<std::size_t> matchWinner = {};
+    std::optional<Team> matchWinningTeam = {};
+  } shotgunBatch_ = {};
 };
 
 } // namespace lg

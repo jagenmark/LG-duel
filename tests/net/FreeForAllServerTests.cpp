@@ -259,7 +259,7 @@ int main() {
     lg::ServerGame server(transport);
     server.setArena(testArena());
     lg::MatchRules rules;
-    rules.deathRespawnTicks = 2;
+    rules.deathRespawnTicks = 0;
     server.setMatchRules(rules);
     lg::BalanceConfig balance;
     balance.shotgun.pelletCount = 2U;
@@ -291,6 +291,8 @@ int main() {
         snapshot.weaponFires[0].pelletHitCount == 2U &&
         snapshot.players[1].health == 0 &&
         snapshot.players[2].health == 0 &&
+        snapshot.respawnTicksRemaining[1] == 0 &&
+        snapshot.respawnTicksRemaining[2] == 0 &&
         snapshot.scores[0] == 101 &&
         snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
         snapshot.matchWinner == 0U &&

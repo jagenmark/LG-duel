@@ -1391,8 +1391,8 @@ void ServerGame::tick(float fixedDt) {
     // target rows in slot order keeps scoring and all authoritative effects
     // deterministic; the last lethal row is the event clients display.
     int actualShotgunDamage = 0;
-    deferMatchEndTransitions_ = true;
-    deferredMatchEndWinner_.reset();
+    shotgunBatch_ = {};
+    shotgunBatch_.active = true;
     for (std::size_t targetIndex = 0;
          targetIndex < shotgun.targets.size();
          ++targetIndex) {
@@ -1421,11 +1421,40 @@ void ServerGame::tick(float fixedDt) {
         }
       );
     }
-    deferMatchEndTransitions_ = false;
-    if (deferredMatchEndWinner_.has_value()) {
-      const std::size_t winnerIndex = *deferredMatchEndWinner_;
-      deferredMatchEndWinner_.reset();
-      beginMatchEnd(winnerIndex);
+    const auto deferredRespawnTargets = shotgunBatch_.respawnTargets;
+    const auto deferredRoundWinner = shotgunBatch_.roundWinner;
+    const auto deferredRoundWinningTeam = shotgunBatch_.roundWinningTeam;
+    const auto deferredMatchWinner = shotgunBatch_.matchWinner;
+    const auto deferredMatchWinningTeam = shotgunBatch_.matchWinningTeam;
+    const bool deferredRoundEnd =
+      deferredRoundWinner.has_value() || deferredRoundWinningTeam.has_value();
+    const bool deferredMatchEnd =
+      deferredMatchWinner.has_value() || deferredMatchWinningTeam.has_value();
+    shotgunBatch_ = {};
+    if (deferredRoundWinner.has_value()) {
+      beginRoundEnd(*deferredRoundWinner);
+    } else if (deferredRoundWinningTeam.has_value()) {
+      beginRoundEnd(*deferredRoundWinningTeam);
+    } else if (deferredMatchWinner.has_value()) {
+      beginMatchEnd(*deferredMatchWinner);
+    } else if (deferredMatchWinningTeam.has_value()) {
+      beginMatchEnd(*deferredMatchWinningTeam);
+    }
+    if (!deferredRoundEnd && !deferredMatchEnd) {
+      for (std::size_t targetIndex = 0;
+           targetIndex < deferredRespawnTargets.size();
+           ++targetIndex) {
+        if (!deferredRespawnTargets[targetIndex] ||
+            snapshot_.players[targetIndex].health > 0) {
+          continue;
+        }
+        if (matchRules_.deathRespawnTicks == 0) {
+          respawnPlayer(targetIndex);
+        } else {
+          snapshot_.respawnTicksRemaining[targetIndex] =
+            matchRules_.deathRespawnTicks;
+        }
+      }
     }
     shotgun.fire.damageApplied = actualShotgunDamage;
     snapshot_.weaponFires[attackerIndex].damageApplied = actualShotgunDamage;
@@ -1809,6 +1838,7 @@ bool ServerGame::injectReplayInput(
 void ServerGame::endReplayPlayback() {
   pendingReplayInput_.reset();
   replayPlayback_ = false;
+  shotgunBatch_ = {};
 }
 
 replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
@@ -2125,13 +2155,13 @@ bool ServerGame::restoreReplayCheckpoint(
   playerSessions_ = {};
   pendingReplayInput_.reset();
   replayPlayback_ = true;
+  shotgunBatch_ = {};
   if (error != nullptr) error->clear();
   return true;
 }
 
 void ServerGame::resetMatch() {
-  deferMatchEndTransitions_ = false;
-  deferredMatchEndWinner_.reset();
+  shotgunBatch_ = {};
   ++damageFeedbackRevision_;
   if (damageFeedbackRevision_ == 0U) {
     damageFeedbackRevision_ = 1U;
@@ -3397,6 +3427,12 @@ void ServerGame::beginCountdown() {
 }
 
 void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
+  if (shotgunBatch_.active) {
+    if (!shotgunBatch_.roundWinner.has_value()) {
+      shotgunBatch_.roundWinner = winnerIndex;
+    }
+    return;
+  }
   awardDuelRound(snapshot_.scores, winnerIndex);
   snapshot_.roundWinner = static_cast<std::uint8_t>(winnerIndex);
   snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
@@ -3415,6 +3451,12 @@ void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
 }
 
 void ServerGame::beginRoundEnd(Team winnerTeam) {
+  if (shotgunBatch_.active) {
+    if (!shotgunBatch_.roundWinningTeam.has_value()) {
+      shotgunBatch_.roundWinningTeam = winnerTeam;
+    }
+    return;
+  }
   awardClanArenaRound(snapshot_.teamScores, winnerTeam);
   snapshot_.roundWinningTeam = winnerTeam;
   snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
@@ -3433,8 +3475,10 @@ void ServerGame::beginRoundEnd(Team winnerTeam) {
 }
 
 void ServerGame::beginMatchEnd(std::size_t winnerIndex) {
-  if (deferMatchEndTransitions_) {
-    deferredMatchEndWinner_ = winnerIndex;
+  if (shotgunBatch_.active) {
+    if (!shotgunBatch_.matchWinner.has_value()) {
+      shotgunBatch_.matchWinner = winnerIndex;
+    }
     return;
   }
   snapshot_.matchWinner = static_cast<std::uint8_t>(winnerIndex);
@@ -3443,6 +3487,12 @@ void ServerGame::beginMatchEnd(std::size_t winnerIndex) {
 }
 
 void ServerGame::beginMatchEnd(Team winnerTeam) {
+  if (shotgunBatch_.active) {
+    if (!shotgunBatch_.matchWinningTeam.has_value()) {
+      shotgunBatch_.matchWinningTeam = winnerTeam;
+    }
+    return;
+  }
   snapshot_.matchWinningTeam = winnerTeam;
   snapshot_.matchPhase = MatchPhase::MatchEnd;
   snapshot_.phaseTicksRemaining = matchRules_.matchEndTicks;
@@ -4072,7 +4122,9 @@ void ServerGame::handlePlayerDeath(
           beginMatchEnd(*leader);
         }
       }
-      if (snapshot_.matchPhase == MatchPhase::Live) {
+      if (shotgunBatch_.active) {
+        shotgunBatch_.respawnTargets[targetIndex] = true;
+      } else if (snapshot_.matchPhase == MatchPhase::Live) {
         if (matchRules_.deathRespawnTicks == 0) {
           respawnPlayer(targetIndex);
         } else {
@@ -4082,17 +4134,25 @@ void ServerGame::handlePlayerDeath(
       }
     } else {
       dropMcGuffinCarrier(targetIndex);
-      if (matchRules_.deathRespawnTicks == 0) {
-        respawnPlayer(targetIndex);
+      if (shotgunBatch_.active) {
+        shotgunBatch_.respawnTargets[targetIndex] = true;
       } else {
-        snapshot_.respawnTicksRemaining[targetIndex] =
-          matchRules_.deathRespawnTicks;
+        if (matchRules_.deathRespawnTicks == 0) {
+          respawnPlayer(targetIndex);
+        } else {
+          snapshot_.respawnTicksRemaining[targetIndex] =
+            matchRules_.deathRespawnTicks;
+        }
       }
     }
     return;
   }
 
   if (warmupPhase()) {
+    if (shotgunBatch_.active) {
+      shotgunBatch_.respawnTargets[targetIndex] = true;
+      return;
+    }
     FragEvent fragEvent;
     if (attackerIndex.has_value()) {
       fragEvent = snapshot_.fragEvents[*attackerIndex];
