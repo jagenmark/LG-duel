@@ -141,6 +141,18 @@ struct NavSamplingBounds {
   return {minimum, maximum};
 }
 
+[[nodiscard]] bool playerTouchesKillVolume(
+  const Arena& arena,
+  CollisionBounds bounds,
+  Vec3 position
+) {
+  for (std::size_t index = 0; index < arena.killVolumeCount; ++index) {
+    const ArenaKillVolume& volume = arena.killVolumes[index];
+    if (playerTouchesTriggerVolume(bounds, position, volume.min, volume.max)) return true;
+  }
+  return false;
+}
+
 [[nodiscard]] bool canStandAt(
   const Arena& arena,
   CollisionBounds bounds,
@@ -149,7 +161,8 @@ struct NavSamplingBounds {
   PlayerState player;
   player.position = position;
   player.bounds = bounds;
-  return !playerPositionSolid(arena, player, position);
+  return !playerPositionSolid(arena, player, position) &&
+    !playerTouchesKillVolume(arena, bounds, position);
 }
 
 // Keep this geometric precondition in step with Movement.cpp's trigger test.
@@ -289,7 +302,8 @@ struct NavSamplingBounds {
         const float offsetX = static_cast<float>(x) * kSpacing;
         const Vec3 center = pickup.position + Vec3{offsetX, offsetY, offsetZ};
         if (playerTouchesHealthPickup(bounds, center, pickup) &&
-            !playerPositionSolid(arena, player, center)) {
+            !playerPositionSolid(arena, player, center) &&
+            !playerTouchesKillVolume(arena, bounds, center)) {
           firstFreeCenter = center;
           return true;
         }
@@ -324,10 +338,13 @@ struct NavSamplingBounds {
   );
   for (std::size_t sample = 1U; sample < samples; ++sample) {
     const float fraction = static_cast<float>(sample) / static_cast<float>(samples);
-    if (playerPositionSolid(arena, player, from + (to - from) * fraction)) return true;
+    const Vec3 position = from + (to - from) * fraction;
+    if (playerPositionSolid(arena, player, position) ||
+        playerTouchesKillVolume(arena, bounds, position)) return true;
   }
   const CollisionResult trace = resolvePlayerArenaCollision(arena, player, to, to - from);
-  return distance3d(trace.position, to) > kNavReachRadius;
+  return distance3d(trace.position, to) > kNavReachRadius ||
+    playerTouchesKillVolume(arena, bounds, trace.position);
 }
 
 // A nav grid node must rest on the same kind of surface a normal player uses.
@@ -346,7 +363,8 @@ struct NavSamplingBounds {
   bool foundStart = false;
   for (std::size_t raise = 0; raise <= 12U; ++raise) {
     start = hint + Vec3{0.0F, 0.0F, static_cast<float>(raise) * 0.25F};
-    if (!playerPositionSolid(arena, player, start)) {
+    if (!playerPositionSolid(arena, player, start) &&
+        !playerTouchesKillVolume(arena, bounds, start)) {
       foundStart = true;
       break;
     }
@@ -362,7 +380,8 @@ struct NavSamplingBounds {
     const CollisionResult landing = resolvePlayerArenaCollision(
       arena, player, probe - Vec3{0.0F, 0.0F, 0.75F}, {0.0F, 0.0F, -1.0F}
     );
-    if (landing.onGround && !playerPositionSolid(arena, player, landing.position)) {
+    if (landing.onGround && !playerPositionSolid(arena, player, landing.position) &&
+        !playerTouchesKillVolume(arena, bounds, landing.position)) {
       position = landing.position;
       return true;
     }
@@ -379,6 +398,7 @@ struct NavSamplingBounds {
   player.movementMode = MovementMode::Airborne;
   for (std::size_t tick = 0; tick < 250U; ++tick) {
     simulateMovement(player, settle, arena, MovementTuning{}, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) return false;
     if (player.onGround && !playerPositionSolid(arena, player, player.position)) {
       position = player.position;
       return true;
@@ -409,6 +429,7 @@ struct BotNavTraversalProof {
   player.health = 100;
   player.onGround = true;
   player.movementMode = MovementMode::Grounded;
+  if (playerTouchesKillVolume(arena, bounds, player.position)) return proof;
   const Vec3 delta = to - from;
   const float distance = std::max(0.01F, distance3d(from, to));
   UserCommand command;
@@ -436,6 +457,7 @@ struct BotNavTraversalProof {
   for (int tick = 0; tick < ticks; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
     ++proof.simulatedTicks;
+    if (playerTouchesKillVolume(arena, bounds, player.position)) return proof;
     if (distance3d(player.position, to) <= kNavReachRadius) {
       proof.reached = true;
       return proof;
@@ -474,6 +496,9 @@ struct BotNavTraversalProof {
   bool launched = false;
   for (std::size_t tick = 0; tick < 32U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) {
+      return BotNavSpecialFailureStage::Landing;
+    }
     if (player.jumpPadCooldownTicksRemaining == kDefaultJumpPadCooldownTicks) {
       launched = true;
       break;
@@ -482,6 +507,9 @@ struct BotNavTraversalProof {
   if (!launched) return BotNavSpecialFailureStage::TriggerActivation;
   for (std::size_t tick = 0; tick < 768U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) {
+      return BotNavSpecialFailureStage::Landing;
+    }
     if (player.onGround && !playerPositionSolid(arena, player, player.position)) {
       landing = player.position;
       return BotNavSpecialFailureStage::None;
@@ -508,6 +536,9 @@ struct BotNavTraversalProof {
   bool teleported = false;
   for (std::size_t tick = 0; tick < 32U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) {
+      return BotNavSpecialFailureStage::Landing;
+    }
     if (distance3d(player.position, destination) <= 0.01F) {
       teleported = true;
       break;
@@ -516,6 +547,9 @@ struct BotNavTraversalProof {
   if (!teleported) return BotNavSpecialFailureStage::TriggerActivation;
   for (std::size_t tick = 0; tick < 384U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) {
+      return BotNavSpecialFailureStage::Landing;
+    }
     if (player.onGround && !playerPositionSolid(arena, player, player.position)) {
       landing = player.position;
       return BotNavSpecialFailureStage::None;
@@ -551,6 +585,7 @@ struct BotNavTraversalProof {
   bool touched = playerTouchesHealthPickup(bounds, player.position, pickup);
   for (std::size_t tick = 0; tick < 384U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) return false;
     touched = touched || playerTouchesHealthPickup(bounds, player.position, pickup);
     if (!touched) continue;
     command.forwardMove = 0.0F;
@@ -1334,7 +1369,9 @@ BotNavigationMap buildBotNavigationMap(
       ? BotNavLinkKind::Walk : BotNavLinkKind::Step;
     // A local edge can descend a tall authored ledge. Keep the proof bounded,
     // but allow its fixed simulation window to cover a normal fall instead of
-    // rejecting it at the former one-second cap.
+    // rejecting it at the former one-second cap. Kill volumes are checked by
+    // the traversal proof, so survivable drops remain legal while lethal ones
+    // never become graph edges.
     bool reached = runProof(from, to, false, sameLevelSimpleWalk);
     // A gap can have equal floor heights.  Prove a normal jump in that case
     // too; z alone does not describe the movement rule.
@@ -2491,10 +2528,11 @@ BotMotor BotBrain::tick(
   }
 
   Vec3 moveTarget = movementGoal;
-  // Visible combat permits direct movement. A known health or objective goal
-  // still uses the graph, so a visible enemy cannot turn it into a wall run.
-  const bool directTarget = output.goal == BotGoalKind::Chase && targetVisible &&
-    targetDecisionAllowed;
+  // Combat movement uses the same movement-proven graph as every other goal.
+  // Direct visible-target steering used to bypass it completely, which let a
+  // target on the other side of an exposed platform pull the bot straight
+  // over the edge.
+  const bool directTarget = false;
   replanSeconds_ -= dt;
   if (!directTarget && output.goal != BotGoalKind::Safe && replanSeconds_ <= 0.0F) {
     const bool pathFound = planPath(navigation, sense.self.position, movementGoal);
@@ -2563,7 +2601,11 @@ BotMotor BotBrain::tick(
       -std::cos(command.viewYawRadians), 0.0F};
     command.forwardMove = std::clamp(dot(direction, forward), -1.0F, 1.0F);
     command.rightMove = std::clamp(dot(direction, right), -1.0F, 1.0F);
-    if (output.goal == BotGoalKind::Chase && targetVisible && targetDecisionAllowed) {
+    // Do not blend free-form combat dodging into a movement-proven edge.
+    // Strafing, random hops, and dashes can invalidate the exact input that
+    // made that edge safe near a drop. Aim and firing remain independent.
+    if (output.goal == BotGoalKind::Chase && targetVisible && targetDecisionAllowed &&
+        output.waypointNode >= navigation.nodeCount) {
       strafeSeconds_ -= dt;
       if (strafeSeconds_ <= 0.0F) {
         strafeDirection_ = (randomU32(RandomStream::Movement) & 1U) == 0U ? -1 : 1;
@@ -2589,8 +2631,13 @@ BotMotor BotBrain::tick(
     }
   }
   if (output.recoveredFromStuck && !sense.standstill) {
-    command.rightMove = static_cast<float>(strafeDirection_);
-    command.jump = sense.self.onGround;
+    // Recovery already clears the stale route and forces an immediate replan.
+    // The former blind sideways jump was useful against a wall but dangerous
+    // at a ledge, so do not add unproved movement while the new path is chosen.
+    command.forwardMove = 0.0F;
+    command.rightMove = 0.0F;
+    command.jump = false;
+    command.dash = false;
   }
 
   const float yawError = target < kDuelPlayerCount
