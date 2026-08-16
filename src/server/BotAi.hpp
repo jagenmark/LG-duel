@@ -28,6 +28,8 @@ struct BotSelfSense {
   float radius = 0.35F;
   float halfHeight = 0.9F;
   int health = 100;
+  // Self-owned cap used to avoid valuing health the bot cannot receive.
+  int maxHealth = 100;
   bool onGround = false;
   bool dashReady = false;
 };
@@ -346,6 +348,10 @@ struct BotMotor {
   float targetMemoryAgeSeconds = std::numeric_limits<float>::infinity();
   std::size_t waypointNode = BotNavigationMap::kMaxNodes;
   std::size_t observedHealthResourceCount = 0;
+  // Server-local recovery diagnostics; these are not snapshot fields.
+  std::size_t healthResourceIndex = std::numeric_limits<std::size_t>::max();
+  float healthResourceUtility = -std::numeric_limits<float>::infinity();
+  float healthRouteCost = std::numeric_limits<float>::infinity();
   bool recoveredFromStuck = false;
   std::array<BotWeaponScore, kWeaponCount> weaponScores = {};
   float selectedWeaponScore = -std::numeric_limits<float>::infinity();
@@ -399,6 +405,11 @@ private:
     float minValue,
     float maxValue
   );
+  [[nodiscard]] bool planHealthRecovery(
+    const BotSenseFrame& sense,
+    const BotDifficultyProfile& profile,
+    const BotNavigationMap& navigation
+  );
   [[nodiscard]] bool planPath(
     const BotNavigationMap& navigation,
     Vec3 start,
@@ -430,6 +441,9 @@ private:
   Vec3 stuckSamplePosition_ = {};
   int strafeDirection_ = 1;
   std::uint8_t targetPlayerIndex_ = kNoAssignedPlayer;
+  std::size_t healthResourceIndex_ = std::numeric_limits<std::size_t>::max();
+  float healthResourceUtility_ = -std::numeric_limits<float>::infinity();
+  float healthRouteCost_ = std::numeric_limits<float>::infinity();
   std::size_t patrolNode_ = BotNavigationMap::kMaxNodes;
   Vec3 carrierObjectiveDestination_ = {};
   BotTraits traits_ = {};
