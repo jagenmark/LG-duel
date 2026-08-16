@@ -2119,44 +2119,6 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
-    for (std::uint32_t sequence = 0; sequence < 20; ++sequence) {
-      lg::UserCommand targetCommand;
-      targetCommand.sequence = sequence;
-      targetCommand.viewYawRadians = kPi;
-      targetCommand.rightMove = 1.0F;
-      transport.sendCommand(lg::CommandPacket{1, targetCommand, false, false, sequence});
-      server.tick(lg::kFixedTickSeconds);
-    }
-    const lg::ServerSnapshot beforeAttack = latestSnapshot(transport);
-    failures += expect(
-      std::fabs(beforeAttack.players[1].position.y) >
-        beforeAttack.players[1].bounds.radius,
-      "moving FFA shotgun target should leave the current cone"
-    );
-
-    lg::UserCommand shotgun;
-    shotgun.sequence = 0;
-    shotgun.attack = true;
-    shotgun.weapon = lg::Weapon::Shotgun;
-    shotgun.planarAim = true;
-    shotgun.viewYawRadians = 0.0F;
-    transport.sendCommand(lg::CommandPacket{0, shotgun, false, false, 0});
-    server.tick(lg::kFixedTickSeconds);
-    const lg::ServerSnapshot compensated = latestSnapshot(transport);
-    failures += expect(
-      compensated.weaponFires[0].fired &&
-        compensated.weaponFires[0].hit &&
-        compensated.weaponFires[0].pelletHitCount > 0 &&
-        compensated.players[1].health < 100,
-      "FFA shotgun should trace each target at its lag-compensated pose"
-    );
-  }
-
-  {
-    lg::LoopbackTransport transport;
-    lg::ServerGame server(transport);
-    latestSnapshot(transport);
-
     lg::CommandPacket dimensions;
     dimensions.command.sequence = 0;
     dimensions.requestMovementTuning = true;
@@ -3806,6 +3768,14 @@ int main() {
       snapshot.weaponFires[0].damageApplied ==
         static_cast<int>(snapshot.weaponFires[0].pelletHitCount) * 5,
       "shotgun event should report pellet-scaled damage"
+    );
+    failures += expect(
+      std::hypot(
+        snapshot.weaponFires[0].knockbackImpulse.x,
+        snapshot.weaponFires[0].knockbackImpulse.y,
+        snapshot.weaponFires[0].knockbackImpulse.z
+      ) > 0.0F,
+      "shotgun event should replicate aggregate knockback"
     );
     const int healthAfterFirstShot = snapshot.players[1].health;
     failures += expect(

@@ -1069,7 +1069,8 @@ ShotgunResolution resolveShotgunMultiTarget(
   std::array<bool, kMaxPlayers> centerHeadshots = {};
   for (const ShotgunTargetCandidate& candidate : candidates) {
     if (
-      (!candidate.valid && candidate.playerIndex >= kMaxPlayers) ||
+      !candidate.valid ||
+      candidate.playerIndex >= kMaxPlayers ||
       candidate.player.health <= 0
     ) {
       continue;
@@ -1105,7 +1106,8 @@ ShotgunResolution resolveShotgunMultiTarget(
     const PlayerState* bestPlayer = nullptr;
     for (const ShotgunTargetCandidate& candidate : candidates) {
       if (
-        (!candidate.valid && candidate.playerIndex >= kMaxPlayers) ||
+        !candidate.valid ||
+        candidate.playerIndex >= kMaxPlayers ||
         candidate.player.health <= 0
       ) {
         continue;
@@ -1190,6 +1192,7 @@ ShotgunResolution resolveShotgunMultiTarget(
       normalize(accumulatedDirections[target.playerIndex]) *
       tuning.knockback * hitFraction;
     fire.damageApplied += target.requestedDamage;
+    fire.knockbackImpulse += target.knockbackImpulse;
   }
   return resolution;
 }

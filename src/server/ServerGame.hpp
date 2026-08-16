@@ -479,6 +479,11 @@ private:
   std::uint32_t replayGeneration_ = 1;
   std::optional<replay::ReplayTickInput> pendingReplayInput_ = {};
   bool replayPlayback_ = false;
+  // Shotgun target rows resolve as one frozen batch. Delay only the match-end
+  // phase transition so every row can score and apply before later attackers
+  // observe MatchEnd.
+  bool deferMatchEndTransitions_ = false;
+  std::optional<std::size_t> deferredMatchEndWinner_ = {};
 };
 
 } // namespace lg

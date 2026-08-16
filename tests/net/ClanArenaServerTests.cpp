@@ -108,12 +108,17 @@ lg::CommandPacket aimedAttack(
 lg::ServerSnapshot configureLiveOneVersusTwo(
   lg::LoopbackTransport& transport,
   lg::ServerGame& server,
-  std::uint16_t roundLimit = 2
+  std::uint16_t roundLimit = 2,
+  std::array<lg::Vec3, 3> spawnPositions = {
+    lg::Vec3{-4.0F, 0.0F, 0.0F},
+    lg::Vec3{4.0F, 0.0F, 0.0F},
+    lg::Vec3{6.5F, 0.0F, 0.0F},
+  }
 ) {
   lg::Arena arena;
-  arena.spawnPositions[0] = {-4.0F, 0.0F, 0.0F};
-  arena.spawnPositions[1] = {4.0F, 0.0F, 0.0F};
-  arena.spawnPositions[2] = {6.5F, 0.0F, 0.0F};
+  arena.spawnPositions[0] = spawnPositions[0];
+  arena.spawnPositions[1] = spawnPositions[1];
+  arena.spawnPositions[2] = spawnPositions[2];
   server.setArena(arena);
   server.setConnectedPlayers({true, true, true, false, false, false});
   latestSnapshot(transport);
@@ -365,12 +370,23 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
-    lg::ServerSnapshot snapshot = configureLiveOneVersusTwo(transport, server);
+    const std::array<lg::Vec3, 3> blockedEnemyPositions = {
+      lg::Vec3{5.0F, 0.0F, 0.0F},
+      lg::Vec3{0.0F, 0.0F, 0.0F},
+      lg::Vec3{3.0F, 0.0F, 0.0F},
+    };
+    lg::ServerSnapshot snapshot = configureLiveOneVersusTwo(
+      transport,
+      server,
+      2,
+      blockedEnemyPositions
+    );
     lg::BalanceConfig balance;
-    balance.shotgun.pelletCount = 1U;
+    balance.shotgun.pelletCount = 2U;
     balance.shotgun.spreadRadians = 0.0F;
     server.applyBalanceConfig(balance);
     const int teammateHealth = snapshot.players[2].health;
+    const int enemyHealth = snapshot.players[0].health;
     snapshot = sendAndTick(
       transport,
       server,
@@ -381,15 +397,16 @@ int main() {
     ];
     failures += expect(
       snapshot.weaponFires[1].hit &&
-        snapshot.weaponFires[1].pelletHitCount == 1U &&
+        snapshot.weaponFires[1].pelletHitCount == 2U &&
         snapshot.weaponFires[1].damageApplied == 0 &&
         snapshot.players[2].health == teammateHealth &&
+        snapshot.players[0].health == enemyHealth &&
         std::hypot(
           snapshot.players[2].velocity.x,
           snapshot.players[2].velocity.y,
           snapshot.players[2].velocity.z
         ) > 0.0F &&
-        shotgunStats.attempts == 1U &&
+        shotgunStats.attempts == 2U &&
         shotgunStats.hits == 0U,
       "friendly shotgun bodies should block and take knockback without damage or accuracy credit"
     );

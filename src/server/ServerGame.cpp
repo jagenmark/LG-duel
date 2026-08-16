@@ -1207,13 +1207,15 @@ void ServerGame::tick(float fixedDt) {
             static_cast<std::uint32_t>(target.headPelletCount);
         }
       }
-      recordWeaponAccuracy(
-        snapshot_,
-        attackerIndex,
-        Weapon::Shotgun,
-        shotgunResolutions[attackerIndex].fire.pelletCount,
-        damageAllowedPellets
-      );
+      if (shotgunResolutions[attackerIndex].fire.fired) {
+        recordWeaponAccuracy(
+          snapshot_,
+          attackerIndex,
+          Weapon::Shotgun,
+          shotgunResolutions[attackerIndex].fire.pelletCount,
+          damageAllowedPellets
+        );
+      }
       shotgunCooldownTicks_[attackerIndex] = shotgunCooldownDurationTicks_;
       (void)consumeAmmo(attackerIndex, Weapon::Shotgun);
     } else if (
@@ -1389,6 +1391,8 @@ void ServerGame::tick(float fixedDt) {
     // target rows in slot order keeps scoring and all authoritative effects
     // deterministic; the last lethal row is the event clients display.
     int actualShotgunDamage = 0;
+    deferMatchEndTransitions_ = true;
+    deferredMatchEndWinner_.reset();
     for (std::size_t targetIndex = 0;
          targetIndex < shotgun.targets.size();
          ++targetIndex) {
@@ -1416,6 +1420,12 @@ void ServerGame::tick(float fixedDt) {
           target.hitPosition,
         }
       );
+    }
+    deferMatchEndTransitions_ = false;
+    if (deferredMatchEndWinner_.has_value()) {
+      const std::size_t winnerIndex = *deferredMatchEndWinner_;
+      deferredMatchEndWinner_.reset();
+      beginMatchEnd(winnerIndex);
     }
     shotgun.fire.damageApplied = actualShotgunDamage;
     snapshot_.weaponFires[attackerIndex].damageApplied = actualShotgunDamage;
@@ -2120,6 +2130,8 @@ bool ServerGame::restoreReplayCheckpoint(
 }
 
 void ServerGame::resetMatch() {
+  deferMatchEndTransitions_ = false;
+  deferredMatchEndWinner_.reset();
   ++damageFeedbackRevision_;
   if (damageFeedbackRevision_ == 0U) {
     damageFeedbackRevision_ = 1U;
@@ -3421,6 +3433,10 @@ void ServerGame::beginRoundEnd(Team winnerTeam) {
 }
 
 void ServerGame::beginMatchEnd(std::size_t winnerIndex) {
+  if (deferMatchEndTransitions_) {
+    deferredMatchEndWinner_ = winnerIndex;
+    return;
+  }
   snapshot_.matchWinner = static_cast<std::uint8_t>(winnerIndex);
   snapshot_.matchPhase = MatchPhase::MatchEnd;
   snapshot_.phaseTicksRemaining = matchRules_.matchEndTicks;

@@ -11,6 +11,8 @@
 
 namespace {
 
+constexpr float kPi = 3.14159265359F;
+
 int expect(bool condition, std::string_view message) {
   if (condition) return 0;
   std::cerr << "FAILED: " << message << '\n';
@@ -263,7 +265,7 @@ int main() {
     balance.shotgun.pelletCount = 2U;
     balance.shotgun.spreadRadians = 0.12F;
     server.applyBalanceConfig(balance);
-    lg::ScenarioSetup setup = liveSetup();
+    lg::ScenarioSetup setup = liveSetup(99, 0, 5);
     setup.players[1].health = 5;
     setup.players[1].position = {0.0F, 0.0F, 0.9F};
     setup.players[2].connected = true;
@@ -289,7 +291,9 @@ int main() {
         snapshot.weaponFires[0].pelletHitCount == 2U &&
         snapshot.players[1].health == 0 &&
         snapshot.players[2].health == 0 &&
-        snapshot.scores[0] == 2 &&
+        snapshot.scores[0] == 101 &&
+        snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
+        snapshot.matchWinner == 0U &&
         shotgunStats.attempts == 2U &&
         shotgunStats.hits == 2U,
       "an FFA shotgun blast should split pellets, score both kills, and count pellet accuracy"
@@ -298,6 +302,100 @@ int main() {
       snapshot.localHitFeedbackEvents[0][0].active &&
         snapshot.localHitFeedbackEvents[0][1].active,
       "a shotgun kill on two FFA targets should retain per-target hit feedback"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setArena(testArena());
+    lg::MatchRules rules;
+    rules.deathRespawnTicks = 2;
+    server.setMatchRules(rules);
+    lg::BalanceConfig balance;
+    balance.shotgun.pelletCount = 1U;
+    balance.shotgun.spreadRadians = 0.0F;
+    server.applyBalanceConfig(balance);
+    lg::ScenarioSetup setup = liveSetup();
+    setup.players[2].connected = true;
+    setup.players[2].ready = true;
+    setup.players[2].alive = true;
+    setup.players[2].health = 100;
+    setup.players[2].position = {6.0F, 5.0F, 0.9F};
+    failures += expect(
+      applySetup(server, setup),
+      "FFA lag-compensated shotgun setup should load"
+    );
+    const std::uint32_t historicalTick = server.snapshot().serverTick;
+    for (std::uint32_t sequence = 1; sequence <= 20; ++sequence) {
+      lg::UserCommand targetCommand;
+      targetCommand.sequence = sequence;
+      targetCommand.viewYawRadians = kPi;
+      targetCommand.rightMove = 1.0F;
+      transport.sendCommand(
+        lg::CommandPacket{1, targetCommand, false, false, historicalTick}
+      );
+      server.tick(lg::kFixedTickSeconds);
+      (void)latestSnapshot(transport);
+    }
+    const lg::ServerSnapshot beforeAttack = server.snapshot();
+    failures += expect(
+      beforeAttack.gameMode == lg::GameMode::FreeForAll &&
+        beforeAttack.connectedPlayers[2] &&
+        std::fabs(beforeAttack.players[1].position.y) >
+          beforeAttack.players[1].bounds.radius,
+      "FFA lag-comp test should retain three players and move the target out of the current cone"
+    );
+
+    lg::CommandPacket shotgun;
+    shotgun.playerIndex = 0;
+    shotgun.command.sequence = 1;
+    shotgun.command.attack = true;
+    shotgun.command.weapon = lg::Weapon::Shotgun;
+    shotgun.command.planarAim = true;
+    shotgun.command.viewYawRadians = 0.0F;
+    shotgun.viewedServerTick = historicalTick;
+    const lg::ServerSnapshot compensated = sendAndTick(
+      transport,
+      server,
+      shotgun
+    );
+    failures += expect(
+      compensated.weaponFires[0].fired &&
+        compensated.weaponFires[0].pelletHitCount == 1U &&
+        compensated.players[1].health < 100 &&
+        compensated.players[2].health == 100,
+      "FFA shotgun should trace each target at its lag-compensated pose"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setArena(testArena());
+    lg::ScenarioSetup setup = liveSetup();
+    setup.players[0].alive = false;
+    setup.players[0].health = 0;
+    failures += expect(
+      applySetup(server, setup),
+      "FFA dead shotgun setup should load"
+    );
+    lg::CommandPacket deadShotgun;
+    deadShotgun.playerIndex = 0;
+    deadShotgun.command.sequence = 1;
+    deadShotgun.command.attack = true;
+    deadShotgun.command.weapon = lg::Weapon::Shotgun;
+    const lg::ServerSnapshot snapshot = sendAndTick(
+      transport,
+      server,
+      deadShotgun
+    );
+    const auto& shotgunStats = snapshot.matchCombatStats[0].weapons[
+      lg::weaponIndex(lg::Weapon::Shotgun)
+    ];
+    failures += expect(
+      !snapshot.weaponFires[0].fired && shotgunStats.attempts == 0U,
+      "a dead FFA attacker should not record a non-fired shotgun accuracy attempt"
     );
   }
 
