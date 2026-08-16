@@ -83,6 +83,50 @@ int main() {
   failures += expect(!receiver.active() && !receiver.failed(),
                      "successful client receive should not be marked failed");
 
+  failures += expect(sender.begin(5U, 10U, source, 20U, senderConfig),
+                     "client receiver should start a replacement transfer");
+  const auto replacementBegin = sender.nextMessage(20U);
+  failures += expect(replacementBegin.has_value(),
+                     "replacement transfer should produce a begin");
+  if (replacementBegin.has_value()) {
+    const auto replacementAck = receiver.receive(*replacementBegin, 20U);
+    failures += expect(
+        replacementAck.has_value() &&
+            std::holds_alternative<lg::replay::ReplayTransferAck>(
+                *replacementAck),
+        "client receiver should ACK the replacement begin");
+    if (replacementAck.has_value()) {
+      sender.acknowledge(
+          std::get<lg::replay::ReplayTransferAck>(*replacementAck));
+    }
+  }
+  const auto staleCancel = receiver.receive(
+      lg::replay::ReplayTransferCancel{
+          4U, 9U, lg::replay::ReplayTransferCancelReason::Invalid, 77U},
+      21U);
+  failures += expect(
+      !staleCancel.has_value() && receiver.active() && !receiver.failed(),
+      "a stale same-session cancel must not stop the replacement transfer");
+  for (std::uint64_t now = 21U; !sender.complete() && now < 40U; ++now) {
+    const auto message = sender.nextMessage(now);
+    if (!message.has_value()) continue;
+    const auto acknowledgement = receiver.receive(*message, now);
+    failures += expect(
+        acknowledgement.has_value() &&
+            std::holds_alternative<lg::replay::ReplayTransferAck>(
+                *acknowledgement),
+        "replacement transfer should continue after a stale cancel");
+    if (acknowledgement.has_value()) {
+      sender.acknowledge(
+          std::get<lg::replay::ReplayTransferAck>(*acknowledgement));
+    }
+  }
+  const auto replacementCompleted = receiver.takeCompleted();
+  failures += expect(
+      sender.complete() && replacementCompleted.has_value() &&
+          *replacementCompleted == source && !receiver.failed(),
+      "replacement transfer should complete after a stale cancel");
+
   lg::replay::KillcamClientReceiver crcReceiver({20U, 100U});
   crcReceiver.bindSession(77U);
   failures += expect(begin.has_value() && crcReceiver.receive(*begin, 1U).has_value(),

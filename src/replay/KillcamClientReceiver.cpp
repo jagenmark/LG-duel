@@ -80,8 +80,16 @@ std::optional<ReplayTransferMessage> KillcamClientReceiver::receive(
   }
 
   if (const auto* cancel = std::get_if<ReplayTransferCancel>(&message)) {
+    if (!receiver_.active()) return std::nullopt;
+    const ReplayTransferBegin& activeBegin = receiver_.beginMessage();
+    if (cancel->transferId != activeBegin.transferId ||
+        cancel->generation != activeBegin.generation ||
+        cancel->sessionId != activeBegin.sessionId ||
+        cancel->sessionId != boundSessionId_) {
+      return std::nullopt;
+    }
     receiver_.cancel(*cancel);
-    failed_ = true;
+    if (receiver_.failed()) failed_ = true;
   }
   return std::nullopt;
 }
