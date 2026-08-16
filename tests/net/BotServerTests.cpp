@@ -178,6 +178,36 @@ std::size_t requiredAnchorNode(
   return lg::BotNavigationMap::kMaxNodes;
 }
 
+std::size_t requiredAnchorNode(
+  const lg::BotNavigationMap& map,
+  lg::BotNavAnchorKind kind,
+  std::size_t sourceIndex
+) {
+  const std::size_t count = std::min(map.requiredAnchorCount, map.requiredAnchors.size());
+  for (std::size_t index = 0; index < count; ++index) {
+    const lg::BotNavRequiredAnchor& anchor = map.requiredAnchors[index];
+    if (anchor.kind == kind && anchor.sourceIndex == sourceIndex &&
+        anchor.node < map.nodeCount) {
+      return anchor.node;
+    }
+  }
+  return lg::BotNavigationMap::kMaxNodes;
+}
+
+bool playerTouchesAnyKillVolume(
+  const lg::Arena& arena,
+  const lg::PlayerState& player
+) {
+  for (std::size_t index = 0; index < arena.killVolumeCount; ++index) {
+    const lg::ArenaKillVolume& volume = arena.killVolumes[index];
+    if (lg::playerTouchesTriggerVolume(player.bounds, player.position,
+        volume.min, volume.max)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Replays a generated directed route with ordinary input. It does not set a
 // player pose after the initial node: every waypoint, jump, pad, and teleport
 // transition goes through the same movement tick used by the server.
@@ -237,6 +267,7 @@ bool executeNavRoute(
       command.forwardMove = 1.0F;
       command.jump = kind == lg::BotNavLinkKind::Jump;
       lg::simulateMovement(player, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+      if (playerTouchesAnyKillVolume(arena, player)) return false;
       const lg::Vec3 remaining = map.nodes[next].position - player.position;
       if (std::sqrt(remaining.x * remaining.x + remaining.y * remaining.y +
           remaining.z * remaining.z) <= 0.55F) {
@@ -563,6 +594,41 @@ int main() {
   }
 
   {
+    lg::BotNavigationMap recoveryRoute;
+    recoveryRoute.nodeCount = 2;
+    recoveryRoute.nodes[0].position = {0.0F, 0.0F, 0.9F};
+    recoveryRoute.nodes[1].position = {4.0F, 0.0F, 0.9F};
+    recoveryRoute.links[0] = {0U, 1U, lg::BotNavLinkKind::Walk};
+    recoveryRoute.linkCount = 1;
+    lg::prepareBotNavigationMap(recoveryRoute);
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = recoveryRoute.nodes[0].position;
+    sense.self.onGround = true;
+    sense.objective = {.position = recoveryRoute.nodes[1].position, .active = true};
+    lg::BotBrain brain;
+    brain.reset(0x57U);
+    const lg::BotDifficultyProfile profile =
+      lg::botDifficultyProfile(lg::BotAttackMode::Medium);
+    bool recoveryPulse = false;
+    for (int tick = 0; tick < 90; ++tick) {
+      const lg::BotMotor motor = brain.tick(sense, profile, recoveryRoute);
+      if (motor.recoveredFromStuck) {
+        recoveryPulse = true;
+        break;
+      }
+    }
+    sense.self.position.x = 0.50F;
+    const lg::BotMotor resumed = brain.tick(sense, profile, recoveryRoute);
+    failures += expect(
+      recoveryPulse && !resumed.recoveredFromStuck &&
+        (std::fabs(resumed.command.forwardMove) > 0.01F ||
+         std::fabs(resumed.command.rightMove) > 0.01F),
+      "stuck recovery should stop for one tick, replan, and resume graph movement"
+    );
+  }
+
+  {
     lg::Arena aroundWall = flatArena();
     aroundWall.walls[0].min = {-0.25F, -2.0F, 0.0F};
     aroundWall.walls[0].max = {0.25F, 2.0F, 4.0F};
@@ -673,6 +739,67 @@ int main() {
     failures += expect(
       navPathExists(map, spawn, health) && executeNavRoute(vertical, map, spawn, health),
       "generated navigation should execute a normal-command route up a vertical step to health"
+    );
+  }
+
+  {
+    lg::Arena lethal = flatArena();
+    lethal.min = {-6.0F, -6.0F, 0.0F};
+    lethal.max = {6.0F, 6.0F, 6.0F};
+    lethal.spawnCount = 2;
+    lethal.spawnPositions[0] = {-3.0F, 0.0F, 0.0F};
+    lethal.spawnPositions[1] = {3.0F, 0.0F, 0.0F};
+    lethal.killVolumes[0] = {{-1.0F, -6.0F, -1.0F}, {1.0F, 6.0F, 8.0F}};
+    lethal.killVolumeCount = 1;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      lethal, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    const std::size_t left = requiredAnchorNode(map, lg::BotNavAnchorKind::Spawn, 0U);
+    const std::size_t right = requiredAnchorNode(map, lg::BotNavAnchorKind::Spawn, 1U);
+    failures += expect(
+      map.requiredAnchorsComplete && left < map.nodeCount && right < map.nodeCount &&
+        !navPathExists(map, left, right) && !executeNavRoute(lethal, map, left, right),
+      "lethal kill-volume routes should stay out of the movement graph"
+    );
+  }
+
+  {
+    lg::Arena safeDrop = flatArena();
+    safeDrop.min = {-4.0F, -2.0F, 0.0F};
+    safeDrop.max = {4.0F, 2.0F, 6.0F};
+    safeDrop.spawnCount = 2;
+    safeDrop.spawnPositions[0] = {0.69F, 0.0F, 3.0F};
+    safeDrop.spawnPositions[1] = {1.94F, 0.0F, 0.0F};
+    safeDrop.walls[0].min = {-3.0F, -2.0F, 0.0F};
+    safeDrop.walls[0].max = {0.35F, 2.0F, 3.0F};
+    safeDrop.wallCount = 1;
+    // The straight chord cuts through this volume. A real drop leaves the
+    // upper surface first, stays above it, and reaches the lower surface.
+    safeDrop.killVolumes[0] = {{1.0F, -2.0F, 1.2F}, {1.3F, 2.0F, 2.0F}};
+    safeDrop.killVolumeCount = 1;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      safeDrop, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    const std::size_t upper = requiredAnchorNode(map, lg::BotNavAnchorKind::Spawn, 0U);
+    const std::size_t lower = requiredAnchorNode(map, lg::BotNavAnchorKind::Spawn, 1U);
+    bool hasSafeDropLink = false;
+    if (upper < map.nodeCount) {
+      for (std::size_t index = 0; index < map.linkCount; ++index) {
+        const lg::BotNavLink& link = map.links[index];
+        if (link.from != upper || link.to >= map.nodeCount ||
+            (link.kind != lg::BotNavLinkKind::Step &&
+             link.kind != lg::BotNavLinkKind::Jump)) {
+          continue;
+        }
+        hasSafeDropLink = map.nodes[link.to].position.z <
+          map.nodes[upper].position.z - 0.50F;
+        if (hasSafeDropLink) break;
+      }
+    }
+    failures += expect(
+      upper < map.nodeCount && lower < map.nodeCount && hasSafeDropLink &&
+        navPathExists(map, upper, lower) && executeNavRoute(safeDrop, map, upper, lower),
+      "a simulated safe jump or drop should clear a kill volume crossed by its straight chord"
     );
   }
 

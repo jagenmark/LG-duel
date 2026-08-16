@@ -316,7 +316,8 @@ struct NavSamplingBounds {
 
 // A cheap player-bounds sweep filters links that a straight walking command
 // plainly cannot enter. It never accepts a link: every surviving edge still
-// runs the full fixed-step movement proof below.
+// runs the full fixed-step movement proof below. Kill volumes stay out of this
+// chord test because a jump or drop can safely clear one before the proof ends.
 [[nodiscard]] bool linearlyBlockedForPlayer(
   const Arena& arena,
   CollisionBounds bounds,
@@ -339,12 +340,10 @@ struct NavSamplingBounds {
   for (std::size_t sample = 1U; sample < samples; ++sample) {
     const float fraction = static_cast<float>(sample) / static_cast<float>(samples);
     const Vec3 position = from + (to - from) * fraction;
-    if (playerPositionSolid(arena, player, position) ||
-        playerTouchesKillVolume(arena, bounds, position)) return true;
+    if (playerPositionSolid(arena, player, position)) return true;
   }
   const CollisionResult trace = resolvePlayerArenaCollision(arena, player, to, to - from);
-  return distance3d(trace.position, to) > kNavReachRadius ||
-    playerTouchesKillVolume(arena, bounds, trace.position);
+  return distance3d(trace.position, to) > kNavReachRadius;
 }
 
 // A nav grid node must rest on the same kind of surface a normal player uses.
@@ -2532,9 +2531,8 @@ BotMotor BotBrain::tick(
   // Direct visible-target steering used to bypass it completely, which let a
   // target on the other side of an exposed platform pull the bot straight
   // over the edge.
-  const bool directTarget = false;
   replanSeconds_ -= dt;
-  if (!directTarget && output.goal != BotGoalKind::Safe && replanSeconds_ <= 0.0F) {
+  if (output.goal != BotGoalKind::Safe && replanSeconds_ <= 0.0F) {
     const bool pathFound = planPath(navigation, sense.self.position, movementGoal);
     if (!pathFound) {
       // Never fall through to direct input when A* cannot bridge components.
@@ -2545,7 +2543,7 @@ BotMotor BotBrain::tick(
     replanSeconds_ = profile.planningIntervalSeconds * traits_.movementCadenceBias +
       randomFloat(RandomStream::Tactics, 0.0F, 0.12F);
   }
-  if (!directTarget && pathCursor_ < pathCount_) {
+  if (pathCursor_ < pathCount_) {
     while (pathCursor_ < pathCount_ && distance3d(sense.self.position,
       navigation.nodes[path_[pathCursor_]].position) <= kNavReachRadius) {
       lastWaypoint_ = path_[pathCursor_++];
@@ -2556,7 +2554,7 @@ BotMotor BotBrain::tick(
     } else {
       moveTarget = sense.self.position;
     }
-  } else if (!directTarget) {
+  } else {
     moveTarget = sense.self.position;
   }
 
@@ -2564,10 +2562,14 @@ BotMotor BotBrain::tick(
   moveDelta.z = 0.0F;
   const float moveLength = length(moveDelta);
   const bool wantsMovement = output.goal != BotGoalKind::Safe && moveLength > 0.20F;
+  // Recovery is a one-tick stop. The stuck sample below can trigger another
+  // recovery only after a fresh 0.50 second observation window, so a bot gets
+  // a full tick to use the route that this recovery invalidated.
+  stuckRecoverySeconds_ = std::max(0.0F, stuckRecoverySeconds_ - dt);
   stuckSampleSeconds_ += dt;
   if (wantsMovement && stuckSampleSeconds_ >= 0.50F) {
     if (horizontalDistance(sense.self.position, stuckSamplePosition_) < 0.12F) {
-      stuckRecoverySeconds_ = 0.55F;
+      stuckRecoverySeconds_ = dt;
       strafeDirection_ = -strafeDirection_;
       pathCount_ = 0;
       pathCursor_ = 0;
@@ -2576,7 +2578,6 @@ BotMotor BotBrain::tick(
     stuckSamplePosition_ = sense.self.position;
     stuckSampleSeconds_ = 0.0F;
   }
-  stuckRecoverySeconds_ = std::max(0.0F, stuckRecoverySeconds_ - dt);
   output.recoveredFromStuck = stuckRecoverySeconds_ > 0.0F;
 
   if (sense.dodgeOverride && !sense.standstill) {
