@@ -289,6 +289,9 @@ bool sameMotorCommand(const lg::BotMotor& first, const lg::BotMotor& second) {
     a.forwardMove == b.forwardMove && a.rightMove == b.rightMove &&
     a.attack == b.attack && a.jump == b.jump && a.dash == b.dash &&
     a.weapon == b.weapon && first.targetPlayerIndex == second.targetPlayerIndex &&
+    first.healthResourceIndex == second.healthResourceIndex &&
+    first.healthResourceUtility == second.healthResourceUtility &&
+    first.healthRouteCost == second.healthRouteCost &&
     first.goal == second.goal && first.noFireReason == second.noFireReason;
 }
 
@@ -477,6 +480,179 @@ int main() {
     failures += expect(switched.targetPlayerIndex == 2U &&
       switched.noFireReason == lg::BotNoFireReason::Reaction,
       "a clearly closer visible enemy should still trigger a deliberate switch");
+  }
+
+  {
+    lg::BotDifficultyProfile profile =
+      lg::botDifficultyProfile(lg::BotAttackMode::Hard);
+    profile.planningIntervalSeconds = 0.0F;
+
+    lg::BotNavigationMap routeNavigation;
+    routeNavigation.healthAnchorNodes.fill(
+      std::numeric_limits<std::uint16_t>::max()
+    );
+    routeNavigation.nodeCount = 5U;
+    routeNavigation.nodes[0].position = {0.0F, 0.0F, 0.9F};
+    routeNavigation.nodes[1].position = {1.0F, 0.0F, 0.9F};
+    routeNavigation.nodes[2].position = {0.0F, 5.0F, 0.9F};
+    routeNavigation.nodes[3].position = {4.0F, 0.0F, 0.9F};
+    routeNavigation.nodes[4].position = {0.5F, 0.0F, 0.9F};
+    routeNavigation.links[0] = {0U, 2U, lg::BotNavLinkKind::Walk};
+    routeNavigation.links[1] = {2U, 1U, lg::BotNavLinkKind::Walk};
+    routeNavigation.links[2] = {0U, 3U, lg::BotNavLinkKind::Walk};
+    routeNavigation.linkCount = 3U;
+    routeNavigation.healthAnchorNodes[0] = 1U;
+    routeNavigation.healthAnchorNodes[1] = 3U;
+    routeNavigation.healthAnchorNodes[2] = 4U;
+    lg::prepareBotNavigationMap(routeNavigation);
+
+    lg::BotSenseFrame routeSense;
+    routeSense.fixedDt = 0.20F;
+    routeSense.self.position = routeNavigation.nodes[0].position;
+    routeSense.self.health = 20;
+    routeSense.self.maxHealth = 100;
+    routeSense.self.onGround = true;
+    routeSense.healthResources[0] =
+      {0U, routeNavigation.nodes[1].position, 25, true};
+    routeSense.healthResources[1] =
+      {1U, routeNavigation.nodes[3].position, 25, true};
+    routeSense.healthResources[2] =
+      {2U, routeNavigation.nodes[4].position, 100, true};
+    routeSense.healthResourceCount = 3U;
+
+    lg::BotBrain routeFirst;
+    lg::BotBrain routeSecond;
+    routeFirst.reset(0xA11CEU);
+    routeSecond.reset(0xA11CEU);
+    const lg::BotMotor routeMotor =
+      routeFirst.tick(routeSense, profile, routeNavigation);
+    const lg::BotMotor repeatedRouteMotor =
+      routeSecond.tick(routeSense, profile, routeNavigation);
+    failures += expect(
+      sameMotorCommand(routeMotor, repeatedRouteMotor) &&
+      routeFirst.deterministicHash() == routeSecond.deterministicHash(),
+      "route-aware health planning should remain deterministic"
+    );
+    failures += expect(
+      routeMotor.goal == lg::BotGoalKind::RecoverHealth &&
+      routeMotor.healthResourceIndex == 1U &&
+      routeMotor.waypointNode == 3U &&
+      std::fabs(routeMotor.healthRouteCost - 4.0F) < 0.001F,
+      "health recovery should reject an unreachable pickup and prefer lower route cost"
+    );
+
+    lg::BotNavigationMap valueNavigation;
+    valueNavigation.healthAnchorNodes.fill(
+      std::numeric_limits<std::uint16_t>::max()
+    );
+    valueNavigation.nodeCount = 3U;
+    valueNavigation.nodes[0].position = {0.0F, 0.0F, 0.9F};
+    valueNavigation.nodes[1].position = {1.5F, 0.0F, 0.9F};
+    valueNavigation.nodes[2].position = {3.0F, 0.0F, 0.9F};
+    valueNavigation.links[0] = {0U, 1U, lg::BotNavLinkKind::Walk};
+    valueNavigation.links[1] = {0U, 2U, lg::BotNavLinkKind::Walk};
+    valueNavigation.linkCount = 2U;
+    valueNavigation.healthAnchorNodes[0] = 1U;
+    valueNavigation.healthAnchorNodes[1] = 2U;
+    lg::prepareBotNavigationMap(valueNavigation);
+
+    lg::BotSenseFrame valueSense;
+    valueSense.fixedDt = 0.20F;
+    valueSense.self.position = valueNavigation.nodes[0].position;
+    valueSense.self.health = 0;
+    valueSense.self.maxHealth = 100;
+    valueSense.healthResources[0] =
+      {0U, valueNavigation.nodes[1].position, 25, true};
+    valueSense.healthResources[1] =
+      {1U, valueNavigation.nodes[2].position, 50, true};
+    valueSense.healthResourceCount = 2U;
+    lg::BotBrain valueBrain;
+    valueBrain.reset(0xBEEFU);
+    const lg::BotMotor valueMotor =
+      valueBrain.tick(valueSense, profile, valueNavigation);
+    failures += expect(
+      valueMotor.healthResourceIndex == 1U,
+      "a larger recoverable heal should justify a modestly longer route"
+    );
+
+    lg::BotSenseFrame cappedSense = valueSense;
+    cappedSense.self.health = 40;
+    cappedSense.self.maxHealth = 50;
+    lg::BotBrain cappedBrain;
+    cappedBrain.reset(0xC0FFEEU);
+    const lg::BotMotor cappedMotor =
+      cappedBrain.tick(cappedSense, profile, valueNavigation);
+    failures += expect(
+      cappedMotor.healthResourceIndex == 0U,
+      "health utility should cap nominal pickup value at the bot's actual deficit"
+    );
+
+    lg::BotNavigationMap commitmentNavigation;
+    commitmentNavigation.healthAnchorNodes.fill(
+      std::numeric_limits<std::uint16_t>::max()
+    );
+    commitmentNavigation.nodeCount = 3U;
+    commitmentNavigation.nodes[0].position = {0.0F, 0.0F, 0.9F};
+    commitmentNavigation.nodes[1].position = {2.0F, 0.0F, 0.9F};
+    commitmentNavigation.nodes[2].position = {-2.0F, 0.0F, 0.9F};
+    commitmentNavigation.links[0] = {0U, 1U, lg::BotNavLinkKind::Walk};
+    commitmentNavigation.links[1] = {0U, 2U, lg::BotNavLinkKind::Walk};
+    commitmentNavigation.linkCount = 2U;
+    commitmentNavigation.healthAnchorNodes[0] = 1U;
+    commitmentNavigation.healthAnchorNodes[1] = 2U;
+    lg::prepareBotNavigationMap(commitmentNavigation);
+
+    lg::BotSenseFrame commitmentSense;
+    commitmentSense.fixedDt = 0.20F;
+    commitmentSense.self.position = commitmentNavigation.nodes[0].position;
+    commitmentSense.self.health = 20;
+    commitmentSense.self.maxHealth = 100;
+    commitmentSense.healthResources[0] =
+      {0U, commitmentNavigation.nodes[1].position, 30, true};
+    commitmentSense.healthResources[1] =
+      {1U, commitmentNavigation.nodes[2].position, 28, true};
+    commitmentSense.healthResourceCount = 2U;
+    lg::BotBrain commitmentBrain;
+    commitmentBrain.reset(0x5157U);
+    const lg::BotMotor initialCommitment =
+      commitmentBrain.tick(commitmentSense, profile, commitmentNavigation);
+
+    ++commitmentSense.serverTick;
+    commitmentSense.healthResources[1].value = 32;
+    const lg::BotMotor retainedCommitment =
+      commitmentBrain.tick(commitmentSense, profile, commitmentNavigation);
+
+    ++commitmentSense.serverTick;
+    commitmentSense.healthResources[1].value = 40;
+    const lg::BotMotor switchedCommitment =
+      commitmentBrain.tick(commitmentSense, profile, commitmentNavigation);
+    failures += expect(
+      initialCommitment.healthResourceIndex == 0U &&
+      retainedCommitment.healthResourceIndex == 0U &&
+      switchedCommitment.healthResourceIndex == 1U,
+      "health commitment should ignore marginal utility changes but accept a decisive improvement"
+    );
+
+    lg::BotSenseFrame staleSense = commitmentSense;
+    staleSense.serverTick = 1U;
+    staleSense.fixedDt = 0.50F;
+    staleSense.healthResources[0] =
+      {0U, commitmentNavigation.nodes[1].position, 30, true};
+    staleSense.healthResourceCount = 1U;
+    lg::BotBrain staleBrain;
+    staleBrain.reset(0x57A1EU);
+    const lg::BotMotor freshRemembered =
+      staleBrain.tick(staleSense, profile, commitmentNavigation);
+    ++staleSense.serverTick;
+    staleSense.healthResources[0] =
+      {1U, commitmentNavigation.nodes[2].position, 30, true};
+    const lg::BotMotor fresherAlternative =
+      staleBrain.tick(staleSense, profile, commitmentNavigation);
+    failures += expect(
+      freshRemembered.healthResourceIndex == 0U &&
+      fresherAlternative.healthResourceIndex == 1U,
+      "fresh pickup information should beat an otherwise equal stale memory"
+    );
   }
 
   {
@@ -1145,6 +1321,8 @@ int main() {
     aroundHealthWall.walls[0].min = {-0.25F, -2.0F, 0.0F};
     aroundHealthWall.walls[0].max = {0.25F, 2.0F, 4.0F};
     aroundHealthWall.wallCount = 1;
+    aroundHealthWall.healthPickups[0] = {{3.0F, 0.0F, 0.0F}, lg::HealthPickupType::Small};
+    aroundHealthWall.healthPickupCount = 1;
     const lg::BotNavigationMap map = lg::buildBotNavigationMap(
       aroundHealthWall, lg::MovementTuning{}, lg::CollisionBounds{}
     );

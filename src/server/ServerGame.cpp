@@ -5145,6 +5145,7 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
   sense.self.radius = self.bounds.radius;
   sense.self.halfHeight = self.bounds.halfHeight;
   sense.self.health = self.health;
+  sense.self.maxHealth = healthAmount_;
   sense.self.onGround = self.onGround;
   sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
   sense.selectedWeapon = selectedWeapons_[playerIndex];
@@ -5316,6 +5317,7 @@ void ServerGame::updateBotCommands(float fixedDt) {
     sense.self.radius = self.bounds.radius;
     sense.self.halfHeight = self.bounds.halfHeight;
     sense.self.health = self.health;
+    sense.self.maxHealth = healthAmount_;
     sense.self.onGround = self.onGround;
     sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
     sense.selectedWeapon = selectedWeapons_[playerIndex];
