@@ -375,6 +375,7 @@ private:
   // These counters are global per stream. The old per-owner arrays remain as
   // checkpoint compatibility mirrors until all scenario callers migrate.
   std::uint32_t rocketExplosionSequence_ = 0;
+  std::uint8_t rocketExplosionNextSlot_ = 0;
   std::array<Weapon, kDuelPlayerCount> selectedWeapons_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> weaponPulloutTicks_ = {};
   std::array<WeaponFireResult, kDuelPlayerCount> recentWeaponFires_ = {};
@@ -386,6 +387,7 @@ private:
   std::array<GrenadeBounceAudioEvent, kDuelPlayerCount> recentGrenadeBounceAudioEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentGrenadeBounceAudioEventTicks_ = {};
   std::uint32_t fragEventSequence_ = 0;
+  std::uint8_t fragEventNextSlot_ = 0;
   std::array<FragEvent, kDuelPlayerCount> recentFragEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentFragEventTicks_ = {};
   std::array<
@@ -410,6 +412,7 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> projectileSequences_ = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> grenadeBounceSequences_ = {};
   std::uint32_t grenadeBounceEventSequence_ = 0;
+  std::uint8_t grenadeBounceEventNextSlot_ = 0;
   std::uint16_t recentRocketExplosionActiveMask_ = 0;
   std::uint16_t recentGrenadeBounceActiveMask_ = 0;
   std::uint16_t recentFragActiveMask_ = 0;

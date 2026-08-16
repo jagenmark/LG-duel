@@ -282,10 +282,25 @@ void ClientGame::receiveSnapshots() {
         hasProjectileRevision_ = true;
       }
       snapshot_ = received;
+      std::array<std::size_t, kDuelPlayerCount> explosionSlots = {};
+      std::size_t explosionCount = 0;
       for (std::size_t slot = 0; slot < received.rocketExplosions.size(); ++slot) {
         if ((received.rocketExplosionActiveMask & (1U << slot)) != 0U) {
-          removeExplodedProjectile(received.rocketExplosions[slot]);
+          explosionSlots[explosionCount++] = slot;
         }
+      }
+      std::sort(
+        explosionSlots.begin(),
+        explosionSlots.begin() + explosionCount,
+        [&received](std::size_t left, std::size_t right) {
+          return isSequenceNewer(
+            received.rocketExplosions[right].sequence,
+            received.rocketExplosions[left].sequence
+          );
+        }
+      );
+      for (std::size_t index = 0; index < explosionCount; ++index) {
+        removeExplodedProjectile(received.rocketExplosions[explosionSlots[index]]);
       }
       if (
         !spectator_ &&

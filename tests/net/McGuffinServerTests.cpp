@@ -536,9 +536,10 @@ int main() {
     const lg::Vec3 cleanSpawn = newLife.position;
     respawnServer.tick(lg::kFixedTickSeconds);
     failures += expect(
-      respawnServer.snapshot().players[1].position.x == cleanSpawn.x &&
+      hasFrag(respawnServer.snapshot(), 0, 1) &&
+        respawnServer.snapshot().players[1].position.x == cleanSpawn.x &&
         respawnServer.snapshot().players[1].position.y == cleanSpawn.y,
-      "cached pre-death movement input should not execute on the new life"
+      "a zero-delay respawn should retain its frag while clearing old movement"
     );
   }
 

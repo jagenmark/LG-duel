@@ -545,7 +545,13 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
       !writeU32Array(checkpoint.grenadeBounceSequences) || !writeU32Array(checkpoint.spawnLastUsedTicks) ||
       !writer.u32(checkpoint.rocketExplosionSequence) ||
       !writer.u32(checkpoint.fragEventSequence) ||
-      !writer.u32(checkpoint.grenadeBounceEventSequence)) return false;
+      !writer.u32(checkpoint.grenadeBounceEventSequence) ||
+      checkpoint.rocketExplosionNextSlot >= kDuelPlayerCount ||
+      checkpoint.fragEventNextSlot >= kDuelPlayerCount ||
+      checkpoint.grenadeBounceEventNextSlot >= kDuelPlayerCount ||
+      !writer.u8(checkpoint.rocketExplosionNextSlot) ||
+      !writer.u8(checkpoint.fragEventNextSlot) ||
+      !writer.u8(checkpoint.grenadeBounceEventNextSlot)) return false;
   for (const ReplayFootstepState& footstep : checkpoint.footstepStates) {
     if (!validVec3(footstep.previousPosition) || !std::isfinite(footstep.distanceSinceStep) ||
         footstep.distanceSinceStep < 0.0F || !writeVec3(writer, footstep.previousPosition) ||
@@ -653,7 +659,13 @@ bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
       !readU32Array(checkpoint.grenadeBounceSequences) || !readU32Array(checkpoint.spawnLastUsedTicks) ||
       !reader.u32(checkpoint.rocketExplosionSequence) ||
       !reader.u32(checkpoint.fragEventSequence) ||
-      !reader.u32(checkpoint.grenadeBounceEventSequence)) return false;
+      !reader.u32(checkpoint.grenadeBounceEventSequence) ||
+      !reader.u8(checkpoint.rocketExplosionNextSlot) ||
+      !reader.u8(checkpoint.fragEventNextSlot) ||
+      !reader.u8(checkpoint.grenadeBounceEventNextSlot) ||
+      checkpoint.rocketExplosionNextSlot >= kDuelPlayerCount ||
+      checkpoint.fragEventNextSlot >= kDuelPlayerCount ||
+      checkpoint.grenadeBounceEventNextSlot >= kDuelPlayerCount) return false;
   for (ReplayFootstepState& footstep : checkpoint.footstepStates) {
     if (!readVec3(reader, footstep.previousPosition) || !reader.f32(footstep.distanceSinceStep) ||
         !reader.boolean(footstep.wasOnGround) || !reader.boolean(footstep.initialized) ||

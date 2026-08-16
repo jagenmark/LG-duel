@@ -894,18 +894,20 @@ int main() {
       "a full frag ring should keep its newest sixteen sequence slots"
     );
 
-    source.fragEvents[0].sequence = 33U;
+    source.fragEvents[0].sequence = UINT32_MAX;
+    source.fragEvents[1].sequence = 1U;
     failures += expect(
       lg::encodeServerSnapshot(source, wire) &&
         lg::decodeServerSnapshot(wire, decoded) &&
-        decoded.fragEvents[0].sequence == 33U,
-      "sequence 33 should deterministically overwrite sequence 17"
+        decoded.fragEvents[0].sequence == UINT32_MAX &&
+        decoded.fragEvents[1].sequence == 1U,
+      "sequence wrap should retain sixteen cursor-selected slots without collision"
     );
 
-    source.fragEvents[0].sequence = 34U;
+    source.fragEvents[0].sequence = 0U;
     failures += expect(
       !lg::encodeServerSnapshot(source, wire),
-      "an event in the wrong sequence slot should not encode"
+      "an active combat event with sequence zero should not encode"
     );
   }
 

@@ -407,11 +407,41 @@ int main() {
       "same-owner explosions should remove both exact launch sequences"
     );
 
-    snapshot.serverTick = 27;
+    packet.serverTick = 27;
+    packet.updates[0].sequence = 47;
+    packet.updates[0].kind = lg::ProjectileUpdateKind::Spawn;
+    packet.updates[1].sequence = 48;
+    packet.updates[1].kind = lg::ProjectileUpdateKind::Spawn;
+    transport.sendProjectileUpdates(packet);
+    client.receiveSnapshots();
+    failures += expect(
+      client.projectiles()[slot].active && client.projectiles()[slot + 1U].active,
+      "later launch sequences should populate both owner slots"
+    );
+
+    snapshot.serverTick = 28;
+    snapshot.rocketExplosions = {};
+    snapshot.rocketExplosions[0].active = true;
+    snapshot.rocketExplosions[0].sequence = 17;
+    snapshot.rocketExplosions[0].projectileSequence = 48;
+    snapshot.rocketExplosions[0].ownerPlayerIndex = 2;
+    snapshot.rocketExplosions[1].active = true;
+    snapshot.rocketExplosions[1].sequence = 3;
+    snapshot.rocketExplosions[1].projectileSequence = 47;
+    snapshot.rocketExplosions[1].ownerPlayerIndex = 2;
+    queueSnapshot(transport, snapshot);
+    client.receiveSnapshots();
+    failures += expect(
+      !client.projectiles()[slot].active &&
+        !client.projectiles()[slot + 1U].active,
+      "client explosion handling should sort a wrapped ring before deduplication"
+    );
+
+    snapshot.serverTick = 29;
     queueSnapshot(transport, snapshot);
     client.receiveSnapshots();
 
-    packet.serverTick = 28;
+    packet.serverTick = 30;
     packet.updates[0].kind = lg::ProjectileUpdateKind::Correct;
     packet.updates[1].kind = lg::ProjectileUpdateKind::Correct;
     transport.sendProjectileUpdates(packet);

@@ -217,6 +217,9 @@ struct ReplayCheckpoint {
   std::uint32_t rocketExplosionSequence = 0;
   std::uint32_t fragEventSequence = 0;
   std::uint32_t grenadeBounceEventSequence = 0;
+  std::uint8_t rocketExplosionNextSlot = 0;
+  std::uint8_t fragEventNextSlot = 0;
+  std::uint8_t grenadeBounceEventNextSlot = 0;
   std::array<std::uint32_t, Arena::kTeamSpawnCount> spawnLastUsedTicks = {};
   std::array<bool, Arena::kTeamSpawnCount> spawnWasUsed = {};
   std::uint32_t nextDeathmatchSpawnIndex = 0;

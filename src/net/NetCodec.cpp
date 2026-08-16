@@ -1631,11 +1631,7 @@ bool writeCombatEventStream(
       return false;
     }
     if (values[index].active) {
-      if (
-        values[index].sequence == 0U ||
-        static_cast<std::size_t>(values[index].sequence - 1U) % values.size() !=
-          index
-      ) {
+      if (values[index].sequence == 0U) {
         return false;
       }
       activeMask |= bit;
@@ -1665,13 +1661,6 @@ bool readCombatEventStream(
   for (std::size_t index = 0; index < values.size(); ++index) {
     if ((decodedMask & static_cast<std::uint16_t>(1U << index)) != 0U &&
         !readValue(reader, values[index])) {
-      return false;
-    }
-    if (
-      (decodedMask & static_cast<std::uint16_t>(1U << index)) != 0U &&
-      static_cast<std::size_t>(values[index].sequence - 1U) % values.size() !=
-        index
-    ) {
       return false;
     }
   }

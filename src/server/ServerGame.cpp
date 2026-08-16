@@ -91,16 +91,20 @@ template <typename Event>
 void appendCombatEvent(
   std::array<Event, kDuelPlayerCount>& events,
   std::uint16_t& activeMask,
+  std::uint8_t& nextSlot,
   const Event& event
 ) {
-  if (!event.active || event.sequence == 0U) {
+  if (
+    !event.active || event.sequence == 0U ||
+    nextSlot >= kDuelPlayerCount
+  ) {
     return;
   }
-  const std::size_t slot =
-    static_cast<std::size_t>(event.sequence - 1U) % kDuelPlayerCount;
+  const std::size_t slot = nextSlot;
   events[slot] = event;
   events[slot].active = true;
   activeMask |= static_cast<std::uint16_t>(1U << slot);
+  nextSlot = static_cast<std::uint8_t>((slot + 1U) % kDuelPlayerCount);
 }
 
 [[nodiscard]] std::uint32_t scenarioRandomState(
@@ -1961,6 +1965,8 @@ replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
   checkpoint.projectileSequences = projectileSequences_;
   checkpoint.rocketExplosionSequence = rocketExplosionSequence_;
   checkpoint.fragEventSequence = fragEventSequence_;
+  checkpoint.rocketExplosionNextSlot = rocketExplosionNextSlot_;
+  checkpoint.fragEventNextSlot = fragEventNextSlot_;
   checkpoint.rocketExplosionSequences.fill(rocketExplosionSequence_);
   checkpoint.fragEventSequences.fill(fragEventSequence_);
   checkpoint.localHitFeedbackSequences = localHitFeedbackSequences_;
@@ -1975,6 +1981,7 @@ replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
     };
   }
   checkpoint.grenadeBounceEventSequence = grenadeBounceEventSequence_;
+  checkpoint.grenadeBounceEventNextSlot = grenadeBounceEventNextSlot_;
   checkpoint.grenadeBounceEventSequences.fill(grenadeBounceEventSequence_);
   checkpoint.grenadeBounceSequences = grenadeBounceSequences_;
   checkpoint.spawnLastUsedTicks = spawnLastUsedTicks_;
@@ -2144,10 +2151,13 @@ bool ServerGame::restoreReplayCheckpoint(
   projectileSequences_ = checkpoint.projectileSequences;
   rocketExplosionSequence_ = checkpoint.rocketExplosionSequence;
   fragEventSequence_ = checkpoint.fragEventSequence;
+  rocketExplosionNextSlot_ = checkpoint.rocketExplosionNextSlot;
+  fragEventNextSlot_ = checkpoint.fragEventNextSlot;
   localHitFeedbackSequences_ = checkpoint.localHitFeedbackSequences;
   damageTakenSequences_ = checkpoint.damageTakenSequences;
   footstepSequences_ = checkpoint.footstepSequences;
   grenadeBounceEventSequence_ = checkpoint.grenadeBounceEventSequence;
+  grenadeBounceEventNextSlot_ = checkpoint.grenadeBounceEventNextSlot;
   grenadeBounceSequences_ = checkpoint.grenadeBounceSequences;
   spawnLastUsedTicks_ = checkpoint.spawnLastUsedTicks;
   spawnWasUsed_ = checkpoint.spawnWasUsed;
@@ -2315,7 +2325,12 @@ void ServerGame::resetMatch() {
   clearProjectiles();
   snapshot_.icePools = {};
   grenadeBounceSequences_ = {};
+  rocketExplosionSequence_ = 0;
   grenadeBounceEventSequence_ = 0;
+  fragEventSequence_ = 0;
+  rocketExplosionNextSlot_ = 0;
+  fragEventNextSlot_ = 0;
+  grenadeBounceEventNextSlot_ = 0;
   fractionalVampirismHealing_ = {};
   commands_ = {};
   viewedServerTicks_ = {};
@@ -2482,8 +2497,6 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   refillAmmo(playerIndex);
   recentFootstepAudioEvents_[playerIndex] = {};
   recentFootstepAudioEventTicks_[playerIndex] = 0;
-  recentFragEvents_[playerIndex] = {};
-  recentFragEventTicks_[playerIndex] = 0;
   footstepStates_[playerIndex] = {};
   footstepSequences_[playerIndex] = 0;
   fractionalVampirismHealing_[playerIndex] = 0.0;
@@ -4081,6 +4094,7 @@ void ServerGame::applyDamageAndKnockback(
     appendCombatEvent(
       snapshot_.fragEvents,
       snapshot_.fragActiveMask,
+      fragEventNextSlot_,
       frag
     );
   }
@@ -4427,6 +4441,7 @@ void ServerGame::simulateRockets(float fixedDt) {
               appendCombatEvent(
                 snapshot_.grenadeBounceAudioEvents,
                 snapshot_.grenadeBounceActiveMask,
+                grenadeBounceEventNextSlot_,
                 bounce
               );
             }
@@ -4632,6 +4647,7 @@ void ServerGame::simulateRockets(float fixedDt) {
     appendCombatEvent(
       snapshot_.rocketExplosions,
       snapshot_.rocketExplosionActiveMask,
+      rocketExplosionNextSlot_,
       explosion
     );
   }
@@ -6024,9 +6040,12 @@ bool ServerGame::applyScenarioSetup(
   recentDamageTakenEventTicks_ = {};
   projectileSequences_ = {};
   rocketExplosionSequence_ = 0;
+  rocketExplosionNextSlot_ = 0;
   grenadeBounceSequences_ = {};
   grenadeBounceEventSequence_ = 0;
+  grenadeBounceEventNextSlot_ = 0;
   fragEventSequence_ = 0;
+  fragEventNextSlot_ = 0;
   localHitFeedbackSequences_ = {};
   damageTakenSequences_ = {};
   footstepSequences_ = {};
