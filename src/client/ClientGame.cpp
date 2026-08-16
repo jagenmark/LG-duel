@@ -284,18 +284,31 @@ void ClientGame::receiveSnapshots() {
       snapshot_ = received;
       std::array<std::size_t, kDuelPlayerCount> explosionSlots = {};
       std::size_t explosionCount = 0;
+      std::uint32_t newestExplosionSequence = 0;
       for (std::size_t slot = 0; slot < received.rocketExplosions.size(); ++slot) {
         if ((received.rocketExplosionActiveMask & (1U << slot)) != 0U) {
           explosionSlots[explosionCount++] = slot;
+          if (
+            newestExplosionSequence == 0U ||
+            isSequenceNewer(
+              received.rocketExplosions[slot].sequence,
+              newestExplosionSequence
+            )
+          ) {
+            newestExplosionSequence = received.rocketExplosions[slot].sequence;
+          }
         }
       }
       std::sort(
         explosionSlots.begin(),
         explosionSlots.begin() + explosionCount,
-        [&received](std::size_t left, std::size_t right) {
-          return isSequenceNewer(
-            received.rocketExplosions[right].sequence,
+        [&received, newestExplosionSequence](std::size_t left, std::size_t right) {
+          return nonZeroSequenceDistance(
+            newestExplosionSequence,
             received.rocketExplosions[left].sequence
+          ) > nonZeroSequenceDistance(
+            newestExplosionSequence,
+            received.rocketExplosions[right].sequence
           );
         }
       );

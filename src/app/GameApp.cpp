@@ -1586,19 +1586,32 @@ void forEachUnseenCombatEvent(
 ) {
   std::array<std::size_t, kDuelPlayerCount> slots = {};
   std::size_t count = 0;
+  std::uint32_t newestSequence = 0;
   for (std::size_t slot = 0; slot < events.size(); ++slot) {
     if (
       (activeMask & static_cast<std::uint16_t>(1U << slot)) != 0U &&
       events[slot].active && events[slot].sequence != 0U
     ) {
       slots[count++] = slot;
+      if (
+        newestSequence == 0U ||
+        isSequenceNewer(events[slot].sequence, newestSequence)
+      ) {
+        newestSequence = events[slot].sequence;
+      }
     }
   }
   std::sort(
     slots.begin(),
     slots.begin() + static_cast<std::ptrdiff_t>(count),
-    [&events](std::size_t left, std::size_t right) {
-      return isSequenceNewer(events[right].sequence, events[left].sequence);
+    [&events, newestSequence](std::size_t left, std::size_t right) {
+      return nonZeroSequenceDistance(
+        newestSequence,
+        events[left].sequence
+      ) > nonZeroSequenceDistance(
+        newestSequence,
+        events[right].sequence
+      );
     }
   );
   for (std::size_t index = 0; index < count; ++index) {

@@ -894,13 +894,16 @@ int main() {
       "a full frag ring should keep its newest sixteen sequence slots"
     );
 
-    source.fragEvents[0].sequence = UINT32_MAX;
-    source.fragEvents[1].sequence = 1U;
+    for (std::size_t slot = 0; slot + 1U < lg::kDuelPlayerCount; ++slot) {
+      source.fragEvents[slot].sequence =
+        UINT32_MAX - static_cast<std::uint32_t>(14U - slot);
+    }
+    source.fragEvents[lg::kDuelPlayerCount - 1U].sequence = 1U;
     failures += expect(
       lg::encodeServerSnapshot(source, wire) &&
         lg::decodeServerSnapshot(wire, decoded) &&
-        decoded.fragEvents[0].sequence == UINT32_MAX &&
-        decoded.fragEvents[1].sequence == 1U,
+        decoded.fragEvents[0].sequence == UINT32_MAX - 14U &&
+        decoded.fragEvents[lg::kDuelPlayerCount - 1U].sequence == 1U,
       "sequence wrap should retain sixteen cursor-selected slots without collision"
     );
 
@@ -908,6 +911,36 @@ int main() {
     failures += expect(
       !lg::encodeServerSnapshot(source, wire),
       "an active combat event with sequence zero should not encode"
+    );
+
+    lg::ServerSnapshot cyclic;
+    cyclic.map = testMapDescriptor();
+    cyclic.hasCombatStats = false;
+    cyclic.fragActiveMask = 0x7U;
+    const std::array<std::uint32_t, 3> cyclicSequences = {
+      1U,
+      0x70000000U,
+      0xE0000000U,
+    };
+    for (std::size_t slot = 0; slot < cyclicSequences.size(); ++slot) {
+      cyclic.fragEvents[slot].active = true;
+      cyclic.fragEvents[slot].sequence = cyclicSequences[slot];
+      cyclic.fragEvents[slot].attackerPlayerIndex = 0U;
+      cyclic.fragEvents[slot].targetPlayerIndex = static_cast<std::uint8_t>(slot);
+      cyclic.fragEvents[slot].weapon = lg::Weapon::RocketLauncher;
+    }
+    failures += expect(
+      !lg::encodeServerSnapshot(cyclic, wire),
+      "a cyclic modular sequence set should not encode"
+    );
+
+    cyclic.fragActiveMask = 0x3U;
+    cyclic.fragEvents[2] = {};
+    cyclic.fragEvents[0].sequence = 1U;
+    cyclic.fragEvents[1].sequence = 17U;
+    failures += expect(
+      !lg::encodeServerSnapshot(cyclic, wire),
+      "a combat-event set wider than sixteen sequence steps should not encode"
     );
   }
 

@@ -1,5 +1,7 @@
 #include "net/NetCodec.hpp"
 
+#include "shared/Sequence.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -1616,6 +1618,36 @@ bool writeSparseArray(
 // The combat presentation streams are global sequence rings, not owner rows.
 // Keep the slot mask explicit on the wire and leave record order as slot order;
 // clients sort by the validated sequence before presenting the burst.
+template <typename Array>
+bool validCombatEventSequenceWindow(
+  const Array& values,
+  std::uint16_t activeMask
+) {
+  std::array<std::uint32_t, kDuelPlayerCount> sequences = {};
+  std::size_t count = 0;
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    if ((activeMask & static_cast<std::uint16_t>(1U << index)) == 0U) continue;
+    const std::uint32_t sequence = values[index].sequence;
+    if (sequence == 0U) return false;
+    for (std::size_t prior = 0; prior < count; ++prior) {
+      if (sequences[prior] == sequence) return false;
+    }
+    sequences[count++] = sequence;
+  }
+  if (count < 2U) return true;
+  for (std::size_t newest = 0; newest < count; ++newest) {
+    bool coherent = true;
+    for (std::size_t index = 0; index < count; ++index) {
+      coherent = coherent && nonZeroSequenceDistance(
+        sequences[newest],
+        sequences[index]
+      ) < kDuelPlayerCount;
+    }
+    if (coherent) return true;
+  }
+  return false;
+}
+
 template <typename Array, typename WriteValue>
 bool writeCombatEventStream(
   Writer& writer,
@@ -1637,6 +1669,7 @@ bool writeCombatEventStream(
       activeMask |= bit;
     }
   }
+  if (!validCombatEventSequenceWindow(values, activeMask)) return false;
   if (!writer.writeU16(activeMask)) return false;
   for (std::size_t index = 0; index < values.size(); ++index) {
     if ((activeMask & static_cast<std::uint16_t>(1U << index)) != 0U &&
@@ -1660,10 +1693,11 @@ bool readCombatEventStream(
   values = {};
   for (std::size_t index = 0; index < values.size(); ++index) {
     if ((decodedMask & static_cast<std::uint16_t>(1U << index)) != 0U &&
-        !readValue(reader, values[index])) {
+      !readValue(reader, values[index])) {
       return false;
     }
   }
+  if (!validCombatEventSequenceWindow(values, decodedMask)) return false;
   activeMask = decodedMask;
   return true;
 }
