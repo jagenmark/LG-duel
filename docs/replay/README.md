@@ -7,13 +7,12 @@ This folder defines the replay contract for LG-duel. The core ledger is
 `e5b6c3f` (historical format v2 and safety repair), and `392f6ee` (bounded native replay
 recording memory). It is not a list of player-facing controls.
 
-The core has a bot-free v5 format, recorder, headless playback runner, checkpoint
-restore, hash checks, seek, rolling archive, self-contained lethal-segment
-extraction, transfer state, strict file helpers, presentation-session state, and
-measures. It does not yet have a `GameApp` UI, runtime demo commands, background
-file job, live UDP hookup, renderer/audio/HUD hookup, or player-facing killcam.
-Treat every item marked **pending** as a requirement, not as a control a player
-can use.
+The system has a bot-free v5 format, recorder, headless playback runner,
+checkpoint restore, hash checks, seek, rolling archive, self-contained
+lethal-segment extraction, transfer state, strict file helpers, a bounded local
+file worker, a replay-only runtime, and a `GameApp` presentation source. The
+local demo path has controls and uses the normal renderer, HUD, effects, and
+camera inputs. Remote transfer and remote killcam remain outside this work.
 
 ## Reading order
 
@@ -45,9 +44,12 @@ fixed-step gameplay code without fake UDP clients.
 | Full authoritative config and authority-boundary records | Implemented; boundary state applies before its recorded tick |
 | Lethal sequence and direct/splash/self/world provenance | Implemented in full and rolling replay records |
 | Checkpoint restore, per-tick hash check, and seek | Implemented in the headless runner |
-| Strict `.lgdemo` save/load helpers | Implemented with exclusive temporary creation and no overwrite; no app command or background job calls them |
+| Strict `.lgdemo` save/load helpers | Implemented with exclusive temporary creation and called only by `ReplayIoService` jobs |
 | Saved demo and recorder capacity | Both cap at 512 MiB and stop cleanly at the cap |
-| Replay clock, camera, follow, seek, and skip session state | Implemented; no `GameApp` renderer/audio/HUD hookup |
+| Replay storage and safe path policy | Implemented in `ReplayStorage`; names are single safe stems and files list in name order |
+| Bounded local replay I/O | Implemented in `ReplayIoService`; save, load, decode, list, and delete run on one owned worker |
+| Replay-only runtime and controls | Implemented in `ReplayRuntime` and `GameApp`; pause, step, speed, seek, camera, and follow are local |
+| Replay presentation source | Implemented in `GameApp`; replay state feeds the same renderer, HUD, projectile, effects, and camera inputs |
 | Rolling server buffer and self-contained lethal segment extraction | Implemented; no player-facing killcam consumes it |
 | Bounded transfer codec and sender/receiver state machine | Implemented with receiver expiry; no `NetCodec` or `UdpTransport` live hookup |
 | Team-mode visibility guard | Implemented in transfer policy; ordinary remote delivery remains unhooked |
@@ -61,6 +63,48 @@ The required safe remote policy is narrow until a tested team filter exists:
 - Ordinary remote killcams stay off in Clan Arena and McGuffin.
 
 No setting may widen that policy by accident.
+
+## Local runtime
+
+Saved demos live below the client preference directory in `demos`. The storage
+layer creates the directory on first use. A demo name may contain only letters,
+numbers, `-`, and `_`; the `.lgdemo` suffix is optional and is added once. Path
+components, parent paths, drive prefixes, reserved device names, and duplicate
+suffixes are rejected. Save never replaces an existing file.
+
+`ReplayIoService` owns one worker and a bounded queue. The worker performs file
+and codec work. The app polls results on its main thread. The server uses the
+same service for recording saves, directory scans, and deletes. `ServerGame::tick`
+only records native replay data; it does not encode or write a file.
+
+The local client commands are:
+
+```text
+demo_list
+demo_play <name>
+demo_stop
+demo_pause
+demo_resume
+demo_togglepause
+demo_step [ticks]
+demo_seek <seconds|tick:n>
+demo_speed <0.25..4>
+demo_camera first|chase|free
+demo_follow <slot>
+demo_delete <name>
+demo_status
+```
+
+`demo_play` is local-only and asks the user to disconnect before playback. The
+runtime checks the map name, content hash, protocol, simulation revision, build
+fingerprint, gameplay config, checkpoint, and authority boundaries. A hash
+mismatch stops playback. Seek and follow changes rebuild the replay frame
+source and do not rewind or write the live `ClientGame`.
+
+The server adds `demo_record [name]`, `demo_stop`, `demo_status`, `demo_list`,
+and `demo_delete`. `sv_demo_autorecord` starts a local recording when a match
+enters live play. `sv_demo_checkpoint_ticks`, `sv_demo_hash_ticks`,
+`sv_demo_max_file_mb`, and `sv_demo_max_resident_mb` set recorder bounds.
 
 ## Terms
 

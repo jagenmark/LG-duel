@@ -19,17 +19,20 @@ match, roster, map, and rule changes -------------------------+
                                            |                    |
                                            |                    +-> verifier
                                            v
-                                 playback runner -> replay-only client state
+                                 playback runner -> replay-only ServerGame
                                                         |
-                                               cameras, HUD, audio, effects
+                                             ReplayRuntime frame source
+                                                        |
+                                      normal renderer, HUD, audio, effects
 
 lethal marker -> rolling-buffer segment extraction -> the same playback runner
 ```
 
-The core now implements the resolved-input, `ReplayDemo`, codec, checkpoint,
-headless runner, rolling archive, lethal-segment extraction, transfer state,
-file helpers, and presentation-session state. The remaining app work is a disk
-job and controls, live transport hookup, and renderer/audio/HUD hookup.
+The core and local app now implement the resolved-input, `ReplayDemo`, codec,
+checkpoint, headless runner, rolling archive, lethal-segment extraction,
+transfer state, file helpers, presentation-session state, bounded I/O, and the
+replay-only runtime. The remaining replay work is live transfer hookup and the
+remote killcam policy.
 
 The server records the final command after human acceptance and after bot
 generation, but before movement and combat consume it. It captures the completed
@@ -145,11 +148,19 @@ killcam-only state format.
 | Cameras, HUD, bob, sway, recoil, barrel spin, animation, audio, and viewmodels | Derived from replay state and replay clock | Rebuild or reset on seek, speed change, and followed-player change. |
 | Raw packets, retries, ACKs, UI state, renderer state, wall-clock time, bot plan/state | Never authoritative replay data | Do not store or feed them to playback. |
 
-The current playback runner is headless. A separate replay client session is
-still pending. When it lands, it must stay separate from live `ClientGame`
-state: live play keeps receiving snapshots, and replay state must not rewind the
-live world, replace its transport state, send replay commands as live commands,
-or write back into live client state.
+`ReplayRuntime` owns one replay `ServerGame`, one `ReplayPlaybackRunner`, one
+presentation session, and a null transport. `GameApp` owns a single
+presentation-source adapter that selects either the live `ClientGame` source or
+the replay frame source at a frame boundary. Replay commands never enter the
+live command send path. The replay source supplies the arena, snapshot, player
+poses, camera subject, projectiles, and event arrays used by the normal
+renderer, HUD, and effects code. It does not write to the live `ClientGame`.
+
+The runtime checks map identity and content hash before restore. `ServerGame`
+then checks protocol, simulation, build, gameplay config, checkpoint, player
+occupancy, and authority-boundary data. A divergence aborts the replay source.
+The runtime caps whole-tick catch-up per update; a large wall-clock pause does
+not run an unbounded loop in one frame.
 
 A replay can closely reconstruct a killer's first-person action from recorded
 view angles, weapon state, attacks, and authoritative outcomes. It does not

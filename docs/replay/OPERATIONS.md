@@ -1,35 +1,38 @@
 # Recording, killcam, transfer, and operations
 
-All runtime controls in this page are planned. Their exact console command and
-cvar names are **pending implementation**. Do not infer a command name from an
-operation label. The core C++ API can record a `ReplayDemo`, encode/decode it,
-save/load it through helpers, restore it, play it headlessly, and seek. It does
-not add app commands, a background file job, or player-facing controls.
+The local runtime controls in this page are implemented. Remote transfer and
+remote killcam controls remain outside this work. The core records a
+`ReplayDemo`, and the app/server layers use a bounded worker for codec and disk
+work.
 
 ## Planned recording and playback controls
 
 | Operation | Exact command/cvar name | Status |
 | --- | --- | --- |
-| Start a named recording | Pending | No app command |
-| Stop and finalize recording | Pending | No app command |
-| Enable automatic match recording | Pending | No setting or job |
-| List or resolve demo files | Pending | No app command |
-| Play a demo | Pending | No app command |
-| Stop playback | Pending | No app command |
-| Pause/resume and single-tick step | Pending | Core session state exists; no app control |
-| Seek by tick or time | Pending | Core runner/session support exists; no app control |
-| Set playback speed | Pending | Core session state exists; no app control |
-| Set first-person, chase, or free camera | Pending | Core session state exists; no renderer hookup |
-| Follow or cycle a player | Pending | Core session state exists; no app control |
+| Start a named recording | `demo_record [name]` | Implemented on the server |
+| Stop and finalize recording | `demo_stop` | Implemented; save is queued |
+| Enable automatic match recording | `sv_demo_autorecord 0|1` | Implemented on the server |
+| List or resolve demo files | `demo_list` | Implemented with safe local names |
+| Play a demo | `demo_play <name>` | Implemented for a disconnected local client |
+| Stop playback | `demo_stop` | Implemented in the client |
+| Pause/resume and single-tick step | `demo_pause`, `demo_resume`, `demo_togglepause`, `demo_step [ticks]` | Implemented |
+| Seek by tick or time | `demo_seek <seconds|tick:n>` | Implemented |
+| Set playback speed | `demo_speed <0.25..4>` | Implemented |
+| Set first-person, chase, or free camera | `demo_camera first|chase|free` | Implemented; free mode starts at the followed body |
+| Follow or cycle a player | `demo_follow <slot>` | Implemented |
 | Enable rolling buffer and set retention | Pending | Core archive exists; no runtime setting |
 
 `ReplayFile` saves only a new `.lgdemo` file and refuses to replace an existing
 recording. It creates an exclusive, uniquely named temporary file, flushes it,
 then publishes the final name without overwriting it. It does not disturb a
-predictable partial file owned by another writer. A future app layer must
-sanitize names, choose the ignored runtime directory, and run disk work in a
-bounded background job. A disk error must end or disable recording without
-stopping the match.
+predictable partial file owned by another writer. `ReplayStorage` applies the
+name and directory policy before a job starts. `ReplayIoService` reports a
+disk or codec error without stopping the match.
+
+The worker queue is bounded. A full queue rejects the request with a console
+error. The worker has no callback into `GameApp`, `ServerGame`, or the renderer;
+the owner polls `ReplayIoService::Result` and applies the result on its own
+thread.
 
 ## Rolling buffer and killcam flow
 
@@ -66,11 +69,11 @@ event carries a nonzero sequence within the replay generation and preserves a
 projectile sequence when the damage came from a projectile. Full recordings,
 rolling archives, and the bounded pending queue use the same event record.
 
-The default future camera plan is killer first-person, then killer chase, then
-victim/world for suicide, world, or no-killer deaths. `ReplayPresentationSession`
-has independent clock, camera, follow, seek, speed, step, and skip state. It has
-no `GameApp` renderer, audio, HUD, or live-client hookup, so no player-facing
-killcam exists.
+The local runtime has first-person, chase, and free camera state. It presents
+the followed replay body through a single source adapter. The normal renderer,
+HUD, projectile effects, transient effects, and camera code read that source.
+The replay runtime owns its `ServerGame` and `ReplayPlaybackRunner`; it never
+rewinds or writes the live `ClientGame`.
 
 The future killcam must never pause or rewind the server, change respawn rules,
 delay a round or match, inject replay commands into the live player, or replace
@@ -150,10 +153,11 @@ full recording can use close to 512 MiB, but stops cleanly at the cap.
 ## Known limits
 
 - Replay is authoritative simulation, not video capture or export.
-- `ReplayPresentationSession` has no `GameApp` renderer, audio, HUD, or
-  live-client hookup.
-- `ReplayFile` has no console command, automatic recording setting, runtime
-  directory policy, or background job.
+- Local replay audio event playback uses the existing snapshot event path; it
+  does not reproduce the original client prediction frame.
+- Free camera has no separate movement command yet; it starts at the followed
+  body.
+- Rolling retention has no player-facing runtime setting yet.
 - `ReplayTransfer` has no `NetCodec` or `UdpTransport` hookup; no remote replay
   transfer or player-facing killcam exists.
 - It does not reproduce raw packet timing or pixel-identical local prediction.
@@ -168,7 +172,7 @@ full recording can use close to 512 MiB, but stops cleanly at the cap.
 
 ### Corrupt or incompatible demo
 
-1. Read the diagnostic before retrying. Do not try to play a valid prefix.
+1. Read the `demo load failed` or `demo playback failed` diagnostic before retrying. Do not try to play a valid prefix.
 2. Check the format version, map content hash, map revision, tick rate,
    configuration, protocol/build data, and checksum failure named by the reader.
 3. Restore the exact required map/content/build when the diagnostic says the
@@ -188,3 +192,17 @@ full recording can use close to 512 MiB, but stops cleanly at the cap.
    internals; they are outside the replay contract.
 5. Keep the bad file and verifier report for a focused replay test. Do not mask
    the mismatch by accepting a later hash.
+
+### Local command examples
+
+```text
+demo_list
+demo_play match_name
+demo_resume
+demo_speed 0.5
+demo_camera chase
+demo_follow 2
+demo_seek tick:500
+demo_pause
+demo_stop
+```
