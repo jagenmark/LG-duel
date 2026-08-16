@@ -429,7 +429,7 @@ ReplayTransferSender::nextMessage(std::uint64_t now) {
       now - started_ > config_.timeoutMilliseconds) {
     cancel(ReplayTransferCancelReason::Timeout);
   }
-  if (lastPacket_ != 0U && now >= lastPacket_ &&
+  if (!cancelled_ && lastPacket_ != 0U && now >= lastPacket_ &&
       now - lastPacket_ < config_.minimumPacketIntervalMilliseconds) {
     return std::nullopt;
   }

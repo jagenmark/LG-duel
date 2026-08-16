@@ -121,7 +121,7 @@ std::vector<ReplayTransferOutbound> ReplayTransferServer::poll(
     if (message.has_value()) {
       result.push_back({static_cast<std::uint8_t>(index), *message});
     }
-    if (slot.sender.complete() || slot.sender.stats().cancelled ||
+    if (slot.sender.complete() ||
         (message.has_value() &&
          std::holds_alternative<ReplayTransferCancel>(*message))) {
       slot = {};

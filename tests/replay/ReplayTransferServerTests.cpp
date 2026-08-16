@@ -113,6 +113,50 @@ int main() {
       !server.active(1U),
       "server cancel should emit once and release the slot");
 
+  lg::replay::ReplayTransferServerConfig immediateResetConfig = config;
+  immediateResetConfig.transfer.minimumPacketIntervalMilliseconds = 2U;
+  lg::replay::ReplayTransferServer immediateResetServer(immediateResetConfig);
+  lg::replay::ReplayTransferReceiver immediateResetReceiver;
+  failures += expect(
+      immediateResetServer.start(0U, 60U, 12U, bytes, 10U, &error),
+      "immediate reset fixture should start a transfer");
+  const auto immediateBegin = immediateResetServer.poll(10U, 1U);
+  failures += expect(
+      immediateBegin.size() == 1U &&
+          std::holds_alternative<lg::replay::ReplayTransferBegin>(
+              immediateBegin.front().message),
+      "immediate reset fixture should send begin");
+  if (!immediateBegin.empty()) {
+    const auto* beginMessage =
+        std::get_if<lg::replay::ReplayTransferBegin>(
+            &immediateBegin.front().message);
+    if (beginMessage != nullptr) {
+      const auto acknowledgement =
+          immediateResetReceiver.receiveBegin(*beginMessage, 10U);
+      failures += expect(acknowledgement.has_value(),
+                         "immediate reset receiver should acknowledge begin");
+      if (acknowledgement.has_value()) {
+        immediateResetServer.receive(0U, 60U, *acknowledgement);
+      }
+    }
+  }
+  const auto immediateChunk = immediateResetServer.poll(12U, 1U);
+  failures += expect(
+      immediateChunk.size() == 1U &&
+          std::holds_alternative<lg::replay::ReplayTransferChunk>(
+              immediateChunk.front().message),
+      "immediate reset fixture should send a chunk");
+  immediateResetServer.clear();
+  failures += expect(immediateResetServer.active(0U),
+                     "reset should retain a slot until cancel delivery");
+  const auto immediateCancel = immediateResetServer.poll(12U, 1U);
+  failures += expect(
+      immediateCancel.size() == 1U &&
+          std::holds_alternative<lg::replay::ReplayTransferCancel>(
+              immediateCancel.front().message) &&
+          !immediateResetServer.active(0U),
+      "reset should deliver cancel before releasing a recent transfer");
+
   lg::replay::ReplayTransferServer fairServer(config);
   failures += expect(fairServer.start(0U, 50U, 10U, {1U}, 0U, &error) &&
                          fairServer.start(1U, 51U, 10U, {2U}, 0U, &error),
