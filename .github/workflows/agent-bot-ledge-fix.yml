@@ -1,0 +1,148 @@
+name: Apply bot ledge safety fix
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'agent/bot-ledge-avoidance' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply focused bot ledge fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('src/server/BotAi.cpp')
+          s = p.read_text()
+
+          old = '''  // Visible combat permits direct movement. A known health or objective goal
+          // still uses the graph, so a visible enemy cannot turn it into a wall run.
+          const bool directTarget = output.goal == BotGoalKind::Chase && targetVisible &&
+            targetDecisionAllowed;'''
+          new = '''  // Keep chase movement on the same movement-proven graph as health,
+          // objectives, and exploration. Direct visible-target steering bypassed
+          // navigation entirely, so exposed platforms could turn an otherwise safe
+          // route into a straight run over a ledge.
+          const bool directTarget = false;'''
+          if old not in s:
+              raise SystemExit('direct-target block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''    if (output.goal == BotGoalKind::Chase && targetVisible && targetDecisionAllowed) {
+              strafeSeconds_ -= dt;'''
+          new = '''    // A movement-proven edge is only safe for the input that proved it. Do not
+            // blend free-form combat strafing, random hops, or dashes into an active
+            // navigation edge near exposed geometry. Combat aim/fire still runs.
+            if (output.goal == BotGoalKind::Chase && targetVisible && targetDecisionAllowed &&
+                output.waypointNode >= navigation.nodeCount) {
+              strafeSeconds_ -= dt;'''
+          if old not in s:
+              raise SystemExit('combat-strafe block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''  if (output.recoveredFromStuck && !sense.standstill) {
+            command.rightMove = static_cast<float>(strafeDirection_);
+            command.jump = sense.self.onGround;
+          }'''
+          new = '''  if (output.recoveredFromStuck && !sense.standstill) {
+            // The old recovery was a blind sideways jump. At a wall that can help,
+            // but at a ledge it can turn a minor pathing failure into a death. The
+            // recovery already clears the stale path and forces an immediate replan,
+            // so stay neutral until that new movement-proven route is available.
+            command.forwardMove = 0.0F;
+            command.rightMove = 0.0F;
+            command.jump = false;
+            command.dash = false;
+          }'''
+          if old not in s:
+              raise SystemExit('stuck-recovery block not found')
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+
+          # Add regression coverage alongside the existing direct BotBrain tests.
+          t = Path('tests/net/BotServerTests.cpp')
+          tests = t.read_text()
+          marker = '''  {
+            lg::LoopbackTransport transport;
+            lg::ServerGame server(transport);'''
+          regression = r'''  {
+            // Visible combat used to bypass navigation and drive straight at the
+            // target. A two-hop hand-built graph makes that regression observable:
+            // the first command must steer toward the safe intermediate node rather
+            // than directly toward the visible enemy.
+            lg::BotNavigationMap navigation;
+            navigation.nodeCount = 3;
+            navigation.nodes[0].position = {0.0F, 0.0F, 0.9F};
+            navigation.nodes[1].position = {0.0F, 4.0F, 0.9F};
+            navigation.nodes[2].position = {4.0F, 4.0F, 0.9F};
+            navigation.linkCount = 2;
+            navigation.links[0] = {0, 1, lg::BotNavLinkKind::Walk};
+            navigation.links[1] = {1, 2, lg::BotNavLinkKind::Walk};
+            lg::prepareBotNavigationMap(navigation);
+
+            lg::BotSenseFrame sense;
+            sense.fixedDt = lg::kFixedTickSeconds;
+            sense.perceptionFresh = true;
+            sense.self.position = navigation.nodes[0].position;
+            sense.self.onGround = true;
+            sense.self.halfHeight = 0.9F;
+            sense.self.viewYawRadians = 0.0F;
+            sense.visibleEnemyCount = 1;
+            sense.visibleEnemies[0].playerIndex = 1;
+            sense.visibleEnemies[0].position = navigation.nodes[2].position;
+            sense.visibleEnemies[0].observationServerTick = 1;
+            sense.combatEnabled = false;
+            for (auto& weapon : sense.weapons) weapon.usable = true;
+
+            lg::BotDifficultyProfile profile = lg::botDifficultyProfile(lg::BotAttackMode::Hard);
+            profile.reactionMinSeconds = 0.0F;
+            profile.reactionMaxSeconds = 0.0F;
+            lg::BotBrain brain;
+            brain.reset(1234U);
+            const lg::BotMotor motor = brain.tick(sense, profile, navigation);
+
+            failures += expect(motor.goal == lg::BotGoalKind::Chase,
+              "visible combat should still select a chase goal");
+            failures += expect(motor.waypointNode == 1U,
+              "visible chase should remain on the navigation graph");
+            failures += expect(std::fabs(motor.command.rightMove) >
+                std::fabs(motor.command.forwardMove),
+              "chase input should steer toward the safe intermediate waypoint");
+            failures += expect(!motor.command.jump && !motor.command.dash,
+              "navigation chase should not add unproved combat hops or dashes");
+          }
+
+'''
+          if marker not in tests:
+              raise SystemExit('BotServerTests insertion marker not found')
+          tests = tests.replace(marker, regression + marker, 1)
+          t.write_text(tests)
+
+      - name: Configure
+        run: cmake -S . -B build -DBUILD_TESTING=ON
+
+      - name: Build bot tests
+        run: cmake --build build --target lg_duel_bot_server_tests -j2
+
+      - name: Run bot tests
+        run: ctest --test-dir build -R '^lg_duel_bot_server_tests$' --output-on-failure
+
+      - name: Commit tested fix and remove temporary workflow
+        run: |
+          git rm .github/workflows/agent-bot-ledge-fix.yml
+          git add src/server/BotAi.cpp tests/net/BotServerTests.cpp
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Keep bots on safe navigation during combat"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
