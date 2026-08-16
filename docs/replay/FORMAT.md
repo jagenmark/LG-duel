@@ -152,11 +152,14 @@ count matches, every CRC-32 matches, and the whole payload matches the Begin
 SHA-256. Idle and overall timeouts, disconnects, session changes, generation
 changes, cancel, and map/content checks clear incomplete data.
 
-The server sends only Begin/Chunk messages after a post-tick coordinator check;
-the client sends only Ack/Cancel messages through the authenticated session.
-Transfer bytes never enter ordinary gameplay snapshots and no transfer file is
-written on `ServerGame::tick` or render. A completed payload goes through the
-existing `ReplayIoService` decode job and `ReplayRuntime` path.
+The server sends Begin/Chunk messages after a post-tick coordinator check and
+sends an authenticated Cancel when an active transfer is reset. The client
+sends Ack or Cancel through the authenticated session; it ignores Cancel
+packets whose session, transfer ID, or generation does not match its active
+transfer and fails on a matching Cancel. Transfer bytes never enter ordinary
+gameplay snapshots and no transfer file is written on `ServerGame::tick` or
+render. A completed payload goes through the existing `ReplayIoService` decode
+job and `ReplayRuntime` path.
 
 ## Compatibility and clean failure
 

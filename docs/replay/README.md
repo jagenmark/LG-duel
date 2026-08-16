@@ -12,8 +12,9 @@ checkpoint restore, hash checks, seek, rolling archive, self-contained
 lethal-segment extraction, transfer state, strict file helpers, bounded replay
 workers, a replay-only runtime, and a `GameApp` presentation source. The local
 demo path and the narrow PR-C remote Duel transfer path use the existing replay
-runtime and presentation source. HUD progress, team-mode visibility filters,
-and cinematic killcam controls remain outside this work.
+runtime and presentation source. The remote path shows a KILLCAM label, killer,
+weapon, cause, playback progress, and a skip prompt. Team-mode visibility
+filtering and cinematic director controls remain outside this work.
 
 ## Reading order
 
