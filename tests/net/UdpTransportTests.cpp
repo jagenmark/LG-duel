@@ -1093,6 +1093,141 @@ int main() {
     "UDP chat history should deliver a sent message to other clients"
   );
 
+  {
+    const std::uint8_t clientIndex = firstTransport.clientIndex();
+    const std::uint32_t sessionId = firstTransport.sessionId();
+    lg::replay::ReplayTransferServerConfig cancelConfig;
+    cancelConfig.maximumSegmentBytes = 4096U;
+    cancelConfig.transfer.retryMilliseconds = 1U;
+    cancelConfig.transfer.timeoutMilliseconds = 4000U;
+    cancelConfig.transfer.minimumPacketIntervalMilliseconds = 1U;
+    lg::replay::ReplayTransferServer cancelServer(cancelConfig);
+    lg::replay::KillcamClientReceiver cancelReceiver({1000U, 5000U});
+    cancelReceiver.bindSession(sessionId);
+    std::string error;
+    const std::vector<std::uint8_t> cancelBytes(32U, 0x5cU);
+    failures += expect(
+      cancelServer.start(
+        clientIndex, sessionId, 41U, cancelBytes, 1U, &error, 23U
+      ),
+      "UDP cancel fixture should start an authenticated transfer"
+    );
+    const auto beginPackets = cancelServer.poll(2U, 1U);
+    failures += expect(
+      beginPackets.size() == 1U &&
+        std::holds_alternative<lg::replay::ReplayTransferBegin>(
+          beginPackets.front().message
+        ),
+      "UDP cancel fixture should produce a begin packet"
+    );
+    if (!beginPackets.empty()) {
+      failures += expect(
+        serverTransport.sendReplayTransferMessage(
+          clientIndex, beginPackets.front().message
+        ),
+        "UDP server should send the cancel fixture begin"
+      );
+    }
+    bool receivedBegin = false;
+    for (std::size_t iteration = 0U; iteration < 100U && !receivedBegin;
+         ++iteration) {
+      firstTransport.update();
+      lg::replay::ReplayTransferMessage message;
+      while (firstTransport.receiveReplayTransferMessage(message)) {
+        if (std::holds_alternative<lg::replay::ReplayTransferBegin>(message)) {
+          receivedBegin = cancelReceiver.receive(message, 2U).has_value();
+        }
+      }
+      if (!receivedBegin) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+    failures += expect(
+      receivedBegin && cancelReceiver.active() && !cancelReceiver.failed(),
+      "UDP cancel fixture should activate the receiver"
+    );
+
+    const auto cancelStatus = cancelServer.status(clientIndex);
+    failures += expect(
+      cancelStatus.has_value(),
+      "UDP cancel fixture should retain the active transfer tuple"
+    );
+    if (cancelStatus.has_value()) {
+      failures += expect(
+        serverTransport.sendReplayTransferMessage(
+          clientIndex,
+          lg::replay::ReplayTransferCancel{
+            cancelStatus->transferId,
+            cancelStatus->generation + 1U,
+            lg::replay::ReplayTransferCancelReason::Invalid,
+            sessionId
+          }
+        ),
+        "UDP server should send a stale cancel for the regression"
+      );
+    }
+    bool staleCancelReceived = false;
+    for (std::size_t iteration = 0U;
+         iteration < 100U && !staleCancelReceived; ++iteration) {
+      firstTransport.update();
+      lg::replay::ReplayTransferMessage message;
+      while (firstTransport.receiveReplayTransferMessage(message)) {
+        if (std::holds_alternative<lg::replay::ReplayTransferCancel>(message)) {
+          staleCancelReceived = true;
+          (void)cancelReceiver.receive(message, 3U);
+        }
+      }
+      if (!staleCancelReceived) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+    failures += expect(
+      staleCancelReceived && cancelReceiver.active() &&
+        !cancelReceiver.failed(),
+      "UDP stale cancel should leave the active receiver alone"
+    );
+
+    cancelServer.cancel(
+      clientIndex, sessionId, lg::replay::ReplayTransferCancelReason::Invalid
+    );
+    const auto matchingCancelPackets = cancelServer.poll(4U, 1U);
+    failures += expect(
+      matchingCancelPackets.size() == 1U &&
+        std::holds_alternative<lg::replay::ReplayTransferCancel>(
+          matchingCancelPackets.front().message
+        ),
+      "UDP reset should produce a matching cancel packet"
+    );
+    if (!matchingCancelPackets.empty()) {
+      failures += expect(
+        serverTransport.sendReplayTransferMessage(
+          clientIndex, matchingCancelPackets.front().message
+        ),
+        "UDP server should send the matching reset cancel"
+      );
+    }
+    bool matchingCancelReceived = false;
+    for (std::size_t iteration = 0U;
+         iteration < 100U && !matchingCancelReceived; ++iteration) {
+      firstTransport.update();
+      lg::replay::ReplayTransferMessage message;
+      while (firstTransport.receiveReplayTransferMessage(message)) {
+        if (std::holds_alternative<lg::replay::ReplayTransferCancel>(message)) {
+          matchingCancelReceived = true;
+          (void)cancelReceiver.receive(message, 5U);
+        }
+      }
+      if (!matchingCancelReceived) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+    failures += expect(
+      matchingCancelReceived && !cancelReceiver.active() &&
+        cancelReceiver.failed(),
+      "UDP matching reset cancel should fail the active receiver"
+    );
+  }
+
   runCoordinatorE2e();
 
   firstTransport.disconnect();

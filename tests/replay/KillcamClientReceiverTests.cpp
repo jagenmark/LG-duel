@@ -191,6 +191,15 @@ int main() {
               lg::replay::ReplayTransferCancelReason::Invalid &&
           !hashReceiver.takeCompleted().has_value(),
       "whole-file SHA mismatch should cancel without exposing bytes");
+  const auto hashReplacement = hashSender.begin(8U, 12U, source, 20U, senderConfig);
+  failures += expect(hashReplacement,
+                     "failed receiver should accept a replacement transfer");
+  const auto hashReplacementBegin = hashSender.nextMessage(20U);
+  failures += expect(
+      hashReplacementBegin.has_value() &&
+          hashReceiver.receive(*hashReplacementBegin, 20U).has_value() &&
+          hashReceiver.active() && !hashReceiver.failed(),
+      "a replacement begin should clear the failed receiver state");
 
   lg::replay::KillcamClientReceiver expiring({5U, 20U});
   expiring.bindSession(77U);

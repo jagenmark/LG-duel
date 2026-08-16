@@ -1284,8 +1284,7 @@ struct UdpClientTransport::Impl {
       replay::ReplayTransferMessage message;
       if (decodeReplayTransferPacket(wire, message) &&
           replayMessageSession(message) == sessionId &&
-          !std::holds_alternative<replay::ReplayTransferAck>(message) &&
-          !std::holds_alternative<replay::ReplayTransferCancel>(message)) {
+          !std::holds_alternative<replay::ReplayTransferAck>(message)) {
         if (replayTransferMessages.size() >=
             kMaxQueuedReplayTransferMessages) {
           replayTransferMessages.pop_front();

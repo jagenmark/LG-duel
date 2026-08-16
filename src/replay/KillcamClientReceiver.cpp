@@ -39,7 +39,10 @@ std::optional<ReplayTransferMessage> KillcamClientReceiver::receive(
   }
   if (const auto* begin = std::get_if<ReplayTransferBegin>(&message)) {
     const auto acknowledgement = receiver_.receiveBegin(*begin, now);
-    if (acknowledgement.has_value()) return *acknowledgement;
+    if (acknowledgement.has_value()) {
+      failed_ = false;
+      return *acknowledgement;
+    }
     if (!receiver_.active() && begin->byteCount > kReplayTransferMaxSegmentBytes) {
       failed_ = true;
       return ReplayTransferCancel{begin->transferId, begin->generation,
