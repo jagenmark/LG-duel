@@ -319,6 +319,49 @@ int main() {
     balance.shotgun.spreadRadians = 0.0F;
     server.applyBalanceConfig(balance);
     lg::ScenarioSetup setup = liveSetup();
+    setup.players[0].position = {-3.0F, 0.0F, 0.9F};
+    setup.players[1].health = 5;
+    setup.players[1].position = {0.0F, 0.0F, 0.9F};
+    setup.players[2].connected = true;
+    setup.players[2].ready = true;
+    setup.players[2].alive = true;
+    setup.players[2].health = 5;
+    setup.players[2].position = {3.0F, 0.0F, 0.9F};
+    failures += expect(
+      applySetup(server, setup),
+      "FFA same-tick shotgun setup should load"
+    );
+    const lg::ServerSnapshot beforeShots = server.snapshot();
+    transport.sendCommand(aimedShotgun(beforeShots, 0, 1, 1));
+    transport.sendCommand(aimedShotgun(beforeShots, 1, 2, 1));
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[1].health == 0 &&
+        snapshot.players[2].health == 0 &&
+        snapshot.scores[0] == 1 &&
+        snapshot.scores[1] == 1 &&
+        snapshot.weaponFires[1].fired &&
+        snapshot.weaponFires[1].hit &&
+        snapshot.weaponFires[1].weapon == lg::Weapon::Shotgun &&
+        snapshot.weaponFires[1].pelletHitCount == 1U &&
+        snapshot.weaponFires[1].damageApplied == 5,
+      "a killed shotgun attacker should still publish their frozen same-tick shot"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setArena(testArena());
+    lg::MatchRules rules;
+    rules.deathRespawnTicks = 2;
+    server.setMatchRules(rules);
+    lg::BalanceConfig balance;
+    balance.shotgun.pelletCount = 1U;
+    balance.shotgun.spreadRadians = 0.0F;
+    server.applyBalanceConfig(balance);
+    lg::ScenarioSetup setup = liveSetup();
     setup.players[2].connected = true;
     setup.players[2].ready = true;
     setup.players[2].alive = true;

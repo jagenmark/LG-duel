@@ -474,6 +474,54 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    server.setConnectedPlayers({true, false});
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+    server.setConnectedPlayers({true, true});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+
+    lg::BalanceConfig balance;
+    balance.shotgun.pelletCount = 1U;
+    balance.shotgun.spreadRadians = 0.0F;
+    server.applyBalanceConfig(balance);
+
+    lg::CommandPacket lethalWarmupDamage;
+    lethalWarmupDamage.playerIndex = 0;
+    lethalWarmupDamage.command.sequence = 1;
+    lethalWarmupDamage.requestMovementTuning = true;
+    lethalWarmupDamage.weaponDamage.shotgunDamagePerPellet = 100;
+    transport.sendCommand(lethalWarmupDamage);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand warmupShotgun;
+    warmupShotgun.sequence = 2;
+    warmupShotgun.attack = true;
+    warmupShotgun.planarAim = true;
+    warmupShotgun.viewYawRadians = 0.0F;
+    warmupShotgun.weapon = lg::Weapon::Shotgun;
+    transport.sendCommand(lg::CommandPacket{0, warmupShotgun, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForReady &&
+        snapshot.fragEvents[0].active &&
+        snapshot.fragEvents[0].targetPlayerIndex == 1U &&
+        snapshot.fragEvents[0].weapon == lg::Weapon::Shotgun &&
+        snapshot.players[1].health == 100 &&
+        snapshot.respawnTicksRemaining[1] == 0 &&
+        snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0,
+      "warmup shotgun kill should respawn at once and keep its frag event"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
     lg::ServerSnapshot snapshot = latestSnapshot(transport);
 
     lg::UserCommand rail;

@@ -1391,6 +1391,7 @@ void ServerGame::tick(float fixedDt) {
     // target rows in slot order keeps scoring and all authoritative effects
     // deterministic; the last lethal row is the event clients display.
     int actualShotgunDamage = 0;
+    const bool shotgunBatchWarmup = warmupPhase();
     shotgunBatch_ = {};
     shotgunBatch_.active = true;
     for (std::size_t targetIndex = 0;
@@ -1448,7 +1449,7 @@ void ServerGame::tick(float fixedDt) {
             snapshot_.players[targetIndex].health > 0) {
           continue;
         }
-        if (matchRules_.deathRespawnTicks == 0) {
+        if (shotgunBatchWarmup || matchRules_.deathRespawnTicks == 0) {
           respawnPlayer(targetIndex);
         } else {
           snapshot_.respawnTicksRemaining[targetIndex] =
@@ -1457,7 +1458,10 @@ void ServerGame::tick(float fixedDt) {
       }
     }
     shotgun.fire.damageApplied = actualShotgunDamage;
-    snapshot_.weaponFires[attackerIndex].damageApplied = actualShotgunDamage;
+    // A lower-slot attacker may kill and clear this attacker before their
+    // frozen shotgun rows apply. Publish the saved shot with the damage that
+    // those rows applied so the snapshot matches the authoritative result.
+    snapshot_.weaponFires[attackerIndex] = shotgun.fire;
   }
 
   simulateRockets(fixedDt);
