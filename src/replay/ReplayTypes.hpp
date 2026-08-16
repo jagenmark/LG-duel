@@ -14,7 +14,7 @@ namespace lg::replay {
 // bots ordinary recorded actors and keeps their private planning state out of
 // both hashes and checkpoints.
 inline constexpr std::uint16_t kReplayFormatVersionV1 = 1;
-inline constexpr std::uint16_t kReplayFormatVersion = 4;
+inline constexpr std::uint16_t kReplayFormatVersion = 5;
 inline constexpr std::uint16_t kReplayTickRate = 125;
 // Saved demos may cover a full high-player match. Killcam transfer has its own
 // much smaller cap in ReplayTransfer.hpp.
@@ -211,6 +211,15 @@ struct ReplayCheckpoint {
   std::array<ReplayFootstepState, kDuelPlayerCount> footstepStates = {};
   std::array<std::uint32_t, kDuelPlayerCount> grenadeBounceEventSequences = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> grenadeBounceSequences = {};
+  // Global presentation-stream counters. The arrays above remain in the
+  // checkpoint shape for format tooling that reads older native state, while
+  // these counters are the authoritative sequence state for version 5.
+  std::uint32_t rocketExplosionSequence = 0;
+  std::uint32_t fragEventSequence = 0;
+  std::uint32_t grenadeBounceEventSequence = 0;
+  std::uint8_t rocketExplosionNextSlot = 0;
+  std::uint8_t fragEventNextSlot = 0;
+  std::uint8_t grenadeBounceEventNextSlot = 0;
   std::array<std::uint32_t, Arena::kTeamSpawnCount> spawnLastUsedTicks = {};
   std::array<bool, Arena::kTeamSpawnCount> spawnWasUsed = {};
   std::uint32_t nextDeathmatchSpawnIndex = 0;

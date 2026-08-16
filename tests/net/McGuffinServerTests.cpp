@@ -13,6 +13,24 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+bool hasFrag(
+  const lg::ServerSnapshot& snapshot,
+  std::size_t attacker,
+  std::size_t target
+) {
+  for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+    if (
+      (snapshot.fragActiveMask & (1U << slot)) != 0U &&
+      snapshot.fragEvents[slot].active &&
+      snapshot.fragEvents[slot].attackerPlayerIndex == attacker &&
+      snapshot.fragEvents[slot].targetPlayerIndex == target
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 lg::Arena objectiveArena() {
   lg::Arena arena;
   arena.min = {-10.0F, -5.0F, -1.0F};
@@ -244,6 +262,63 @@ int main() {
       decoded.mcguffinRoundsWon == server.snapshot().mcguffinRoundsWon,
     "snapshot state should reconstruct McGuffin state without transient events"
   );
+
+  {
+    lg::LoopbackTransport batchTransport;
+    lg::ServerGame batchServer(batchTransport);
+    batchServer.setArena(objectiveArena());
+    lg::MatchRules batchRules;
+    batchRules.countdownTicks = 0;
+    batchRules.roundEndTicks = 1;
+    batchServer.setMatchRules(batchRules);
+    lg::McGuffinConfig batchConfig;
+    batchConfig.initialSpawnTicks = 0;
+    batchConfig.installationDelayTicks = 0;
+    batchConfig.pointsPerSecond = 125;
+    batchConfig.scoreLimit = 1;
+    batchConfig.finalHoldTicks = 1;
+    batchServer.setMcGuffinConfig(batchConfig);
+    lg::WeaponDamageTuning batchDamage;
+    batchDamage.railgunDamage = 100;
+    batchServer.setRuntimeGameplayTuning(
+      {}, 1.0F, 1.0F, 1000.0F, 20.0F, 1000.0F, 100,
+      batchDamage, 0.0F, 100, 100, true, false, 250, 750,
+      lg::WeaponSwitchingMode::Crazy
+    );
+    sendMode(batchTransport, 1);
+    batchServer.tick(lg::kFixedTickSeconds);
+    sendTeam(batchTransport, 0, 2, lg::Team::Red);
+    sendTeam(batchTransport, 1, 1, lg::Team::Blue);
+    batchServer.tick(lg::kFixedTickSeconds);
+    sendReady(batchTransport, 0, 3);
+    sendReady(batchTransport, 1, 2);
+    batchServer.tick(lg::kFixedTickSeconds);
+    failures += expect(
+      batchServer.snapshot().matchPhase == lg::MatchPhase::Live &&
+        batchServer.snapshot().mcguffin.state == lg::McGuffinState::InstalledRed,
+      "McGuffin combat-batch setup should install the objective"
+    );
+
+    lg::CommandPacket blueRail;
+    blueRail.playerIndex = 1;
+    blueRail.command.sequence = 3;
+    blueRail.command.viewYawRadians = 3.1415927F;
+    blueRail.command.weapon = lg::Weapon::Railgun;
+    blueRail.command.attack = true;
+    batchTransport.sendCommand(blueRail);
+    batchServer.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot& batchSnapshot = batchServer.snapshot();
+    failures += expect(
+      batchSnapshot.mcguffinRoundsWon[0] == 1 &&
+        batchSnapshot.matchPhase == lg::MatchPhase::RoundEnd &&
+        batchSnapshot.roundWinningTeam == lg::Team::Red,
+      "the final McGuffin hold should still award its round"
+    );
+    failures += expect(
+      batchSnapshot.players[0].health == 0 && hasFrag(batchSnapshot, 1, 0),
+      "a final-hold round transition should not discard same-tick combat"
+    );
+  }
 
   // Let blue finish the swapped second round, then verify that merely entering
   // an unclaimed deciding-round base does not commit its ownership.
@@ -504,7 +579,7 @@ int main() {
     respawnServer.tick(lg::kFixedTickSeconds);
     const lg::PlayerState& newLife = respawnServer.snapshot().players[1];
     failures += expect(
-      respawnServer.snapshot().fragEvents[0].active &&
+      hasFrag(respawnServer.snapshot(), 0, 1) &&
         newLife.health == 100 &&
         respawnServer.snapshot().respawnTicksRemaining[1] == 0 &&
         newLife.velocity.x == 0.0F && newLife.velocity.y == 0.0F &&
@@ -518,9 +593,10 @@ int main() {
     const lg::Vec3 cleanSpawn = newLife.position;
     respawnServer.tick(lg::kFixedTickSeconds);
     failures += expect(
-      respawnServer.snapshot().players[1].position.x == cleanSpawn.x &&
+      hasFrag(respawnServer.snapshot(), 0, 1) &&
+        respawnServer.snapshot().players[1].position.x == cleanSpawn.x &&
         respawnServer.snapshot().players[1].position.y == cleanSpawn.y,
-      "cached pre-death movement input should not execute on the new life"
+      "a zero-delay respawn should retain its frag while clearing old movement"
     );
   }
 

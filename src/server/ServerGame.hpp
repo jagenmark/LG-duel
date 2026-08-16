@@ -218,6 +218,7 @@ private:
   void updateEffectiveMatchRules();
   void updateMatchState();
   void beginCountdown();
+  void beginRoundDraw();
   void beginRoundEnd(std::size_t winnerIndex);
   void beginRoundEnd(Team winnerTeam);
   void beginMatchEnd(std::size_t winnerIndex);
@@ -372,7 +373,10 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> grenadeCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> plasmaGunCooldownTicks_ = {};
-  std::array<std::uint32_t, kDuelPlayerCount> rocketExplosionSequences_ = {};
+  // These counters are global per stream. The old per-owner arrays remain as
+  // checkpoint compatibility mirrors until all scenario callers migrate.
+  std::uint32_t rocketExplosionSequence_ = 0;
+  std::uint8_t rocketExplosionNextSlot_ = 0;
   std::array<Weapon, kDuelPlayerCount> selectedWeapons_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> weaponPulloutTicks_ = {};
   std::array<WeaponFireResult, kDuelPlayerCount> recentWeaponFires_ = {};
@@ -383,7 +387,8 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> recentFootstepAudioEventTicks_ = {};
   std::array<GrenadeBounceAudioEvent, kDuelPlayerCount> recentGrenadeBounceAudioEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentGrenadeBounceAudioEventTicks_ = {};
-  std::array<std::uint32_t, kDuelPlayerCount> fragEventSequences_ = {};
+  std::uint32_t fragEventSequence_ = 0;
+  std::uint8_t fragEventNextSlot_ = 0;
   std::array<FragEvent, kDuelPlayerCount> recentFragEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentFragEventTicks_ = {};
   std::array<
@@ -407,7 +412,13 @@ private:
   std::array<RocketProjectile, kMaxRocketProjectiles> rockets_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> projectileSequences_ = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> grenadeBounceSequences_ = {};
-  std::array<std::uint32_t, kDuelPlayerCount> grenadeBounceEventSequences_ = {};
+  std::uint32_t grenadeBounceEventSequence_ = 0;
+  std::uint8_t grenadeBounceEventNextSlot_ = 0;
+  std::uint16_t recentRocketExplosionActiveMask_ = 0;
+  std::uint16_t recentGrenadeBounceActiveMask_ = 0;
+  std::uint16_t recentFragActiveMask_ = 0;
+  bool ffaScoreLimitCrossedThisTick_ = false;
+  std::uint8_t ffaFirstScoreLimitWinner_ = kNoAssignedPlayer;
   std::array<ProjectileUpdate, kDuelPlayerCount> spawnedProjectileUpdates_ = {};
   std::size_t spawnedProjectileCount_ = 0;
   std::deque<RecentProjectileRemoval> recentProjectileRemovals_ = {};
@@ -479,6 +490,18 @@ private:
   std::uint32_t replayGeneration_ = 1;
   std::optional<replay::ReplayTickInput> pendingReplayInput_ = {};
   bool replayPlayback_ = false;
+  // A combat tick resolves every queued weapon and projectile result before it
+  // changes phase or respawns a player. This keeps same-tick results complete.
+  struct CombatBatchState {
+    bool active = false;
+    std::array<bool, kDuelPlayerCount> respawnTargets = {};
+    std::optional<std::size_t> roundWinner = {};
+    std::optional<Team> roundWinningTeam = {};
+    std::optional<Team> mcguffinRoundWinningTeam = {};
+    std::optional<std::size_t> matchWinner = {};
+    std::optional<Team> matchWinningTeam = {};
+    bool ffaOvertimeResolutionPending = false;
+  } combatBatch_ = {};
 };
 
 } // namespace lg

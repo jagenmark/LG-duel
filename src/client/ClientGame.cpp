@@ -282,8 +282,38 @@ void ClientGame::receiveSnapshots() {
         hasProjectileRevision_ = true;
       }
       snapshot_ = received;
-      for (std::size_t owner = 0; owner < received.rocketExplosions.size(); ++owner) {
-        removeExplodedProjectile(owner, received.rocketExplosions[owner]);
+      std::array<std::size_t, kDuelPlayerCount> explosionSlots = {};
+      std::size_t explosionCount = 0;
+      std::uint32_t newestExplosionSequence = 0;
+      for (std::size_t slot = 0; slot < received.rocketExplosions.size(); ++slot) {
+        if ((received.rocketExplosionActiveMask & (1U << slot)) != 0U) {
+          explosionSlots[explosionCount++] = slot;
+          if (
+            newestExplosionSequence == 0U ||
+            isSequenceNewer(
+              received.rocketExplosions[slot].sequence,
+              newestExplosionSequence
+            )
+          ) {
+            newestExplosionSequence = received.rocketExplosions[slot].sequence;
+          }
+        }
+      }
+      std::sort(
+        explosionSlots.begin(),
+        explosionSlots.begin() + explosionCount,
+        [&received, newestExplosionSequence](std::size_t left, std::size_t right) {
+          return nonZeroSequenceDistance(
+            newestExplosionSequence,
+            received.rocketExplosions[left].sequence
+          ) > nonZeroSequenceDistance(
+            newestExplosionSequence,
+            received.rocketExplosions[right].sequence
+          );
+        }
+      );
+      for (std::size_t index = 0; index < explosionCount; ++index) {
+        removeExplodedProjectile(received.rocketExplosions[explosionSlots[index]]);
       }
       if (
         !spectator_ &&
@@ -388,35 +418,37 @@ void ClientGame::clearProjectiles() {
   projectileSlotsInitialized_ = {};
   projectileTerminal_ = {};
   explodedProjectileKeys_ = {};
-  processedExplosionSequences_ = {};
+  processedExplosionSequence_ = 0;
   nextExplodedProjectileKey_ = 0;
   projectileRevision_ = 0;
   hasProjectileRevision_ = false;
 }
 
 void ClientGame::removeExplodedProjectile(
-  std::size_t owner,
   const RocketExplosionResult& explosion
 ) {
   if (
     !explosion.active ||
     explosion.sequence == 0U ||
-    explosion.projectileSequence == 0U ||
-    owner >= kMaxPlayers
+    explosion.projectileSequence == 0U
   ) {
     return;
   }
   if (
-    processedExplosionSequences_[owner] != 0U &&
+    processedExplosionSequence_ != 0U &&
     !isSequenceNewer(
       explosion.sequence,
-      processedExplosionSequences_[owner]
+      processedExplosionSequence_
     )
   ) {
     return;
   }
-  processedExplosionSequences_[owner] = explosion.sequence;
-  const std::size_t firstSlot = owner * kProjectileSlotsPerPlayer;
+  const std::size_t eventOwner = explosion.ownerPlayerIndex;
+  if (eventOwner >= kMaxPlayers) {
+    return;
+  }
+  processedExplosionSequence_ = explosion.sequence;
+  const std::size_t firstSlot = eventOwner * kProjectileSlotsPerPlayer;
   const std::size_t lastSlot = firstSlot + kProjectileSlotsPerPlayer;
   for (std::size_t slot = firstSlot; slot < lastSlot; ++slot) {
     if (
@@ -431,7 +463,7 @@ void ClientGame::removeExplodedProjectile(
   }
   ExplodedProjectileKey& key =
     explodedProjectileKeys_[nextExplodedProjectileKey_];
-  key.owner = static_cast<std::uint8_t>(owner);
+  key.owner = static_cast<std::uint8_t>(eventOwner);
   key.sequence = explosion.projectileSequence;
   key.valid = true;
   nextExplodedProjectileKey_ =

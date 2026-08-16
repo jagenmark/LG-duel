@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -17,6 +18,22 @@ int expect(bool condition, std::string_view message) {
 
   std::cerr << "FAILED: " << message << '\n';
   return 1;
+}
+
+bool hasExplosionForOwner(
+  const lg::ServerSnapshot& snapshot,
+  std::size_t owner
+) {
+  for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+    if (
+      (snapshot.rocketExplosionActiveMask & (1U << slot)) != 0U &&
+      snapshot.rocketExplosions[slot].active &&
+      snapshot.rocketExplosions[slot].ownerPlayerIndex == owner
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 lg::ServerSnapshot latestSnapshot(lg::LoopbackTransport& transport) {
@@ -108,12 +125,17 @@ lg::CommandPacket aimedAttack(
 lg::ServerSnapshot configureLiveOneVersusTwo(
   lg::LoopbackTransport& transport,
   lg::ServerGame& server,
-  std::uint16_t roundLimit = 2
+  std::uint16_t roundLimit = 2,
+  std::array<lg::Vec3, 3> spawnPositions = {
+    lg::Vec3{-4.0F, 0.0F, 0.0F},
+    lg::Vec3{4.0F, 0.0F, 0.0F},
+    lg::Vec3{6.5F, 0.0F, 0.0F},
+  }
 ) {
   lg::Arena arena;
-  arena.spawnPositions[0] = {-4.0F, 0.0F, 0.0F};
-  arena.spawnPositions[1] = {4.0F, 0.0F, 0.0F};
-  arena.spawnPositions[2] = {6.5F, 0.0F, 0.0F};
+  arena.spawnPositions[0] = spawnPositions[0];
+  arena.spawnPositions[1] = spawnPositions[1];
+  arena.spawnPositions[2] = spawnPositions[2];
   server.setArena(arena);
   server.setConnectedPlayers({true, true, true, false, false, false});
   latestSnapshot(transport);
@@ -365,6 +387,130 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    const std::array<lg::Vec3, 3> blockedEnemyPositions = {
+      lg::Vec3{5.0F, 0.0F, 0.0F},
+      lg::Vec3{0.0F, 0.0F, 0.0F},
+      lg::Vec3{3.0F, 0.0F, 0.0F},
+    };
+    lg::ServerSnapshot snapshot = configureLiveOneVersusTwo(
+      transport,
+      server,
+      2,
+      blockedEnemyPositions
+    );
+    lg::BalanceConfig balance;
+    balance.shotgun.pelletCount = 2U;
+    balance.shotgun.spreadRadians = 0.0F;
+    server.applyBalanceConfig(balance);
+    const int teammateHealth = snapshot.players[2].health;
+    const int enemyHealth = snapshot.players[0].health;
+    snapshot = sendAndTick(
+      transport,
+      server,
+      aimedAttack(snapshot, 1, 2, 3, lg::Weapon::Shotgun)
+    );
+    const auto& shotgunStats = snapshot.matchCombatStats[1].weapons[
+      lg::weaponIndex(lg::Weapon::Shotgun)
+    ];
+    failures += expect(
+      snapshot.weaponFires[1].hit &&
+        snapshot.weaponFires[1].pelletHitCount == 2U &&
+        snapshot.weaponFires[1].damageApplied == 0 &&
+        snapshot.players[2].health == teammateHealth &&
+        snapshot.players[0].health == enemyHealth &&
+        std::hypot(
+          snapshot.players[2].velocity.x,
+          snapshot.players[2].velocity.y,
+          snapshot.players[2].velocity.z
+        ) > 0.0F &&
+        shotgunStats.attempts == 2U &&
+        shotgunStats.hits == 0U,
+      "friendly shotgun bodies should block and take knockback without damage or accuracy credit"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.spawnPositions[0] = {5.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {0.0F, 0.0F, 0.0F};
+    arena.spawnPositions[2] = {3.0F, 0.45F, 0.0F};
+    server.setArena(arena);
+    lg::MatchRules rules;
+    rules.roundLimit = 2;
+    rules.countdownTicks = 0;
+    rules.roundEndTicks = 2;
+    rules.matchEndTicks = 2;
+    server.setMatchRules(rules);
+    lg::BalanceConfig balance;
+    balance.shotgun.pelletCount = 2U;
+    balance.shotgun.spreadRadians = 0.2F;
+    server.applyBalanceConfig(balance);
+    lg::ScenarioSetup setup;
+    setup.match.gameMode = lg::GameMode::ClanArena;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.players[0].connected = true;
+    setup.players[0].ready = true;
+    setup.players[0].alive = true;
+    setup.players[0].team = lg::Team::Red;
+    setup.players[0].health = 5;
+    setup.players[0].position = {5.0F, 0.0F, 0.9F};
+    setup.players[0].onGround = true;
+    setup.players[1].connected = true;
+    setup.players[1].ready = true;
+    setup.players[1].alive = true;
+    setup.players[1].team = lg::Team::Blue;
+    setup.players[1].health = 100;
+    setup.players[1].position = {0.0F, 0.0F, 0.9F};
+    setup.players[1].onGround = true;
+    setup.players[2].connected = true;
+    setup.players[2].ready = true;
+    setup.players[2].alive = true;
+    setup.players[2].team = lg::Team::Blue;
+    setup.players[2].health = 100;
+    setup.players[2].position = {3.0F, 0.45F, 0.9F};
+    setup.players[2].onGround = true;
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "Clan Arena shotgun row-order setup should load"
+    );
+    lg::ServerSnapshot snapshot = server.snapshot();
+    const int enemyHealth = snapshot.players[0].health;
+    const int teammateHealth = snapshot.players[2].health;
+    snapshot = sendAndTick(
+      transport,
+      server,
+      aimedAttack(snapshot, 1, 0, 3, lg::Weapon::Shotgun)
+    );
+    const auto& shotgunStats = snapshot.matchCombatStats[1].weapons[
+      lg::weaponIndex(lg::Weapon::Shotgun)
+    ];
+    failures += expect(
+      snapshot.weaponFires[1].pelletHitCount == 2U &&
+        snapshot.weaponFires[1].damageApplied == 5 &&
+        snapshot.players[0].health == 0 &&
+        enemyHealth == 5 &&
+        snapshot.players[2].health == teammateHealth &&
+        std::hypot(
+          snapshot.players[2].velocity.x,
+          snapshot.players[2].velocity.y,
+          snapshot.players[2].velocity.z
+        ) > 0.0F &&
+        snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
+        snapshot.roundWinningTeam == lg::Team::Blue &&
+        snapshot.teamScores[1] == 1 &&
+        snapshot.scores[1] == 1 &&
+        shotgunStats.attempts == 2U &&
+        shotgunStats.hits == 1U,
+      "Clan Arena shotgun rows should apply a lower-slot enemy death and higher-slot teammate knockback before round end"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
     lg::ServerSnapshot snapshot = configureLiveOneVersusTwo(transport, server);
     const int ownerHealth = snapshot.players[1].health;
     const int teammateHealth = snapshot.players[2].health;
@@ -385,7 +531,7 @@ int main() {
     for (int tick = 0; tick < 80; ++tick) {
       server.tick(lg::kFixedTickSeconds);
       snapshot = latestSnapshot(transport);
-      if (snapshot.rocketExplosions[1].active) {
+      if (hasExplosionForOwner(snapshot, 1)) {
         exploded = true;
         if (snapshot.players[1].health < ownerHealth) {
           break;

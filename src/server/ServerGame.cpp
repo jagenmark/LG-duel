@@ -87,6 +87,26 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   return static_cast<std::uint8_t>(rounded & 0xFFL);
 }
 
+template <typename Event>
+void appendCombatEvent(
+  std::array<Event, kDuelPlayerCount>& events,
+  std::uint16_t& activeMask,
+  std::uint8_t& nextSlot,
+  const Event& event
+) {
+  if (
+    !event.active || event.sequence == 0U ||
+    nextSlot >= kDuelPlayerCount
+  ) {
+    return;
+  }
+  const std::size_t slot = nextSlot;
+  events[slot] = event;
+  events[slot].active = true;
+  activeMask |= static_cast<std::uint16_t>(1U << slot);
+  nextSlot = static_cast<std::uint8_t>((slot + 1U) % kDuelPlayerCount);
+}
+
 [[nodiscard]] std::uint32_t scenarioRandomState(
   std::uint64_t seed,
   std::uint64_t stream
@@ -629,6 +649,8 @@ void ServerGame::tick(float fixedDt) {
     return;
   }
   receivedCommandThisTick_.fill(false);
+  ffaScoreLimitCrossedThisTick_ = false;
+  ffaFirstScoreLimitWinner_ = kNoAssignedPlayer;
   mcguffinThrowRequestedThisTick_.fill(false);
   jumpEdgeThisTick_.fill(false);
   dashEdgeThisTick_.fill(false);
@@ -639,6 +661,9 @@ void ServerGame::tick(float fixedDt) {
   }
   updateMatchState();
   const bool tickStartedLive = snapshot_.matchPhase == MatchPhase::Live;
+  const bool combatBatchWarmup = warmupPhase();
+  combatBatch_ = {};
+  combatBatch_.active = tickStartedLive || combatBatchWarmup;
   if (replayPlayback_) {
     applyReplayInput(*pendingReplayInput_);
     pendingReplayInput_.reset();
@@ -659,9 +684,12 @@ void ServerGame::tick(float fixedDt) {
   }
   snapshot_.weaponFires = {};
   snapshot_.rocketExplosions = {};
+  snapshot_.rocketExplosionActiveMask = 0;
   snapshot_.footstepAudioEvents = {};
   snapshot_.grenadeBounceAudioEvents = {};
+  snapshot_.grenadeBounceActiveMask = 0;
   snapshot_.fragEvents = {};
+  snapshot_.fragActiveMask = 0;
   snapshot_.localHitFeedbackEvents = {};
   snapshot_.damageTakenEvents = {};
   // Event fields describe occurrences, not durable state. They are rebuilt for
@@ -854,6 +882,7 @@ void ServerGame::tick(float fixedDt) {
   std::array<std::size_t, kDuelPlayerCount> lightningTargets = {};
   std::array<std::size_t, kDuelPlayerCount> freezeTargets = {};
   std::array<std::size_t, kDuelPlayerCount> weaponTargets = {};
+  std::array<ShotgunResolution, kDuelPlayerCount> shotgunResolutions = {};
   std::array<Vec3, kDuelPlayerCount> hitTargetPositions = {};
   lightningTargets.fill(kDuelPlayerCount);
   freezeTargets.fill(kDuelPlayerCount);
@@ -932,6 +961,29 @@ void ServerGame::tick(float fixedDt) {
       std::min(requestedRewindTicks, kMaxLagCompensationTicks);
     const std::uint32_t targetTick = snapshot_.serverTick - clampedRewindTicks;
     const HistoryFrame& historyFrame = historyFrameForTick(targetTick);
+
+    std::array<ShotgunTargetCandidate, kDuelPlayerCount> shotgunCandidates = {};
+    if (command.weapon == Weapon::Shotgun) {
+      for (std::size_t candidateIndex = 0;
+           candidateIndex < kDuelPlayerCount;
+           ++candidateIndex) {
+        if (
+          !isTraceableCombatant(snapshot_, attackerIndex, candidateIndex) ||
+          combatPlayers[candidateIndex].health <= 0
+        ) {
+          continue;
+        }
+        ShotgunTargetCandidate& candidate = shotgunCandidates[candidateIndex];
+        candidate.playerIndex = static_cast<std::uint8_t>(candidateIndex);
+        candidate.player = clampedRewindTicks == 0
+          ? combatPlayers[candidateIndex]
+          : historyFrame.players[candidateIndex];
+        // A target can move between the rewound trace pose and this tick. Keep
+        // current liveness authoritative while preserving the rewound bounds.
+        candidate.player.health = combatPlayers[candidateIndex].health;
+        candidate.valid = true;
+      }
+    }
 
     const Vec3 attackStart = weaponMuzzlePosition(
       combatPlayers[attackerIndex],
@@ -1164,29 +1216,34 @@ void ServerGame::tick(float fixedDt) {
       command.attack &&
       shotgunCooldownTicks_[attackerIndex] == 0
     ) {
-      if (targetIndex < kDuelPlayerCount) {
-        weaponTargets[attackerIndex] = targetIndex;
-        snapshot_.weaponFires[attackerIndex] = simulateShotgun(
-          combatPlayers[attackerIndex],
-          target,
-          command,
-          arena_,
-          shotgunTuning_
-        );
-      } else {
-        WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
-        fire.weapon = Weapon::Shotgun;
-        fire.visualSeed = command.sequence;
-        fire.pelletCount = shotgunTuning_.pelletCount;
-        fire.start = attackStart;
-        fire.end = worldTrace.end;
-        fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
-      }
-      recordInstantWeaponAccuracy(
-        snapshot_,
-        attackerIndex,
-        snapshot_.weaponFires[attackerIndex]
+      shotgunResolutions[attackerIndex] = resolveShotgunMultiTarget(
+        combatPlayers[attackerIndex],
+        command,
+        arena_,
+        shotgunTuning_,
+        shotgunCandidates
       );
+      snapshot_.weaponFires[attackerIndex] = shotgunResolutions[attackerIndex].fire;
+      std::uint32_t damageAllowedPellets = 0U;
+      for (const ShotgunTargetResult& target : shotgunResolutions[attackerIndex].targets) {
+        if (
+          target.playerIndex < kDuelPlayerCount &&
+          damageAllowed(attackerIndex, target.playerIndex)
+        ) {
+          damageAllowedPellets +=
+            static_cast<std::uint32_t>(target.bodyPelletCount) +
+            static_cast<std::uint32_t>(target.headPelletCount);
+        }
+      }
+      if (shotgunResolutions[attackerIndex].fire.fired) {
+        recordWeaponAccuracy(
+          snapshot_,
+          attackerIndex,
+          Weapon::Shotgun,
+          shotgunResolutions[attackerIndex].fire.pelletCount,
+          damageAllowedPellets
+        );
+      }
       shotgunCooldownTicks_[attackerIndex] = shotgunCooldownDurationTicks_;
       (void)consumeAmmo(attackerIndex, Weapon::Shotgun);
     } else if (
@@ -1353,9 +1410,138 @@ void ServerGame::tick(float fixedDt) {
         hitTargetPositions[attackerIndex],
       }
     );
+
+    ShotgunResolution& shotgun = shotgunResolutions[attackerIndex];
+    if (!shotgun.fire.fired) {
+      continue;
+    }
+    // Applying target rows in slot order keeps scoring and every authoritative
+    // effect deterministic while the enclosing combat batch stays live.
+    int actualShotgunDamage = 0;
+    for (std::size_t targetIndex = 0;
+         targetIndex < shotgun.targets.size();
+         ++targetIndex) {
+      ShotgunTargetResult& target = shotgun.targets[targetIndex];
+      if (target.playerIndex >= kDuelPlayerCount) {
+        continue;
+      }
+      const bool damagePhase =
+        snapshot_.matchPhase == MatchPhase::Live || warmupPhase();
+      if (damagePhase && damageAllowed(attackerIndex, target.playerIndex)) {
+        const PlayerState& player = snapshot_.players[target.playerIndex];
+        actualShotgunDamage += std::clamp(target.requestedDamage, 0, player.health);
+      }
+      applyDamageAndKnockback(
+        attackerIndex,
+        target.playerIndex,
+        target.requestedDamage,
+        target.knockbackImpulse,
+        Weapon::Shotgun,
+        target.headPelletCount > 0,
+        {
+          true,
+          shotgun.fire.start,
+          true,
+          target.hitPosition,
+        }
+      );
+    }
+    shotgun.fire.damageApplied = actualShotgunDamage;
+    // Another frozen result can kill this attacker first. Publish the saved
+    // shot after its rows apply so the snapshot matches the result.
+    snapshot_.weaponFires[attackerIndex] = shotgun.fire;
   }
 
   simulateRockets(fixedDt);
+
+  // A projectile blast can resolve several lethal targets in one tick. Keep
+  // the match live while the combat batch runs so every kill scores, then use
+  // the first score-limit crossing as the stable winner.
+  if (snapshot_.gameMode == GameMode::FreeForAll) {
+    if (
+      tickStartedLive &&
+      ffaScoreLimitCrossedThisTick_ &&
+      ffaFirstScoreLimitWinner_ < kDuelPlayerCount
+    ) {
+      beginMatchEnd(ffaFirstScoreLimitWinner_);
+    } else if (combatBatch_.ffaOvertimeResolutionPending) {
+      const auto leader = uniqueScoreLeader(
+        snapshot_.scores,
+        snapshot_.participatingPlayers
+      );
+      if (leader.has_value()) {
+        beginMatchEnd(*leader);
+      }
+    }
+  }
+
+  const auto deferredRespawnTargets = combatBatch_.respawnTargets;
+  const auto deferredRoundWinner = combatBatch_.roundWinner;
+  const auto deferredRoundWinningTeam = combatBatch_.roundWinningTeam;
+  const auto deferredMcGuffinRoundWinningTeam =
+    combatBatch_.mcguffinRoundWinningTeam;
+  const auto deferredMatchWinner = combatBatch_.matchWinner;
+  const auto deferredMatchWinningTeam = combatBatch_.matchWinningTeam;
+  const bool deferredRoundEnd =
+    deferredRoundWinner.has_value() || deferredRoundWinningTeam.has_value() ||
+    deferredMcGuffinRoundWinningTeam.has_value();
+  const bool deferredMatchEnd =
+    deferredMatchWinner.has_value() || deferredMatchWinningTeam.has_value();
+  combatBatch_ = {};
+  if (deferredMcGuffinRoundWinningTeam.has_value()) {
+    beginMcGuffinRoundEnd(*deferredMcGuffinRoundWinningTeam);
+  } else if (deferredRoundWinner.has_value()) {
+    std::optional<std::size_t> winner;
+    std::size_t aliveCount = 0;
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      if (!isOccupiedSlot(index) || snapshot_.players[index].health <= 0) {
+        continue;
+      }
+      ++aliveCount;
+      winner = index;
+    }
+    if (aliveCount == 1U && winner.has_value()) {
+      beginRoundEnd(*winner);
+    } else {
+      beginRoundDraw();
+    }
+  } else if (deferredRoundWinningTeam.has_value()) {
+    std::array<bool, kDuelPlayerCount> alivePlayers = {};
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      alivePlayers[index] =
+        isOccupiedSlot(index) && snapshot_.players[index].health > 0;
+    }
+    const auto winner = clanArenaRoundWinner(
+      occupiedPlayers(),
+      snapshot_.teams,
+      alivePlayers
+    );
+    if (winner.has_value()) {
+      beginRoundEnd(*winner);
+    } else {
+      beginRoundDraw();
+    }
+  } else if (deferredMatchWinner.has_value()) {
+    beginMatchEnd(*deferredMatchWinner);
+  } else if (deferredMatchWinningTeam.has_value()) {
+    beginMatchEnd(*deferredMatchWinningTeam);
+  }
+  if (!deferredRoundEnd && !deferredMatchEnd) {
+    for (std::size_t targetIndex = 0;
+         targetIndex < deferredRespawnTargets.size();
+         ++targetIndex) {
+      if (!deferredRespawnTargets[targetIndex] ||
+          snapshot_.players[targetIndex].health > 0) {
+        continue;
+      }
+      if (combatBatchWarmup || matchRules_.deathRespawnTicks == 0) {
+        respawnPlayer(targetIndex);
+      } else {
+        snapshot_.respawnTicksRemaining[targetIndex] =
+          matchRules_.deathRespawnTicks;
+      }
+    }
+  }
 
   if (tickStartedLive) {
     ++snapshot_.liveTicksElapsed;
@@ -1733,6 +1919,7 @@ bool ServerGame::injectReplayInput(
 void ServerGame::endReplayPlayback() {
   pendingReplayInput_.reset();
   replayPlayback_ = false;
+  combatBatch_ = {};
 }
 
 replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
@@ -1817,8 +2004,12 @@ replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
   checkpoint.mcguffinThrowPickupLockoutTicks = mcguffinThrowPickupLockoutTicks_;
   checkpoint.spawnRandomState = spawnRandomState_;
   checkpoint.projectileSequences = projectileSequences_;
-  checkpoint.rocketExplosionSequences = rocketExplosionSequences_;
-  checkpoint.fragEventSequences = fragEventSequences_;
+  checkpoint.rocketExplosionSequence = rocketExplosionSequence_;
+  checkpoint.fragEventSequence = fragEventSequence_;
+  checkpoint.rocketExplosionNextSlot = rocketExplosionNextSlot_;
+  checkpoint.fragEventNextSlot = fragEventNextSlot_;
+  checkpoint.rocketExplosionSequences.fill(rocketExplosionSequence_);
+  checkpoint.fragEventSequences.fill(fragEventSequence_);
   checkpoint.localHitFeedbackSequences = localHitFeedbackSequences_;
   checkpoint.damageTakenSequences = damageTakenSequences_;
   checkpoint.footstepSequences = footstepSequences_;
@@ -1830,7 +2021,9 @@ replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
       footstepStates_[index].initialized,
     };
   }
-  checkpoint.grenadeBounceEventSequences = grenadeBounceEventSequences_;
+  checkpoint.grenadeBounceEventSequence = grenadeBounceEventSequence_;
+  checkpoint.grenadeBounceEventNextSlot = grenadeBounceEventNextSlot_;
+  checkpoint.grenadeBounceEventSequences.fill(grenadeBounceEventSequence_);
   checkpoint.grenadeBounceSequences = grenadeBounceSequences_;
   checkpoint.spawnLastUsedTicks = spawnLastUsedTicks_;
   checkpoint.spawnWasUsed = spawnWasUsed_;
@@ -1997,12 +2190,15 @@ bool ServerGame::restoreReplayCheckpoint(
   mcguffinThrowPickupLockoutTicks_ = checkpoint.mcguffinThrowPickupLockoutTicks;
   spawnRandomState_ = checkpoint.spawnRandomState;
   projectileSequences_ = checkpoint.projectileSequences;
-  rocketExplosionSequences_ = checkpoint.rocketExplosionSequences;
-  fragEventSequences_ = checkpoint.fragEventSequences;
+  rocketExplosionSequence_ = checkpoint.rocketExplosionSequence;
+  fragEventSequence_ = checkpoint.fragEventSequence;
+  rocketExplosionNextSlot_ = checkpoint.rocketExplosionNextSlot;
+  fragEventNextSlot_ = checkpoint.fragEventNextSlot;
   localHitFeedbackSequences_ = checkpoint.localHitFeedbackSequences;
   damageTakenSequences_ = checkpoint.damageTakenSequences;
   footstepSequences_ = checkpoint.footstepSequences;
-  grenadeBounceEventSequences_ = checkpoint.grenadeBounceEventSequences;
+  grenadeBounceEventSequence_ = checkpoint.grenadeBounceEventSequence;
+  grenadeBounceEventNextSlot_ = checkpoint.grenadeBounceEventNextSlot;
   grenadeBounceSequences_ = checkpoint.grenadeBounceSequences;
   spawnLastUsedTicks_ = checkpoint.spawnLastUsedTicks;
   spawnWasUsed_ = checkpoint.spawnWasUsed;
@@ -2035,12 +2231,15 @@ bool ServerGame::restoreReplayCheckpoint(
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
   recentRocketExplosionTicks_ = {};
+  recentRocketExplosionActiveMask_ = 0;
   recentFootstepAudioEvents_ = {};
   recentFootstepAudioEventTicks_ = {};
   recentGrenadeBounceAudioEvents_ = {};
   recentGrenadeBounceAudioEventTicks_ = {};
+  recentGrenadeBounceActiveMask_ = 0;
   recentFragEvents_ = {};
   recentFragEventTicks_ = {};
+  recentFragActiveMask_ = 0;
   recentLocalHitFeedbackEvents_ = {};
   recentLocalHitFeedbackEventTicks_ = {};
   spawnedProjectileCount_ = 0;
@@ -2049,11 +2248,13 @@ bool ServerGame::restoreReplayCheckpoint(
   playerSessions_ = {};
   pendingReplayInput_.reset();
   replayPlayback_ = true;
+  combatBatch_ = {};
   if (error != nullptr) error->clear();
   return true;
 }
 
 void ServerGame::resetMatch() {
+  combatBatch_ = {};
   ++damageFeedbackRevision_;
   if (damageFeedbackRevision_ == 0U) {
     damageFeedbackRevision_ = 1U;
@@ -2147,12 +2348,15 @@ void ServerGame::resetMatch() {
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
   recentRocketExplosionTicks_ = {};
+  recentRocketExplosionActiveMask_ = 0;
   recentFootstepAudioEvents_ = {};
   recentFootstepAudioEventTicks_ = {};
   recentGrenadeBounceAudioEvents_ = {};
   recentGrenadeBounceAudioEventTicks_ = {};
+  recentGrenadeBounceActiveMask_ = 0;
   recentFragEvents_ = {};
   recentFragEventTicks_ = {};
+  recentFragActiveMask_ = 0;
   recentLocalHitFeedbackEvents_ = {};
   recentLocalHitFeedbackEventTicks_ = {};
   recentDamageTakenEvents_ = {};
@@ -2162,7 +2366,12 @@ void ServerGame::resetMatch() {
   clearProjectiles();
   snapshot_.icePools = {};
   grenadeBounceSequences_ = {};
-  grenadeBounceEventSequences_ = {};
+  rocketExplosionSequence_ = 0;
+  grenadeBounceEventSequence_ = 0;
+  fragEventSequence_ = 0;
+  rocketExplosionNextSlot_ = 0;
+  fragEventNextSlot_ = 0;
+  grenadeBounceEventNextSlot_ = 0;
   fractionalVampirismHealing_ = {};
   commands_ = {};
   viewedServerTicks_ = {};
@@ -2306,8 +2515,6 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   }
   snapshot_.lightningGuns[playerIndex] = {};
   snapshot_.weaponFires[playerIndex] = {};
-  snapshot_.rocketExplosions[playerIndex] = {};
-  snapshot_.fragEvents[playerIndex] = {};
   snapshot_.footstepAudioEvents[playerIndex] = {};
   lightningGunStates_[playerIndex] = {};
   freezeGunStates_[playerIndex] = {};
@@ -2331,8 +2538,6 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   refillAmmo(playerIndex);
   recentFootstepAudioEvents_[playerIndex] = {};
   recentFootstepAudioEventTicks_[playerIndex] = 0;
-  recentFragEvents_[playerIndex] = {};
-  recentFragEventTicks_[playerIndex] = 0;
   footstepStates_[playerIndex] = {};
   footstepSequences_[playerIndex] = 0;
   fractionalVampirismHealing_[playerIndex] = 0.0;
@@ -3318,7 +3523,20 @@ void ServerGame::beginCountdown() {
   }
 }
 
+void ServerGame::beginRoundDraw() {
+  snapshot_.roundWinner = 255;
+  snapshot_.roundWinningTeam = Team::None;
+  snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
+  snapshot_.matchPhase = MatchPhase::RoundEnd;
+}
+
 void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
+  if (combatBatch_.active) {
+    if (!combatBatch_.roundWinner.has_value()) {
+      combatBatch_.roundWinner = winnerIndex;
+    }
+    return;
+  }
   awardDuelRound(snapshot_.scores, winnerIndex);
   snapshot_.roundWinner = static_cast<std::uint8_t>(winnerIndex);
   snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
@@ -3337,6 +3555,12 @@ void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
 }
 
 void ServerGame::beginRoundEnd(Team winnerTeam) {
+  if (combatBatch_.active) {
+    if (!combatBatch_.roundWinningTeam.has_value()) {
+      combatBatch_.roundWinningTeam = winnerTeam;
+    }
+    return;
+  }
   awardClanArenaRound(snapshot_.teamScores, winnerTeam);
   snapshot_.roundWinningTeam = winnerTeam;
   snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
@@ -3355,12 +3579,24 @@ void ServerGame::beginRoundEnd(Team winnerTeam) {
 }
 
 void ServerGame::beginMatchEnd(std::size_t winnerIndex) {
+  if (combatBatch_.active) {
+    if (!combatBatch_.matchWinner.has_value()) {
+      combatBatch_.matchWinner = winnerIndex;
+    }
+    return;
+  }
   snapshot_.matchWinner = static_cast<std::uint8_t>(winnerIndex);
   snapshot_.matchPhase = MatchPhase::MatchEnd;
   snapshot_.phaseTicksRemaining = matchRules_.matchEndTicks;
 }
 
 void ServerGame::beginMatchEnd(Team winnerTeam) {
+  if (combatBatch_.active) {
+    if (!combatBatch_.matchWinningTeam.has_value()) {
+      combatBatch_.matchWinningTeam = winnerTeam;
+    }
+    return;
+  }
   snapshot_.matchWinningTeam = winnerTeam;
   snapshot_.matchPhase = MatchPhase::MatchEnd;
   snapshot_.phaseTicksRemaining = matchRules_.matchEndTicks;
@@ -3896,11 +4132,19 @@ void ServerGame::applyDamageAndKnockback(
     )
   ) {
     recordReplayLethal(attackerIndex, targetIndex, weapon);
-    FragEvent& frag = snapshot_.fragEvents[attackerIndex];
+    FragEvent frag;
     frag.active = true;
-    frag.sequence = ++fragEventSequences_[attackerIndex];
+    frag.sequence = nextNonZeroSequence(fragEventSequence_);
+    fragEventSequence_ = frag.sequence;
+    frag.attackerPlayerIndex = static_cast<std::uint8_t>(attackerIndex);
     frag.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
     frag.weapon = weapon;
+    appendCombatEvent(
+      snapshot_.fragEvents,
+      snapshot_.fragActiveMask,
+      fragEventNextSlot_,
+      frag
+    );
   }
 
   if (wasAlive && target.health == 0 && damageApplied > 0) {
@@ -3942,8 +4186,10 @@ void ServerGame::handlePlayerDeath(
     target.velocity = {};
     lightningGunStates_[targetIndex] = {};
     freezeGunStates_[targetIndex] = {};
-    snapshot_.lightningGuns[targetIndex] = {};
-    snapshot_.weaponFires[targetIndex] = {};
+    if (!combatBatch_.active) {
+      snapshot_.lightningGuns[targetIndex] = {};
+      snapshot_.weaponFires[targetIndex] = {};
+    }
     if (snapshot_.gameMode == GameMode::Duel) {
       std::optional<std::size_t> winner;
       std::size_t aliveCount = 0;
@@ -3980,17 +4226,26 @@ void ServerGame::handlePlayerDeath(
         *attackerIndex != targetIndex &&
         snapshot_.scores[*attackerIndex] >= kFreeForAllScoreLimit
       ) {
-        beginMatchEnd(*attackerIndex);
+        if (!ffaScoreLimitCrossedThisTick_) {
+          ffaFirstScoreLimitWinner_ = static_cast<std::uint8_t>(*attackerIndex);
+        }
+        ffaScoreLimitCrossedThisTick_ = true;
       } else if (snapshot_.overtime) {
-        const auto leader = uniqueScoreLeader(
-          snapshot_.scores,
-          snapshot_.participatingPlayers
-        );
-        if (leader.has_value()) {
-          beginMatchEnd(*leader);
+        if (combatBatch_.active) {
+          combatBatch_.ffaOvertimeResolutionPending = true;
+        } else {
+          const auto leader = uniqueScoreLeader(
+            snapshot_.scores,
+            snapshot_.participatingPlayers
+          );
+          if (leader.has_value()) {
+            beginMatchEnd(*leader);
+          }
         }
       }
-      if (snapshot_.matchPhase == MatchPhase::Live) {
+      if (combatBatch_.active) {
+        combatBatch_.respawnTargets[targetIndex] = true;
+      } else if (snapshot_.matchPhase == MatchPhase::Live) {
         if (matchRules_.deathRespawnTicks == 0) {
           respawnPlayer(targetIndex);
         } else {
@@ -4000,27 +4255,28 @@ void ServerGame::handlePlayerDeath(
       }
     } else {
       dropMcGuffinCarrier(targetIndex);
-      if (matchRules_.deathRespawnTicks == 0) {
-        respawnPlayer(targetIndex);
+      if (combatBatch_.active) {
+        combatBatch_.respawnTargets[targetIndex] = true;
       } else {
-        snapshot_.respawnTicksRemaining[targetIndex] =
-          matchRules_.deathRespawnTicks;
+        if (matchRules_.deathRespawnTicks == 0) {
+          respawnPlayer(targetIndex);
+        } else {
+          snapshot_.respawnTicksRemaining[targetIndex] =
+            matchRules_.deathRespawnTicks;
+        }
       }
     }
     return;
   }
 
   if (warmupPhase()) {
-    FragEvent fragEvent;
-    if (attackerIndex.has_value()) {
-      fragEvent = snapshot_.fragEvents[*attackerIndex];
+    if (combatBatch_.active) {
+      combatBatch_.respawnTargets[targetIndex] = true;
+      return;
     }
-    // Warmup deaths respawn at once, but a player frag must remain visible for
-    // the next snapshot. World deaths have no frag event to restore.
+    // Warmup deaths respawn at once. Global presentation events are not tied
+    // to the victim's slot, so respawn must not clear an event ring slot.
     respawnPlayer(targetIndex);
-    if (attackerIndex.has_value() && fragEvent.active) {
-      snapshot_.fragEvents[*attackerIndex] = fragEvent;
-    }
   }
 }
 
@@ -4227,15 +4483,19 @@ void ServerGame::simulateRockets(float fixedDt) {
               rocket.resting = true;
             }
             if (impactSpeed >= grenadeLauncherTuning_.bounceSoundMinSpeed) {
-              GrenadeBounceAudioEvent& bounce =
-                snapshot_.grenadeBounceAudioEvents[rocket.owner];
+              GrenadeBounceAudioEvent bounce;
               bounce.active = true;
               ++grenadeBounceSequences_[projectileIndex];
-              bounce.sequence = ++grenadeBounceEventSequences_[rocket.owner];
-              if (bounce.sequence == 0U) {
-                bounce.sequence = ++grenadeBounceEventSequences_[rocket.owner];
-              }
+              bounce.sequence = nextNonZeroSequence(grenadeBounceEventSequence_);
+              grenadeBounceEventSequence_ = bounce.sequence;
+              bounce.ownerPlayerIndex = rocket.owner;
               bounce.position = explosionPosition;
+              appendCombatEvent(
+                snapshot_.grenadeBounceAudioEvents,
+                snapshot_.grenadeBounceActiveMask,
+                grenadeBounceEventNextSlot_,
+                bounce
+              );
             }
             rocket.position =
               explosionPosition + (normal * (2.0F * kProjectileCollisionEpsilon));
@@ -4337,13 +4597,13 @@ void ServerGame::simulateRockets(float fixedDt) {
       false,
       false,
     });
-    RocketExplosionResult& explosion = snapshot_.rocketExplosions[rocket.owner];
+    RocketExplosionResult explosion;
     explosion.active = true;
     explosion.weapon = rocket.weapon;
-    rocketExplosionSequences_[rocket.owner] =
-      nextNonZeroSequence(rocketExplosionSequences_[rocket.owner]);
-    explosion.sequence = rocketExplosionSequences_[rocket.owner];
+    explosion.sequence = nextNonZeroSequence(rocketExplosionSequence_);
+    rocketExplosionSequence_ = explosion.sequence;
     explosion.projectileSequence = rocket.sequence;
+    explosion.ownerPlayerIndex = rocket.owner;
     explosion.position = explosionPosition;
     const Vec3 directImpactPosition = explosionPosition;
     const Vec3 splashExplosionPosition = explosion.position;
@@ -4436,6 +4696,12 @@ void ServerGame::simulateRockets(float fixedDt) {
           : DamageContext{true, splashExplosionPosition, true, player.position}
       );
     }
+    appendCombatEvent(
+      snapshot_.rocketExplosions,
+      snapshot_.rocketExplosionActiveMask,
+      rocketExplosionNextSlot_,
+      explosion
+    );
   }
 
 }
@@ -4667,6 +4933,12 @@ void ServerGame::dropMcGuffinCarrier(std::size_t playerIndex) {
 void ServerGame::beginMcGuffinRoundEnd(Team winnerTeam) {
   const std::size_t index = winnerTeam == Team::Red ? 0U : 1U;
   if (!isPlayableTeam(winnerTeam)) return;
+  if (combatBatch_.active) {
+    if (!combatBatch_.mcguffinRoundWinningTeam.has_value()) {
+      combatBatch_.mcguffinRoundWinningTeam = winnerTeam;
+    }
+    return;
+  }
   ++snapshot_.mcguffinRoundsWon[index];
   ++snapshot_.mcguffinRound;
   snapshot_.roundWinningTeam = winnerTeam;
@@ -4977,14 +5249,6 @@ void ServerGame::restoreTransientCombatEvents() {
       snapshot_.weaponFires[playerIndex] = recentWeaponFires_[playerIndex];
     }
     if (
-      recentRocketExplosions_[playerIndex].active &&
-      snapshot_.serverTick - recentRocketExplosionTicks_[playerIndex] <=
-        kTransientCombatEventTicks
-    ) {
-      snapshot_.rocketExplosions[playerIndex] =
-        recentRocketExplosions_[playerIndex];
-    }
-    if (
       recentFootstepAudioEvents_[playerIndex].active &&
       snapshot_.serverTick - recentFootstepAudioEventTicks_[playerIndex] <=
         kTransientCombatEventTicks
@@ -5001,13 +5265,6 @@ void ServerGame::restoreTransientCombatEvents() {
       }
       snapshot_.footstepAudioEvents[playerIndex] =
         recentFootstepAudioEvents_[playerIndex];
-    }
-    if (
-      recentFragEvents_[playerIndex].active &&
-      snapshot_.serverTick - recentFragEventTicks_[playerIndex] <=
-        kTransientCombatEventTicks
-    ) {
-      snapshot_.fragEvents[playerIndex] = recentFragEvents_[playerIndex];
     }
     for (std::size_t eventSlot = 0; eventSlot < kLocalHitFeedbackEventWindow; ++eventSlot) {
       if (
@@ -5036,14 +5293,42 @@ void ServerGame::restoreTransientCombatEvents() {
       }
     }
   }
+  for (std::size_t index = 0; index < snapshot_.rocketExplosions.size(); ++index) {
+    if (
+      (recentRocketExplosionActiveMask_ &
+       static_cast<std::uint16_t>(1U << index)) != 0U &&
+      recentRocketExplosions_[index].active &&
+      snapshot_.serverTick - recentRocketExplosionTicks_[index] <=
+        kTransientCombatEventTicks
+    ) {
+      snapshot_.rocketExplosions[index] = recentRocketExplosions_[index];
+      snapshot_.rocketExplosionActiveMask |=
+        static_cast<std::uint16_t>(1U << index);
+    }
+  }
+  for (std::size_t index = 0; index < snapshot_.fragEvents.size(); ++index) {
+    if (
+      (recentFragActiveMask_ & static_cast<std::uint16_t>(1U << index)) != 0U &&
+      recentFragEvents_[index].active &&
+      snapshot_.serverTick - recentFragEventTicks_[index] <=
+        kTransientCombatEventTicks
+    ) {
+      snapshot_.fragEvents[index] = recentFragEvents_[index];
+      snapshot_.fragActiveMask |= static_cast<std::uint16_t>(1U << index);
+    }
+  }
   for (std::size_t index = 0; index < snapshot_.grenadeBounceAudioEvents.size(); ++index) {
     if (
+      (recentGrenadeBounceActiveMask_ &
+       static_cast<std::uint16_t>(1U << index)) != 0U &&
       recentGrenadeBounceAudioEvents_[index].active &&
       snapshot_.serverTick - recentGrenadeBounceAudioEventTicks_[index] <=
         kTransientCombatEventTicks
     ) {
       snapshot_.grenadeBounceAudioEvents[index] =
         recentGrenadeBounceAudioEvents_[index];
+      snapshot_.grenadeBounceActiveMask |=
+        static_cast<std::uint16_t>(1U << index);
     }
   }
 }
@@ -5054,19 +5339,10 @@ void ServerGame::rememberTransientCombatEvents() {
       recentWeaponFires_[playerIndex] = snapshot_.weaponFires[playerIndex];
       recentWeaponFireTicks_[playerIndex] = snapshot_.serverTick;
     }
-    if (snapshot_.rocketExplosions[playerIndex].active) {
-      recentRocketExplosions_[playerIndex] =
-        snapshot_.rocketExplosions[playerIndex];
-      recentRocketExplosionTicks_[playerIndex] = snapshot_.serverTick;
-    }
     if (snapshot_.footstepAudioEvents[playerIndex].active) {
       recentFootstepAudioEvents_[playerIndex] =
         snapshot_.footstepAudioEvents[playerIndex];
       recentFootstepAudioEventTicks_[playerIndex] = snapshot_.serverTick;
-    }
-    if (snapshot_.fragEvents[playerIndex].active) {
-      recentFragEvents_[playerIndex] = snapshot_.fragEvents[playerIndex];
-      recentFragEventTicks_[playerIndex] = snapshot_.serverTick;
     }
     for (std::size_t eventSlot = 0; eventSlot < kLocalHitFeedbackEventWindow; ++eventSlot) {
       if (
@@ -5097,6 +5373,28 @@ void ServerGame::rememberTransientCombatEvents() {
       }
     }
   }
+  for (std::size_t index = 0; index < snapshot_.rocketExplosions.size(); ++index) {
+    if (
+      snapshot_.rocketExplosions[index].active &&
+      snapshot_.rocketExplosions[index].sequence !=
+        recentRocketExplosions_[index].sequence
+    ) {
+      recentRocketExplosions_[index] = snapshot_.rocketExplosions[index];
+      recentRocketExplosionTicks_[index] = snapshot_.serverTick;
+      recentRocketExplosionActiveMask_ |=
+        static_cast<std::uint16_t>(1U << index);
+    }
+  }
+  for (std::size_t index = 0; index < snapshot_.fragEvents.size(); ++index) {
+    if (
+      snapshot_.fragEvents[index].active &&
+      snapshot_.fragEvents[index].sequence != recentFragEvents_[index].sequence
+    ) {
+      recentFragEvents_[index] = snapshot_.fragEvents[index];
+      recentFragEventTicks_[index] = snapshot_.serverTick;
+      recentFragActiveMask_ |= static_cast<std::uint16_t>(1U << index);
+    }
+  }
   for (std::size_t index = 0; index < snapshot_.grenadeBounceAudioEvents.size(); ++index) {
     if (
       snapshot_.grenadeBounceAudioEvents[index].active &&
@@ -5106,6 +5404,8 @@ void ServerGame::rememberTransientCombatEvents() {
       recentGrenadeBounceAudioEvents_[index] =
         snapshot_.grenadeBounceAudioEvents[index];
       recentGrenadeBounceAudioEventTicks_[index] = snapshot_.serverTick;
+      recentGrenadeBounceActiveMask_ |=
+        static_cast<std::uint16_t>(1U << index);
     }
   }
 }
@@ -5771,30 +6071,39 @@ bool ServerGame::applyScenarioSetup(
   snapshot_.lightningGuns = {};
   snapshot_.weaponFires = {};
   snapshot_.rocketExplosions = {};
+  snapshot_.rocketExplosionActiveMask = 0;
   snapshot_.footstepAudioEvents = {};
   snapshot_.grenadeBounceAudioEvents = {};
+  snapshot_.grenadeBounceActiveMask = 0;
   snapshot_.fragEvents = {};
+  snapshot_.fragActiveMask = 0;
   snapshot_.localHitFeedbackEvents = {};
   snapshot_.damageTakenEvents = {};
   recentWeaponFires_ = {};
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
   recentRocketExplosionTicks_ = {};
+  recentRocketExplosionActiveMask_ = 0;
   recentFootstepAudioEvents_ = {};
   recentFootstepAudioEventTicks_ = {};
   recentGrenadeBounceAudioEvents_ = {};
   recentGrenadeBounceAudioEventTicks_ = {};
+  recentGrenadeBounceActiveMask_ = 0;
   recentFragEvents_ = {};
   recentFragEventTicks_ = {};
+  recentFragActiveMask_ = 0;
   recentLocalHitFeedbackEvents_ = {};
   recentLocalHitFeedbackEventTicks_ = {};
   recentDamageTakenEvents_ = {};
   recentDamageTakenEventTicks_ = {};
   projectileSequences_ = {};
-  rocketExplosionSequences_ = {};
+  rocketExplosionSequence_ = 0;
+  rocketExplosionNextSlot_ = 0;
   grenadeBounceSequences_ = {};
-  grenadeBounceEventSequences_ = {};
-  fragEventSequences_ = {};
+  grenadeBounceEventSequence_ = 0;
+  grenadeBounceEventNextSlot_ = 0;
+  fragEventSequence_ = 0;
+  fragEventNextSlot_ = 0;
   localHitFeedbackSequences_ = {};
   damageTakenSequences_ = {};
   footstepSequences_ = {};
@@ -5964,11 +6273,11 @@ ScenarioState ServerGame::captureScenarioState() const {
   state.botRandomState = botRandomState_;
   state.spawnRandomState = spawnRandomState_;
   state.projectileSequences = projectileSequences_;
-  state.rocketExplosionSequences = rocketExplosionSequences_;
-  state.fragEventSequences = fragEventSequences_;
+  state.rocketExplosionSequences.fill(rocketExplosionSequence_);
+  state.fragEventSequences.fill(fragEventSequence_);
   state.localHitFeedbackSequences = localHitFeedbackSequences_;
   state.footstepSequences = footstepSequences_;
-  state.grenadeBounceEventSequences = grenadeBounceEventSequences_;
+  state.grenadeBounceEventSequences.fill(grenadeBounceEventSequence_);
   state.grenadeBounceSequences = grenadeBounceSequences_;
   state.spawnLastUsedTicks = spawnLastUsedTicks_;
   state.spawnWasUsed = spawnWasUsed_;

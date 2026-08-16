@@ -69,6 +69,12 @@ lg::replay::ReplayDemo validDemo() {
   checkpoint.projectileRevision = 3U;
   checkpoint.damageTakenSequences[0] = 17U;
   checkpoint.damageTakenSequences[1] = 23U;
+  checkpoint.rocketExplosionSequence = 31U;
+  checkpoint.fragEventSequence = 32U;
+  checkpoint.grenadeBounceEventSequence = 33U;
+  checkpoint.rocketExplosionNextSlot = 14U;
+  checkpoint.fragEventNextSlot = 15U;
+  checkpoint.grenadeBounceEventNextSlot = 1U;
   checkpoint.players[0].connected = true;
   checkpoint.players[0].participating = true;
   checkpoint.players[0].player.position = {1.0F, 2.0F, 3.0F};
@@ -142,6 +148,16 @@ int main() {
     decoded.checkpoints.size() == 1U &&
       decoded.checkpoints[0].damageTakenSequences == source.checkpoints[0].damageTakenSequences,
     "damage-event sequences should round trip in replay checkpoints"
+  );
+  failures += expect(
+    decoded.checkpoints.size() == 1U &&
+      decoded.checkpoints[0].rocketExplosionSequence == 31U &&
+      decoded.checkpoints[0].fragEventSequence == 32U &&
+      decoded.checkpoints[0].grenadeBounceEventSequence == 33U &&
+      decoded.checkpoints[0].rocketExplosionNextSlot == 14U &&
+      decoded.checkpoints[0].fragEventNextSlot == 15U &&
+      decoded.checkpoints[0].grenadeBounceEventNextSlot == 1U,
+    "global combat-event stream state should round trip in replay checkpoints"
   );
   failures += expect(decoded.hashes.size() == 1U && decoded.hashes[0].value == source.hashes[0].value,
     "state hash should round trip");
@@ -217,6 +233,12 @@ int main() {
     invalid.checkpoints[0].nextDeathmatchSpawnIndex = lg::Arena::kSpawnCount;
     failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
       "spawn cursor outside the static arena bound should not encode");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.checkpoints[0].fragEventNextSlot = lg::kDuelPlayerCount;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "combat-event cursor outside its ring should not encode");
   }
   {
     lg::replay::ReplayDemo invalid = source;

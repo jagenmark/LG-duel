@@ -405,11 +405,14 @@ bool deriveEvents(
       event.position = oldProjectile.position; add(std::move(event));
     }
   }
-  for (std::size_t actor = 0; actor < kDuelPlayerCount; ++actor) {
-    const RocketExplosionResult& explosion = snapshot.rocketExplosions[actor];
-    if (explosion.active) {
+  for (std::size_t slot = 0; slot < kDuelPlayerCount; ++slot) {
+    const RocketExplosionResult& explosion = snapshot.rocketExplosions[slot];
+    if (
+      (snapshot.rocketExplosionActiveMask & (1U << slot)) != 0U &&
+      explosion.active && explosion.ownerPlayerIndex < kDuelPlayerCount
+    ) {
       EventEvidence event;
-      event.type = "explosion_created"; event.actor = actor;
+      event.type = "explosion_created"; event.actor = explosion.ownerPlayerIndex;
       event.weapon = explosion.weapon; event.position = explosion.position;
       event.details.object["radius"] =
         dev::JsonValue::numberValue(explosion.radius);
@@ -417,6 +420,8 @@ bool deriveEvents(
         dev::JsonValue::numberValue(explosion.sequence);
       add(std::move(event));
     }
+  }
+  for (std::size_t actor = 0; actor < kDuelPlayerCount; ++actor) {
     for (const LocalHitFeedbackEvent& hit :
          snapshot.localHitFeedbackEvents[actor]) {
       if (!hit.active) continue;
@@ -431,10 +436,15 @@ bool deriveEvents(
         dev::JsonValue::numberValue(hit.sequence);
       add(std::move(event));
     }
-    const FragEvent& frag = snapshot.fragEvents[actor];
-    if (frag.active) {
+  }
+  for (std::size_t slot = 0; slot < kDuelPlayerCount; ++slot) {
+    const FragEvent& frag = snapshot.fragEvents[slot];
+    if (
+      (snapshot.fragActiveMask & (1U << slot)) != 0U &&
+      frag.active && frag.attackerPlayerIndex < kDuelPlayerCount
+    ) {
       EventEvidence event;
-      event.type = "player_killed"; event.actor = actor;
+      event.type = "player_killed"; event.actor = frag.attackerPlayerIndex;
       if (frag.targetPlayerIndex < kDuelPlayerCount)
         event.target = frag.targetPlayerIndex;
       event.weapon = frag.weapon;

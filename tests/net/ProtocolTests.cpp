@@ -863,6 +863,89 @@ int main() {
 
   {
     lg::ServerSnapshot source;
+    source.map = testMapDescriptor();
+    source.hasCombatStats = false;
+    for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+      lg::FragEvent& frag = source.fragEvents[slot];
+      frag.active = true;
+      frag.sequence = static_cast<std::uint32_t>(slot + 17U);
+      frag.attackerPlayerIndex = 0;
+      frag.targetPlayerIndex = static_cast<std::uint8_t>(slot);
+      frag.weapon = lg::Weapon::RocketLauncher;
+    }
+    source.fragActiveMask = 0xFFFFU;
+
+    lg::WirePacket wire;
+    lg::ServerSnapshot decoded;
+    failures += expect(
+      lg::encodeServerSnapshot(source, wire) &&
+        lg::decodeServerSnapshot(wire, decoded) &&
+        decoded.fragActiveMask == 0xFFFFU,
+      "a full same-attacker frag stream should round trip"
+    );
+    bool keptNewest = true;
+    for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+      keptNewest = keptNewest && decoded.fragEvents[slot].active &&
+        decoded.fragEvents[slot].sequence == slot + 17U &&
+        decoded.fragEvents[slot].attackerPlayerIndex == 0;
+    }
+    failures += expect(
+      keptNewest,
+      "a full frag ring should keep its newest sixteen sequence slots"
+    );
+
+    for (std::size_t slot = 0; slot + 1U < lg::kDuelPlayerCount; ++slot) {
+      source.fragEvents[slot].sequence =
+        UINT32_MAX - static_cast<std::uint32_t>(14U - slot);
+    }
+    source.fragEvents[lg::kDuelPlayerCount - 1U].sequence = 1U;
+    failures += expect(
+      lg::encodeServerSnapshot(source, wire) &&
+        lg::decodeServerSnapshot(wire, decoded) &&
+        decoded.fragEvents[0].sequence == UINT32_MAX - 14U &&
+        decoded.fragEvents[lg::kDuelPlayerCount - 1U].sequence == 1U,
+      "sequence wrap should retain sixteen cursor-selected slots without collision"
+    );
+
+    source.fragEvents[0].sequence = 0U;
+    failures += expect(
+      !lg::encodeServerSnapshot(source, wire),
+      "an active combat event with sequence zero should not encode"
+    );
+
+    lg::ServerSnapshot cyclic;
+    cyclic.map = testMapDescriptor();
+    cyclic.hasCombatStats = false;
+    cyclic.fragActiveMask = 0x7U;
+    const std::array<std::uint32_t, 3> cyclicSequences = {
+      1U,
+      0x70000000U,
+      0xE0000000U,
+    };
+    for (std::size_t slot = 0; slot < cyclicSequences.size(); ++slot) {
+      cyclic.fragEvents[slot].active = true;
+      cyclic.fragEvents[slot].sequence = cyclicSequences[slot];
+      cyclic.fragEvents[slot].attackerPlayerIndex = 0U;
+      cyclic.fragEvents[slot].targetPlayerIndex = static_cast<std::uint8_t>(slot);
+      cyclic.fragEvents[slot].weapon = lg::Weapon::RocketLauncher;
+    }
+    failures += expect(
+      !lg::encodeServerSnapshot(cyclic, wire),
+      "a cyclic modular sequence set should not encode"
+    );
+
+    cyclic.fragActiveMask = 0x3U;
+    cyclic.fragEvents[2] = {};
+    cyclic.fragEvents[0].sequence = 1U;
+    cyclic.fragEvents[1].sequence = 17U;
+    failures += expect(
+      !lg::encodeServerSnapshot(cyclic, wire),
+      "a combat-event set wider than sixteen sequence steps should not encode"
+    );
+  }
+
+  {
+    lg::ServerSnapshot source;
     source.serverTick = 1234;
     source.acknowledgedCommandDatagramSequence = 88;
     source.commandDatagramAckBits = 0xA5A55A5AU;
@@ -944,7 +1027,7 @@ int main() {
     source.weaponFires[1].start = {1.0F, -1.5F, 2.0F};
     source.weaponFires[1].end = {7.0F, -1.5F, 2.0F};
     source.weaponFires[1].knockbackImpulse = {1.0F, 0.0F, 0.0F};
-    source.weaponFires[1].pelletCount = lg::kShotgunPelletCount;
+    source.weaponFires[1].pelletCount = lg::kMaxShotgunPelletCount;
     source.weaponFires[1].pelletHitCount = 9;
     source.weaponFires[1].pelletHeadshotCount = 3;
     source.weaponFires[1].visualSeed = 12;
@@ -962,10 +1045,12 @@ int main() {
     source.rocketExplosions[0].radius = 3.0F;
     source.rocketExplosions[0].ownerDamageApplied = 12;
     source.rocketExplosions[0].opponentDamageApplied = 80;
-    source.rocketExplosions[0].sequence = 42;
+    source.rocketExplosions[0].sequence = 1;
     source.rocketExplosions[0].projectileSequence = 73;
+    source.rocketExplosions[0].ownerPlayerIndex = 3;
     source.fragEvents[0].active = true;
-    source.fragEvents[0].sequence = 55;
+    source.fragEvents[0].sequence = 1;
+    source.fragEvents[0].attackerPlayerIndex = 3;
     source.fragEvents[0].targetPlayerIndex = 1;
     source.fragEvents[0].weapon = lg::Weapon::Railgun;
     source.localHitFeedbackEvents[0][0].active = true;
@@ -998,7 +1083,8 @@ int main() {
     source.footstepAudioEvents[1].sequence = 42;
     source.footstepAudioEvents[1].position = {2.5F, -1.0F, 1.5F};
     source.grenadeBounceAudioEvents[0].active = true;
-    source.grenadeBounceAudioEvents[0].sequence = 9;
+    source.grenadeBounceAudioEvents[0].sequence = 1;
+    source.grenadeBounceAudioEvents[0].ownerPlayerIndex = 3;
     source.grenadeBounceAudioEvents[0].position = {4.5F, -2.0F, 0.75F};
     source.icePools[0].active = true;
     source.icePools[0].center = {1.0F, 2.0F, 0.0F};
@@ -1351,7 +1437,7 @@ int main() {
         decoded.weaponFires[1].headshot &&
         decoded.weaponFires[1].weapon == lg::Weapon::Shotgun &&
         decoded.weaponFires[1].damageApplied == 45 &&
-        decoded.weaponFires[1].pelletCount == lg::kShotgunPelletCount &&
+        decoded.weaponFires[1].pelletCount == lg::kMaxShotgunPelletCount &&
         decoded.weaponFires[1].pelletHitCount == 9 &&
         decoded.weaponFires[1].pelletHeadshotCount == 3 &&
         decoded.weaponFires[1].visualSeed == 12 &&
@@ -1387,18 +1473,21 @@ int main() {
         nearlyEqual(decoded.rocketExplosions[0].radius, 3.0F) &&
         decoded.rocketExplosions[0].ownerDamageApplied == 12 &&
         decoded.rocketExplosions[0].opponentDamageApplied == 80 &&
-        decoded.rocketExplosions[0].sequence == 42 &&
+        decoded.rocketExplosions[0].sequence == 1 &&
         decoded.rocketExplosions[0].projectileSequence == 73 &&
+        decoded.rocketExplosions[0].ownerPlayerIndex == 3 &&
         decoded.footstepAudioEvents[1].active &&
         decoded.footstepAudioEvents[1].jumping &&
         decoded.footstepAudioEvents[1].landing &&
         decoded.footstepAudioEvents[1].sequence == 42 &&
         nearlyEqual(decoded.footstepAudioEvents[1].position.z, 1.5F) &&
         decoded.grenadeBounceAudioEvents[0].active &&
-        decoded.grenadeBounceAudioEvents[0].sequence == 9 &&
+        decoded.grenadeBounceAudioEvents[0].sequence == 1 &&
+        decoded.grenadeBounceAudioEvents[0].ownerPlayerIndex == 3 &&
         nearlyEqual(decoded.grenadeBounceAudioEvents[0].position.z, 0.75F) &&
         decoded.fragEvents[0].active &&
-        decoded.fragEvents[0].sequence == 55 &&
+        decoded.fragEvents[0].sequence == 1 &&
+        decoded.fragEvents[0].attackerPlayerIndex == 3 &&
         decoded.fragEvents[0].targetPlayerIndex == 1 &&
         decoded.fragEvents[0].weapon == lg::Weapon::Railgun,
       "explosion, footstep audio, grenade audio, and frag events should round trip"
@@ -1834,7 +1923,8 @@ int main() {
       };
       auto& bounce = twoBeamBurst.grenadeBounceAudioEvents[player];
       bounce.active = true;
-      bounce.sequence = static_cast<std::uint32_t>(4000U + player);
+      bounce.sequence = static_cast<std::uint32_t>(player + 1U);
+      bounce.ownerPlayerIndex = static_cast<std::uint8_t>(player);
       bounce.position = {
         static_cast<float>(player * 43U + 4U),
         static_cast<float>(player * 47U + 5U),
@@ -2046,6 +2136,20 @@ int main() {
     );
 
     invalid = source;
+    invalid.rocketExplosions[0].ownerPlayerIndex = lg::kDuelPlayerCount;
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "an invalid explicit explosion owner should not encode"
+    );
+
+    invalid = source;
+    invalid.grenadeBounceAudioEvents[0].ownerPlayerIndex = lg::kDuelPlayerCount;
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "an invalid explicit grenade owner should not encode"
+    );
+
+    invalid = source;
     invalid.projectilePresentation.grenadeBounceDamping = 2.0F;
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),
@@ -2058,6 +2162,14 @@ int main() {
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),
       "non-finite projectile presentation tuning should not encode"
+    );
+
+    invalid = source;
+    invalid.fragEvents[0].active = true;
+    invalid.fragEvents[0].attackerPlayerIndex = lg::kDuelPlayerCount;
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "an invalid explicit frag attacker should not encode"
     );
 
     invalid = source;
