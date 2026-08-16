@@ -79,6 +79,8 @@ bool ReplayRecorder::begin(
       config.maximumBytes == 0U || config.maximumBytes > kMaxReplayBytes ||
       config.maximumResidentBytes == 0U || config.maximumResidentBytes > kMaxReplayResidentBytes ||
       initialCheckpoint.serverTick != metadata.initialServerTick ||
+      metadata.protocolRevision != kReplayProtocolRevision ||
+      metadata.buildFingerprint != kReplayBuildFingerprint ||
       metadata.simulationRevision != kReplaySimulationRevision ||
       metadata.configurationRevision == 0U ||
       !validateReplayGameplayConfig(metadata.gameplayConfig) ||

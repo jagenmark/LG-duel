@@ -111,6 +111,42 @@ int main() {
   }
 
   {
+    lg::replay::ReplayRollingBuffer boundaryGapBuffer;
+    failures += expect(boundaryGapBuffer.begin(metadata(), checkpoint(0U), 9U, config, &error),
+      "authority-boundary gap test should begin a rolling replay");
+    lg::replay::ReplayAuthorityBoundary firstBoundary;
+    firstBoundary.tick = 2U;
+    firstBoundary.checkpoint = checkpoint(2U);
+    firstBoundary.configurationRevision = 2U;
+    firstBoundary.gameplayConfig = {};
+    firstBoundary.checkpoint.gameplayConfigHash =
+      lg::replay::canonicalGameplayConfigHash(firstBoundary.gameplayConfig);
+    for (std::size_t index = 0U; index < firstBoundary.players.size(); ++index) {
+      firstBoundary.players[index].slot = static_cast<std::uint8_t>(index);
+    }
+    firstBoundary.matchRules = firstBoundary.gameplayConfig.matchRules;
+    boundaryGapBuffer.recordAuthorityBoundary(firstBoundary);
+    lg::replay::ReplayAuthorityBoundary secondBoundary = firstBoundary;
+    secondBoundary.tick = 4U;
+    secondBoundary.checkpoint = checkpoint(4U);
+    secondBoundary.checkpoint.gameplayConfigHash =
+      lg::replay::canonicalGameplayConfigHash(secondBoundary.gameplayConfig);
+    boundaryGapBuffer.recordAuthorityBoundary(secondBoundary);
+    for (std::uint32_t tick = 0U; tick <= 16U; ++tick) {
+      boundaryGapBuffer.recordResolvedInput(input(tick));
+      boundaryGapBuffer.recordCompletedTick(checkpoint(tick + 1U));
+    }
+    const lg::replay::ReplayLethalEvent boundaryGapLethal = {
+      9U, 9U, 1U, 0U, lg::Weapon::RocketLauncher, 1U,
+      lg::replay::LethalKind::Direct, 1U,
+    };
+    failures += expect(
+      !boundaryGapBuffer.extractSegment(boundaryGapLethal, 2U, 2U, &error),
+      "segment extraction must reject a range after an authority boundary was dropped"
+    );
+  }
+
+  {
     lg::replay::ReplayRollingBuffer cappedBuffer;
     lg::replay::ReplayRollingBufferConfig cappedConfig;
     cappedConfig.retainedTicks = 4096U;

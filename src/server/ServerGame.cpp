@@ -1582,6 +1582,7 @@ bool ServerGame::applyReplayGameplayConfig(
 ) {
   if (!replay::validateReplayGameplayConfig(config, error)) return false;
   const std::uint64_t previousHash = replayGameplayConfigHash();
+  const MovementTuning previousMovementTuning = movementTuning_;
   const bool previousApplying = applyingReplayConfig_;
   applyingReplayConfig_ = true;
   applyBalanceConfig(config.balance);
@@ -1603,6 +1604,32 @@ bool ServerGame::applyReplayGameplayConfig(
     botDodgeMaxIntervalMs_,
     config.weaponSwitchingMode
   );
+  // The normal live cvar path applies its live safety policy by normalizing
+  // maxAirSpeed and clamping knockback duration. A replay payload is already
+  // validated and must retain its exact serialized values for hash equality.
+  movementTuning_ = config.movementTuning;
+  snapshot_.movementTuning = movementTuning_;
+  knockbackTimeMs_ = config.knockbackTimeMs;
+  snapshot_.knockbackTimeMs = knockbackTimeMs_;
+  // Keep the serialized balance sub-objects exact as well. The live runtime
+  // setter derives some of these fields from top-level gameplay cvars, but
+  // the replay contract hashes and restores every encoded field.
+  lightningGunTuning_ = config.balance.lightningGun;
+  freezeGunTuning_ = config.balance.freezeGun;
+  icePoolTuning_ = config.balance.icePool;
+  railgunTuning_ = config.balance.railgun;
+  sniperChargeSeconds_ = config.balance.sniperChargeSeconds;
+  sniperMaxDamageMultiplier_ = config.balance.sniperMaxDamageMultiplier;
+  revolverTuning_ = config.balance.revolver;
+  machineGunTuning_ = config.balance.machineGun;
+  shotgunTuning_ = config.balance.shotgun;
+  rocketLauncherTuning_ = config.balance.rocketLauncher;
+  grenadeLauncherTuning_ = config.balance.grenadeLauncher;
+  plasmaGunTuning_ = config.balance.plasmaGun;
+  snapshot_.icePoolTuning = icePoolTuning_;
+  if (!sameBotNavigationTuning(previousMovementTuning, movementTuning_)) {
+    rebuildBotNavigation();
+  }
   setMcGuffinConfig(config.mcguffinConfig);
   setMatchRules(config.matchRules);
   applyingReplayConfig_ = previousApplying;
@@ -1976,11 +2003,19 @@ bool ServerGame::restoreReplayCheckpoint(
   if (!replay::validateReplayCheckpoint(checkpoint) || !validSpawnCursor) {
     return reject("replay checkpoint has invalid bounded state");
   }
+  if (metadata.protocolRevision != kProtocolVersion) {
+    return reject("replay protocol revision is incompatible");
+  }
+  if (metadata.buildFingerprint != replay::kReplayBuildFingerprint) {
+    return reject("replay build fingerprint is incompatible");
+  }
+  if (metadata.simulationRevision != replay::kReplaySimulationRevision) {
+    return reject("replay simulation revision is incompatible");
+  }
   if (metadata.mapName != mapDescriptor_.mapName ||
       metadata.mapContentHash != mapDescriptor_.contentHash ||
       checkpoint.mapRevision != metadata.mapRevision ||
       checkpoint.gameplayConfigHash != metadata.gameplayConfigHash ||
-      metadata.simulationRevision != replay::kReplaySimulationRevision ||
       metadata.configurationRevision == 0U ||
       !replay::validateReplayGameplayConfig(metadata.gameplayConfig) ||
       replay::canonicalGameplayConfigHash(metadata.gameplayConfig) != metadata.gameplayConfigHash ||

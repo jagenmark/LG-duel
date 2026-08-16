@@ -123,8 +123,20 @@ int main() {
   lg::replay::ReplayGameplayConfig customConfig = source.captureReplayGameplayConfig();
   customConfig.balance.rocketLauncher.speed = 31.0F;
   customConfig.movementTuning.gravity = 27.0F;
+  customConfig.movementTuning.maxGroundSpeed = 11.0F;
+  customConfig.movementTuning.maxAirSpeed = 7.0F;
+  customConfig.knockbackTimeMs = 300;
   failures += expect(source.applyReplayGameplayConfig(customConfig, &error),
     "source should accept a custom replay gameplay configuration");
+  failures += expect(
+    source.captureReplayGameplayConfig().movementTuning.maxGroundSpeed == 11.0F &&
+      source.captureReplayGameplayConfig().movementTuning.maxAirSpeed == 7.0F &&
+      source.captureReplayGameplayConfig().knockbackTimeMs == 300,
+    "replay config apply should preserve unequal air speed and extended knockback duration"
+  );
+  customConfig.knockbackTimeMs = 250;
+  failures += expect(source.applyReplayGameplayConfig(customConfig, &error),
+    "source should accept the bounded live knockback duration for recording");
   const float boundaryFireHz = customConfig.lightningFireHz + 3.0F;
   lg::replay::ReplayRecordingConfig recordingConfig;
   recordingConfig.checkpointIntervalTicks = 24U;
@@ -182,6 +194,9 @@ int main() {
     "bot identity belongs in replay metadata");
   failures += expect(recorded.has_value() && recorded->metadata.gameplayConfig.balance.rocketLauncher.speed == 31.0F &&
     recorded->metadata.gameplayConfig.movementTuning.gravity == 27.0F &&
+    recorded->metadata.gameplayConfig.movementTuning.maxGroundSpeed == 11.0F &&
+    recorded->metadata.gameplayConfig.movementTuning.maxAirSpeed == 7.0F &&
+    recorded->metadata.gameplayConfig.knockbackTimeMs == 250 &&
     !recorded->authorityBoundaries.empty() &&
     recorded->authorityBoundaries.back().gameplayConfig.lightningFireHz == boundaryFireHz,
     "recording should retain initial and changed authoritative configuration");
@@ -226,7 +241,10 @@ int main() {
   failures += expect(runner.initialize(&error), "playback should restore the initial checkpoint");
   failures += expect(
     playback.captureReplayGameplayConfig().balance.rocketLauncher.speed == 31.0F &&
-      playback.captureReplayGameplayConfig().movementTuning.gravity == 27.0F,
+      playback.captureReplayGameplayConfig().movementTuning.gravity == 27.0F &&
+      playback.captureReplayGameplayConfig().movementTuning.maxGroundSpeed == 11.0F &&
+      playback.captureReplayGameplayConfig().movementTuning.maxAirSpeed == 7.0F &&
+      playback.captureReplayGameplayConfig().knockbackTimeMs == 250,
     "playback should apply the recorded configuration instead of local defaults"
   );
   failures += expect(

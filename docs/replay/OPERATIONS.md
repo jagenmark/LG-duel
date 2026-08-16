@@ -57,8 +57,9 @@ authoritative lethal event
 ```
 
 A segment that has no valid checkpoint, crosses a map/reset generation, exceeds
-its cap, or has missing data is rejected. The archive returns a self-contained
-`ReplayDemo`; no client currently receives or presents it.
+its cap, crosses a dropped authority boundary, or has missing data is rejected.
+The archive returns a self-contained `ReplayDemo`; no client currently receives
+or presents it.
 
 Lethal provenance distinguishes direct, splash, self, and world cases. Each
 event carries a nonzero sequence within the replay generation and preserves a

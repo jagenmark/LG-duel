@@ -61,6 +61,7 @@ public:
 private:
   void trim();
   void clear();
+  void markAuthorityBoundaryGap(std::uint32_t tick);
   [[nodiscard]] std::uint32_t newestTick() const;
 
   ReplayRollingBufferConfig config_ = {};
@@ -71,6 +72,7 @@ private:
   std::deque<ReplayAuthorityBoundary> authorityBoundaries_;
   std::deque<ReplayStateHash> hashes_;
   std::deque<ReplayLethalEvent> lethals_;
+  std::optional<std::uint32_t> authorityBoundaryGapTick_ = {};
   std::size_t estimatedBytes_ = 0;
   std::uint64_t droppedRecords_ = 0;
   bool active_ = false;

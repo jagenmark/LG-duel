@@ -46,6 +46,9 @@ Strings and metadata lists carry a length and a stated maximum. V5 stores every
 authoritative balance/runtime configuration field with explicit fixed-width
 encoding. The canonical config hash covers those encoded fields. Playback
 applies the payload to its replay-only server and rejects a hash mismatch.
+The reader also requires `kReplayProtocolRevision` and
+`kReplayBuildFingerprint`; it rejects unsupported protocol, build, or simulation
+revisions before replacing the destination replay.
 
 ## Chunks
 
@@ -126,16 +129,13 @@ make saved demos a player-facing feature.
 
 ## Compatibility and clean failure
 
-The decoder checks the format version and tick rate. Checkpoint restore validates
-the complete checkpoint before it changes server state. It checks map
-name/content hash/revision, gameplay configuration hash, game mode, player
-occupancy, lag history, and bounded spawn state. Any mismatch ends playback
-cleanly with a specific diagnostic, such as `replay version is incompatible` or
-`replay checkpoint does not match the loaded map or metadata`.
-
-Metadata stores protocol revision and build fingerprint. Current checkpoint
-restore does not yet reject them itself; broader build/protocol compatibility
-policy remains pending.
+The decoder checks the format, tick rate, protocol revision, build fingerprint,
+and simulation revision. Checkpoint restore validates the complete checkpoint
+before it changes server state. It checks map name/content hash/revision,
+gameplay configuration hash, game mode, player occupancy, lag history, and
+bounded spawn state. Any mismatch ends playback cleanly with a specific
+diagnostic, such as `replay simulation revision is incompatible` or `replay
+build fingerprint is incompatible`.
 
 If the verifier finds a state-hash mismatch after a valid load, it reports a
 **divergent demo** rather than treating it as file corruption. It stops at the

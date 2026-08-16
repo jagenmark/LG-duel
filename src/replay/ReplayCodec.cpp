@@ -253,10 +253,23 @@ private:
     validFloatRange(tuning.flightGravityCancel, 0.0F, 100000.0F);
 }
 
+[[nodiscard]] bool validHitscanTuning(const HitscanTuning& tuning) {
+  return validFloatRange(tuning.range, 0.0F, 100000.0F) &&
+    tuning.damage >= 0 && tuning.damage <= 100000 &&
+    validFloatRange(tuning.eyeHeight, 0.0F, 100.0F) &&
+    validFloatRange(tuning.knockback, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.headshotMultiplier, 0.0F, 100.0F);
+}
+
+[[nodiscard]] bool validWeaponDamage(const WeaponDamageTuning& damage) {
+  const auto valid = [](int value) { return value >= 0 && value <= 100000; };
+  return valid(damage.shotgunDamagePerPellet) && valid(damage.machineGunDamage) &&
+    valid(damage.lightningGunDamage) && valid(damage.railgunDamage) &&
+    valid(damage.rocketLauncherDamage) && valid(damage.plasmaGunDamage) &&
+    valid(damage.freezeGunDamage);
+}
+
 [[nodiscard]] bool validBalanceConfig(const BalanceConfig& config) {
-  const auto validTuning = [](const auto& tuning) {
-    return std::isfinite(tuning.range) && tuning.range >= 0.0F;
-  };
   if (!validFloatRange(config.lightningGun.range, 0.0F, 100000.0F) ||
       !validFloatRange(config.lightningGun.damagePerSecond, 0.0F, 100000.0F) ||
       !validFloatRange(config.lightningGun.fireHz, 0.0F, 1000.0F) ||
@@ -279,8 +292,7 @@ private:
       !validFloatRange(config.icePool.slopeGravityScale, 0.0F, 100000.0F) ||
       !validFloatRange(config.icePool.controlScale, 0.0F, 1.0F) ||
       !validFloatRange(config.icePool.mergeDistance, 0.0F, 100000.0F) ||
-      !validTuning(config.railgun) || !validTuning(config.revolver) ||
-      !validTuning(config.machineGun) || !validTuning(config.shotgun) ||
+      !validHitscanTuning(config.railgun) || !validHitscanTuning(config.revolver) ||
       !validFloatRange(config.sniperChargeSeconds, 0.0F, 1000.0F) ||
       !validFloatRange(config.sniperMaxDamageMultiplier, 0.0F, 100.0F) ||
       !validFloatRange(config.rocketLauncher.speed, 0.0F, 100000.0F) ||
@@ -527,6 +539,7 @@ bool readHitscanTuning(Reader& reader, HitscanTuning& tuning) {
 bool writeGameplayConfig(Writer& writer, const ReplayGameplayConfig& config) {
   const BalanceConfig& balance = config.balance;
   if (!validBalanceConfig(balance) || !validMovementTuning(config.movementTuning) ||
+      !validWeaponDamage(config.weaponDamage) ||
       !validFloatRange(config.playerSizeScaleXY, 0.01F, 100.0F) ||
       !validFloatRange(config.playerSizeScaleZ, 0.01F, 100.0F) ||
       !validFloatRange(config.lightningKnockback, 0.0F, 100000.0F) ||
@@ -737,6 +750,7 @@ bool readGameplayConfig(Reader& reader, ReplayGameplayConfig& config) {
   config.weaponSwitchingMode = static_cast<WeaponSwitchingMode>(switching);
   return validWeaponSwitchingMode(config.weaponSwitchingMode) &&
     validBalanceConfig(config.balance) && validMovementTuning(config.movementTuning) &&
+    validWeaponDamage(config.weaponDamage) &&
     validFloatRange(config.playerSizeScaleXY, 0.01F, 100.0F) &&
     validFloatRange(config.playerSizeScaleZ, 0.01F, 100.0F) &&
     validFloatRange(config.lightningKnockback, 0.0F, 100000.0F) &&
@@ -753,6 +767,8 @@ bool writeMetadata(Writer& writer, const ReplayMetadata& metadata) {
       metadata.mapContentHash == 0U || metadata.mapRevision == 0U ||
       !isValidGameMode(metadata.gameMode) || !validVisibility(metadata.visibility) ||
       !validStopReason(metadata.stopReason) ||
+      metadata.protocolRevision != kReplayProtocolRevision ||
+      metadata.buildFingerprint != kReplayBuildFingerprint ||
       metadata.simulationRevision != kReplaySimulationRevision ||
       metadata.configurationRevision == 0U || !validMatchRules(metadata.matchRules)) return false;
   if (!validateReplayGameplayConfig(metadata.gameplayConfig) ||
@@ -781,7 +797,7 @@ bool writeMetadata(Writer& writer, const ReplayMetadata& metadata) {
   return true;
 }
 
-bool readMetadata(Reader& reader, ReplayMetadata& metadata) {
+bool readMetadata(Reader& reader, ReplayMetadata& metadata, std::string* error) {
   std::uint8_t gameMode = 0;
   std::uint8_t visibility = 0;
   std::uint8_t stopReason = 0;
@@ -796,10 +812,21 @@ bool readMetadata(Reader& reader, ReplayMetadata& metadata) {
   metadata.gameMode = static_cast<GameMode>(gameMode);
   metadata.visibility = static_cast<ReplayVisibility>(visibility);
   metadata.stopReason = static_cast<ReplayStopReason>(stopReason);
+  if (metadata.protocolRevision != kReplayProtocolRevision) {
+    if (error != nullptr) *error = "replay protocol revision is incompatible";
+    return false;
+  }
+  if (metadata.buildFingerprint != kReplayBuildFingerprint) {
+    if (error != nullptr) *error = "replay build fingerprint is incompatible";
+    return false;
+  }
+  if (metadata.simulationRevision != kReplaySimulationRevision) {
+    if (error != nullptr) *error = "replay simulation revision is incompatible";
+    return false;
+  }
   if (metadata.mapName.empty() || metadata.mapRevision == 0U || metadata.mapContentHash == 0U ||
       !isValidGameMode(metadata.gameMode) || !validVisibility(metadata.visibility) ||
-      !validStopReason(metadata.stopReason) || metadata.simulationRevision == 0U ||
-      metadata.configurationRevision == 0U ||
+      !validStopReason(metadata.stopReason) || metadata.configurationRevision == 0U ||
       !sameMatchRules(metadata.gameplayConfig.matchRules, metadata.matchRules) ||
       metadata.gameplayConfigHash != canonicalGameplayConfigHash(metadata.gameplayConfig)) return false;
   for (std::size_t index = 0; index < metadata.players.size(); ++index) {
@@ -1383,7 +1410,9 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
   std::vector<std::uint8_t> metadataBytes;
   if (!reader.take(metadataSize, metadataBytes)) return fail(error, "replay metadata is truncated");
   Reader metadataReader(metadataBytes);
-  if (!readMetadata(metadataReader, decoded.metadata) || !metadataReader.done()) {
+  if (error != nullptr) error->clear();
+  if (!readMetadata(metadataReader, decoded.metadata, error) || !metadataReader.done()) {
+    if (error != nullptr && !error->empty()) return false;
     return fail(error, "replay metadata is invalid");
   }
   if (decoded.metadata.formatFlags != preambleFlags) return fail(error, "replay flags disagree");

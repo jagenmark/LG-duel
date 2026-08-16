@@ -20,10 +20,21 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+void writeLittleEndian(
+  std::vector<std::uint8_t>& bytes,
+  std::size_t offset,
+  std::uint64_t value,
+  std::size_t width
+) {
+  for (std::size_t index = 0U; index < width; ++index) {
+    bytes[offset + index] = static_cast<std::uint8_t>(value >> (index * 8U));
+  }
+}
+
 lg::replay::ReplayDemo validDemo() {
   lg::replay::ReplayDemo demo;
   demo.metadata.protocolRevision = lg::kProtocolVersion;
-  demo.metadata.buildFingerprint = 0x1122334455667788ULL;
+  demo.metadata.buildFingerprint = lg::replay::kReplayBuildFingerprint;
   demo.metadata.initialServerTick = 100U;
   demo.metadata.mapRevision = 7U;
   demo.metadata.mapName = "replay_test";
@@ -219,6 +230,48 @@ int main() {
       "v4 replay bytes must be rejected instead of reinterpreted as v5");
   }
   {
+    std::vector<std::uint8_t> unsupportedSimulation = validWire;
+    writeLittleEndian(
+      unsupportedSimulation,
+      40U,
+      lg::replay::kReplaySimulationRevision + 1U,
+      4U
+    );
+    failures += expect(
+      !lg::replay::decodeDemo(unsupportedSimulation, decoded, &error) &&
+        error == "replay simulation revision is incompatible",
+      "unsupported simulation revisions should fail with a distinct diagnostic"
+    );
+  }
+  {
+    std::vector<std::uint8_t> unsupportedProtocol = validWire;
+    writeLittleEndian(
+      unsupportedProtocol,
+      20U,
+      lg::replay::kReplayProtocolRevision + 1U,
+      4U
+    );
+    failures += expect(
+      !lg::replay::decodeDemo(unsupportedProtocol, decoded, &error) &&
+        error == "replay protocol revision is incompatible",
+      "unsupported protocol revisions should fail with a distinct diagnostic"
+    );
+  }
+  {
+    std::vector<std::uint8_t> unsupportedBuild = validWire;
+    writeLittleEndian(
+      unsupportedBuild,
+      24U,
+      lg::replay::kReplayBuildFingerprint ^ 1ULL,
+      8U
+    );
+    failures += expect(
+      !lg::replay::decodeDemo(unsupportedBuild, decoded, &error) &&
+        error == "replay build fingerprint is incompatible",
+      "unsupported build fingerprints should fail with a distinct diagnostic"
+    );
+  }
+  {
     lg::replay::ReplayDemo invalid = source;
     invalid.metadata.gameMode = static_cast<lg::GameMode>(255);
     failures += expect(
@@ -236,6 +289,24 @@ int main() {
     lg::replay::ReplayDemo invalid = source;
     invalid.ticks[0].slots[0].command.viewYawRadians = std::numeric_limits<float>::quiet_NaN();
     failures += expect(!lg::replay::encodeDemo(invalid, wire, &error), "non-finite command should not encode");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.metadata.gameplayConfig.weaponDamage.railgunDamage = -1;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "negative replay weapon damage should not encode");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.metadata.gameplayConfig.balance.railgun.damage = -1;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "negative replay hitscan damage should not encode");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.metadata.gameplayConfig.balance.revolver.knockback = -1.0F;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "negative replay hitscan knockback should not encode");
   }
   {
     lg::replay::ReplayDemo invalid = source;

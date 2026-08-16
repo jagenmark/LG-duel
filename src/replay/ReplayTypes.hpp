@@ -1,6 +1,6 @@
 #pragma once
 
-#include "net/NetProtocol.hpp"
+#include "net/NetCodec.hpp"
 #include "sim/BalanceConfig.hpp"
 
 #include <array>
@@ -17,6 +17,11 @@ namespace lg::replay {
 inline constexpr std::uint16_t kReplayFormatVersionV1 = 1;
 inline constexpr std::uint16_t kReplayFormatVersion = 5;
 inline constexpr std::uint32_t kReplaySimulationRevision = 1U;
+inline constexpr std::uint32_t kReplayProtocolRevision = kProtocolVersion;
+// Update this when a v5 build changes in a way that is not covered by the
+// replay simulation revision. It prevents a demo from silently crossing an
+// unsupported executable boundary.
+inline constexpr std::uint64_t kReplayBuildFingerprint = 0x4c47444d56350001ULL;
 inline constexpr std::uint16_t kReplayTickRate = 125;
 // Saved demos may cover a full high-player match. Killcam transfer has its own
 // much smaller cap in ReplayTransfer.hpp.
@@ -96,8 +101,8 @@ struct ReplayPlayerMetadata {
 
 struct ReplayMetadata {
   std::uint32_t formatFlags = 0;
-  std::uint32_t protocolRevision = 0;
-  std::uint64_t buildFingerprint = 0;
+  std::uint32_t protocolRevision = kReplayProtocolRevision;
+  std::uint64_t buildFingerprint = kReplayBuildFingerprint;
   std::uint64_t gameplayConfigHash = 0;
   std::uint32_t simulationRevision = kReplaySimulationRevision;
   std::uint32_t initialServerTick = 0;
