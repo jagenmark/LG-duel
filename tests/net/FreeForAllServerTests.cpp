@@ -333,7 +333,7 @@ int main() {
     );
     const lg::ServerSnapshot beforeShots = server.snapshot();
     transport.sendCommand(aimedShotgun(beforeShots, 0, 1, 1));
-    transport.sendCommand(aimedShotgun(beforeShots, 1, 2, 1));
+    transport.sendCommand(aimedRail(beforeShots, 1, 2, 1));
     server.tick(lg::kFixedTickSeconds);
     const lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(
@@ -343,10 +343,9 @@ int main() {
         snapshot.scores[1] == 1 &&
         snapshot.weaponFires[1].fired &&
         snapshot.weaponFires[1].hit &&
-        snapshot.weaponFires[1].weapon == lg::Weapon::Shotgun &&
-        snapshot.weaponFires[1].pelletHitCount == 1U &&
+        snapshot.weaponFires[1].weapon == lg::Weapon::Railgun &&
         snapshot.weaponFires[1].damageApplied == 5,
-      "a killed shotgun attacker should still publish their frozen same-tick shot"
+      "a killed attacker should keep their frozen same-tick rail shot"
     );
   }
 
