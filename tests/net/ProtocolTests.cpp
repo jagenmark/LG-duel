@@ -944,7 +944,7 @@ int main() {
     source.weaponFires[1].start = {1.0F, -1.5F, 2.0F};
     source.weaponFires[1].end = {7.0F, -1.5F, 2.0F};
     source.weaponFires[1].knockbackImpulse = {1.0F, 0.0F, 0.0F};
-    source.weaponFires[1].pelletCount = lg::kShotgunPelletCount;
+    source.weaponFires[1].pelletCount = lg::kMaxShotgunPelletCount;
     source.weaponFires[1].pelletHitCount = 9;
     source.weaponFires[1].pelletHeadshotCount = 3;
     source.weaponFires[1].visualSeed = 12;
@@ -1351,7 +1351,7 @@ int main() {
         decoded.weaponFires[1].headshot &&
         decoded.weaponFires[1].weapon == lg::Weapon::Shotgun &&
         decoded.weaponFires[1].damageApplied == 45 &&
-        decoded.weaponFires[1].pelletCount == lg::kShotgunPelletCount &&
+        decoded.weaponFires[1].pelletCount == lg::kMaxShotgunPelletCount &&
         decoded.weaponFires[1].pelletHitCount == 9 &&
         decoded.weaponFires[1].pelletHeadshotCount == 3 &&
         decoded.weaponFires[1].visualSeed == 12 &&

@@ -1270,7 +1270,7 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
     (result.headshot && !result.hit) ||
     pelletHitCount > pelletCount ||
     pelletHeadshotCount > pelletHitCount ||
-    pelletCount > kShotgunPelletCount
+    pelletCount > kMaxShotgunPelletCount
   ) {
     return false;
   }

@@ -366,6 +366,39 @@ int main() {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     lg::ServerSnapshot snapshot = configureLiveOneVersusTwo(transport, server);
+    lg::BalanceConfig balance;
+    balance.shotgun.pelletCount = 1U;
+    balance.shotgun.spreadRadians = 0.0F;
+    server.applyBalanceConfig(balance);
+    const int teammateHealth = snapshot.players[2].health;
+    snapshot = sendAndTick(
+      transport,
+      server,
+      aimedAttack(snapshot, 1, 2, 3, lg::Weapon::Shotgun)
+    );
+    const auto& shotgunStats = snapshot.matchCombatStats[1].weapons[
+      lg::weaponIndex(lg::Weapon::Shotgun)
+    ];
+    failures += expect(
+      snapshot.weaponFires[1].hit &&
+        snapshot.weaponFires[1].pelletHitCount == 1U &&
+        snapshot.weaponFires[1].damageApplied == 0 &&
+        snapshot.players[2].health == teammateHealth &&
+        std::hypot(
+          snapshot.players[2].velocity.x,
+          snapshot.players[2].velocity.y,
+          snapshot.players[2].velocity.z
+        ) > 0.0F &&
+        shotgunStats.attempts == 1U &&
+        shotgunStats.hits == 0U,
+      "friendly shotgun bodies should block and take knockback without damage or accuracy credit"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::ServerSnapshot snapshot = configureLiveOneVersusTwo(transport, server);
     const int ownerHealth = snapshot.players[1].health;
     const int teammateHealth = snapshot.players[2].health;
     snapshot = sendAndTick(

@@ -1082,7 +1082,8 @@ void spawnShotgunTracers(
       right,
       up,
       kVisualSpreadRadians,
-      pelletIndex
+      pelletIndex,
+      pelletCount
     );
     if (length(direction) <= 0.0001F) {
       continue;

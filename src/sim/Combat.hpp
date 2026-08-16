@@ -16,6 +16,8 @@ inline constexpr std::size_t kProjectileSlotsPerPlayer = 32;
 inline constexpr std::size_t kMaxRocketProjectiles =
   kMaxPlayers * kProjectileSlotsPerPlayer;
 inline constexpr std::uint8_t kShotgunPelletCount = 20;
+inline constexpr std::uint8_t kMaxShotgunPelletCount = 255;
+inline constexpr std::uint8_t kShotgunNoPlayer = 255;
 inline constexpr float kSniperAdsSeconds = 0.2F;
 
 struct LightningGunTuning {
@@ -255,7 +257,46 @@ struct WorldTrace {
   Vec3 right,
   Vec3 up,
   float spreadRadians,
-  std::uint8_t pelletIndex
+  std::uint8_t pelletIndex,
+  std::uint8_t pelletCount = kShotgunPelletCount
+);
+
+struct ShotgunTargetCandidate {
+  std::uint8_t playerIndex = kShotgunNoPlayer;
+  PlayerState player = {};
+  bool valid = false;
+};
+
+struct ShotgunTargetResult {
+  std::uint8_t playerIndex = kShotgunNoPlayer;
+  std::uint8_t bodyPelletCount = 0;
+  std::uint8_t headPelletCount = 0;
+  int requestedDamage = 0;
+  Vec3 knockbackImpulse = {};
+  Vec3 hitPosition = {};
+};
+
+struct ShotgunResolution {
+  WeaponFireResult fire = {};
+  std::array<ShotgunTargetResult, kMaxPlayers> targets = {};
+};
+
+using ShotgunMultiTargetResult = ShotgunResolution;
+
+[[nodiscard]] ShotgunResolution resolveShotgunMultiTarget(
+  const PlayerState& attacker,
+  const UserCommand& command,
+  const Arena& arena,
+  const ShotgunTuning& tuning,
+  const std::array<ShotgunTargetCandidate, kMaxPlayers>& candidates
+);
+
+[[nodiscard]] ShotgunResolution simulateShotgunMultiTarget(
+  const PlayerState& attacker,
+  const UserCommand& command,
+  const Arena& arena,
+  const ShotgunTuning& tuning,
+  const std::array<ShotgunTargetCandidate, kMaxPlayers>& candidates
 );
 
 [[nodiscard]] bool tracePlayerCylinder(

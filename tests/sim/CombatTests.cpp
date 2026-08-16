@@ -5,6 +5,7 @@
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <string_view>
@@ -195,6 +196,7 @@ weapon.re.knockback 4
 weapon.re.headshot_multiplier 1.75
 weapon.re.cooldown_ticks 30
 weapon.mg.headshot_multiplier 2.25
+weapon.sg.pellet_count 255
 weapon.sg.headshot_multiplier 2.5
 )");
 
@@ -220,6 +222,7 @@ weapon.sg.headshot_multiplier 2.5
         nearlyEqual(loaded.config.revolver.headshotMultiplier, 1.75F) &&
         loaded.config.revolverCooldownTicks == 30 &&
         nearlyEqual(loaded.config.machineGun.headshotMultiplier, 2.25F) &&
+        loaded.config.shotgun.pelletCount == 255U &&
         nearlyEqual(loaded.config.shotgun.headshotMultiplier, 2.5F) &&
         nearlyEqual(loaded.config.freezeGun.freezePerSecond, 60.0F) &&
         nearlyEqual(loaded.config.freezeGun.decayPerSecond, 25.0F) &&
@@ -1055,6 +1058,163 @@ weapon.gl.gravity -1
     failures += expect(!result.hit, "cover should block shotgun pellet traces");
     failures += expect(result.pelletHitCount == 0, "wall-blocked shotgun should report zero pellet hits");
     failures += expect(target.health == 100, "wall-blocked shotgun should not damage target");
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(4.0F, 0.0F);
+    lg::ShotgunTuning tuning = shotgunTuning;
+    tuning.spreadRadians = 0.0F;
+    lg::UserCommand command;
+    command.attack = true;
+    command.sequence = 77U;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, tuning.eyeHeight, bodyAimZ(target));
+
+    const lg::WeaponFireResult single =
+      lg::simulateShotgun(attacker, target, command, arena, tuning);
+    std::array<lg::ShotgunTargetCandidate, lg::kMaxPlayers> candidates = {};
+    candidates[1].playerIndex = 1U;
+    candidates[1].player = playerAt(4.0F, 0.0F);
+    candidates[1].valid = true;
+    const lg::ShotgunResolution multi = lg::resolveShotgunMultiTarget(
+      attacker,
+      command,
+      arena,
+      tuning,
+      candidates
+    );
+    failures += expect(
+      single.fired == multi.fire.fired &&
+        single.hit == multi.fire.hit &&
+        single.headshot == multi.fire.headshot &&
+        single.pelletCount == multi.fire.pelletCount &&
+        single.pelletHitCount == multi.fire.pelletHitCount &&
+        single.pelletHeadshotCount == multi.fire.pelletHeadshotCount &&
+        single.damageApplied == multi.targets[1].requestedDamage &&
+        single.knockbackImpulse.x == multi.targets[1].knockbackImpulse.x,
+      "single-target shotgun wrapper should match the multi-target resolver"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::ShotgunTuning tuning = shotgunTuning;
+    tuning.pelletCount = 2U;
+    tuning.spreadRadians = 0.2F;
+    lg::UserCommand command;
+    command.attack = true;
+    command.sequence = 91U;
+
+    const lg::Vec3 start = lg::weaponMuzzlePosition(attacker, tuning.eyeHeight);
+    const lg::Vec3 forward = lg::cameraForward(0.0F, 0.0F);
+    const lg::Vec3 right = lg::normalize(lg::Vec3{0.0F, -1.0F, 0.0F});
+    const lg::Vec3 up = lg::Vec3{0.0F, 0.0F, 1.0F};
+    const lg::Vec3 pelletOne = lg::shotgunPelletDirection(
+      forward,
+      right,
+      up,
+      tuning.spreadRadians,
+      1U,
+      tuning.pelletCount
+    );
+    std::array<lg::ShotgunTargetCandidate, lg::kMaxPlayers> candidates = {};
+    candidates[1].playerIndex = 1U;
+    candidates[1].player.position = start + forward * 6.0F;
+    candidates[1].valid = true;
+    candidates[2].playerIndex = 2U;
+    candidates[2].player.position = start + pelletOne * 6.0F;
+    candidates[2].valid = true;
+    const lg::ShotgunResolution resolution = lg::resolveShotgunMultiTarget(
+      attacker,
+      command,
+      arena,
+      tuning,
+      candidates
+    );
+    failures += expect(
+      resolution.fire.pelletHitCount == 2U &&
+        resolution.targets[1].bodyPelletCount == 1U &&
+        resolution.targets[2].bodyPelletCount == 1U,
+      "different shotgun pellets should be assigned to different opponents"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::ShotgunTuning tuning = shotgunTuning;
+    tuning.pelletCount = 1U;
+    tuning.spreadRadians = 0.0F;
+    lg::UserCommand command;
+    command.attack = true;
+    std::array<lg::ShotgunTargetCandidate, lg::kMaxPlayers> candidates = {};
+    candidates[2].playerIndex = 2U;
+    candidates[2].player.position = {5.0F, 0.0F, 1.55F};
+    candidates[2].valid = true;
+    candidates[4].playerIndex = 4U;
+    candidates[4].player.position = {5.0F, 0.0F, 1.55F};
+    candidates[4].valid = true;
+    const lg::ShotgunResolution tieResolution = lg::resolveShotgunMultiTarget(
+      attacker,
+      command,
+      arena,
+      tuning,
+      candidates
+    );
+    failures += expect(
+      tieResolution.targets[2].bodyPelletCount == 1U &&
+        tieResolution.targets[4].bodyPelletCount == 0U,
+      "an exact shotgun hit tie should select the lower player slot"
+    );
+
+    lg::Arena occludedArena = arena;
+    occludedArena.walls[0] = {{6.0F, -1.0F, 0.0F}, {7.0F, 1.0F, 3.0F}};
+    occludedArena.wallCount = 1U;
+    candidates[2].player.position = {5.0F, 0.0F, 1.55F};
+    candidates[4].player.position = {8.0F, 0.0F, 1.55F};
+    const lg::ShotgunResolution occludedResolution = resolveShotgunMultiTarget(
+      attacker,
+      command,
+      occludedArena,
+      tuning,
+      candidates
+    );
+    failures += expect(
+      occludedResolution.targets[2].bodyPelletCount == 1U &&
+        occludedResolution.targets[4].bodyPelletCount == 0U,
+      "world occlusion should stop a farther shotgun target independently"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(2.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+    lg::ShotgunTuning tuning = shotgunTuning;
+    tuning.spreadRadians = 0.0F;
+    std::array<lg::ShotgunTargetCandidate, lg::kMaxPlayers> candidates = {};
+    candidates[1].playerIndex = 1U;
+    candidates[1].player = target;
+    candidates[1].valid = true;
+    for (const std::uint8_t pelletCount : {1U, 2U, 20U, 255U}) {
+      tuning.pelletCount = pelletCount;
+      const lg::ShotgunResolution resolution = resolveShotgunMultiTarget(
+        attacker,
+        command,
+        arena,
+        tuning,
+        candidates
+      );
+      failures += expect(
+        resolution.fire.pelletCount == pelletCount &&
+          resolution.fire.pelletHitCount == pelletCount &&
+          static_cast<std::uint16_t>(resolution.targets[1].bodyPelletCount) +
+              static_cast<std::uint16_t>(resolution.targets[1].headPelletCount) ==
+            pelletCount,
+        "shotgun spread should honor every supported runtime pellet count"
+      );
+    }
   }
 
   return failures == 0 ? 0 : 1;

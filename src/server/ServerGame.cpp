@@ -854,6 +854,7 @@ void ServerGame::tick(float fixedDt) {
   std::array<std::size_t, kDuelPlayerCount> lightningTargets = {};
   std::array<std::size_t, kDuelPlayerCount> freezeTargets = {};
   std::array<std::size_t, kDuelPlayerCount> weaponTargets = {};
+  std::array<ShotgunResolution, kDuelPlayerCount> shotgunResolutions = {};
   std::array<Vec3, kDuelPlayerCount> hitTargetPositions = {};
   lightningTargets.fill(kDuelPlayerCount);
   freezeTargets.fill(kDuelPlayerCount);
@@ -932,6 +933,29 @@ void ServerGame::tick(float fixedDt) {
       std::min(requestedRewindTicks, kMaxLagCompensationTicks);
     const std::uint32_t targetTick = snapshot_.serverTick - clampedRewindTicks;
     const HistoryFrame& historyFrame = historyFrameForTick(targetTick);
+
+    std::array<ShotgunTargetCandidate, kDuelPlayerCount> shotgunCandidates = {};
+    if (command.weapon == Weapon::Shotgun) {
+      for (std::size_t candidateIndex = 0;
+           candidateIndex < kDuelPlayerCount;
+           ++candidateIndex) {
+        if (
+          !isTraceableCombatant(snapshot_, attackerIndex, candidateIndex) ||
+          combatPlayers[candidateIndex].health <= 0
+        ) {
+          continue;
+        }
+        ShotgunTargetCandidate& candidate = shotgunCandidates[candidateIndex];
+        candidate.playerIndex = static_cast<std::uint8_t>(candidateIndex);
+        candidate.player = clampedRewindTicks == 0
+          ? combatPlayers[candidateIndex]
+          : historyFrame.players[candidateIndex];
+        // A target can move between the rewound trace pose and this tick. Keep
+        // current liveness authoritative while preserving the rewound bounds.
+        candidate.player.health = combatPlayers[candidateIndex].health;
+        candidate.valid = true;
+      }
+    }
 
     const Vec3 attackStart = weaponMuzzlePosition(
       combatPlayers[attackerIndex],
@@ -1164,28 +1188,31 @@ void ServerGame::tick(float fixedDt) {
       command.attack &&
       shotgunCooldownTicks_[attackerIndex] == 0
     ) {
-      if (targetIndex < kDuelPlayerCount) {
-        weaponTargets[attackerIndex] = targetIndex;
-        snapshot_.weaponFires[attackerIndex] = simulateShotgun(
-          combatPlayers[attackerIndex],
-          target,
-          command,
-          arena_,
-          shotgunTuning_
-        );
-      } else {
-        WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
-        fire.weapon = Weapon::Shotgun;
-        fire.visualSeed = command.sequence;
-        fire.pelletCount = shotgunTuning_.pelletCount;
-        fire.start = attackStart;
-        fire.end = worldTrace.end;
-        fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
+      shotgunResolutions[attackerIndex] = resolveShotgunMultiTarget(
+        combatPlayers[attackerIndex],
+        command,
+        arena_,
+        shotgunTuning_,
+        shotgunCandidates
+      );
+      snapshot_.weaponFires[attackerIndex] = shotgunResolutions[attackerIndex].fire;
+      std::uint32_t damageAllowedPellets = 0U;
+      for (const ShotgunTargetResult& target : shotgunResolutions[attackerIndex].targets) {
+        if (
+          target.playerIndex < kDuelPlayerCount &&
+          damageAllowed(attackerIndex, target.playerIndex)
+        ) {
+          damageAllowedPellets +=
+            static_cast<std::uint32_t>(target.bodyPelletCount) +
+            static_cast<std::uint32_t>(target.headPelletCount);
+        }
       }
-      recordInstantWeaponAccuracy(
+      recordWeaponAccuracy(
         snapshot_,
         attackerIndex,
-        snapshot_.weaponFires[attackerIndex]
+        Weapon::Shotgun,
+        shotgunResolutions[attackerIndex].fire.pelletCount,
+        damageAllowedPellets
       );
       shotgunCooldownTicks_[attackerIndex] = shotgunCooldownDurationTicks_;
       (void)consumeAmmo(attackerIndex, Weapon::Shotgun);
@@ -1353,6 +1380,45 @@ void ServerGame::tick(float fixedDt) {
         hitTargetPositions[attackerIndex],
       }
     );
+
+    ShotgunResolution& shotgun = shotgunResolutions[attackerIndex];
+    if (!shotgun.fire.fired) {
+      continue;
+    }
+    // FragEvent remains one slot per attacker by protocol design. Applying
+    // target rows in slot order keeps scoring and all authoritative effects
+    // deterministic; the last lethal row is the event clients display.
+    int actualShotgunDamage = 0;
+    for (std::size_t targetIndex = 0;
+         targetIndex < shotgun.targets.size();
+         ++targetIndex) {
+      ShotgunTargetResult& target = shotgun.targets[targetIndex];
+      if (target.playerIndex >= kDuelPlayerCount) {
+        continue;
+      }
+      const bool damagePhase =
+        snapshot_.matchPhase == MatchPhase::Live || warmupPhase();
+      if (damagePhase && damageAllowed(attackerIndex, target.playerIndex)) {
+        const PlayerState& player = snapshot_.players[target.playerIndex];
+        actualShotgunDamage += std::clamp(target.requestedDamage, 0, player.health);
+      }
+      applyDamageAndKnockback(
+        attackerIndex,
+        target.playerIndex,
+        target.requestedDamage,
+        target.knockbackImpulse,
+        Weapon::Shotgun,
+        target.headPelletCount > 0,
+        {
+          true,
+          shotgun.fire.start,
+          true,
+          target.hitPosition,
+        }
+      );
+    }
+    shotgun.fire.damageApplied = actualShotgunDamage;
+    snapshot_.weaponFires[attackerIndex].damageApplied = actualShotgunDamage;
   }
 
   simulateRockets(fixedDt);

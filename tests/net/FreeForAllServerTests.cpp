@@ -74,6 +74,17 @@ lg::CommandPacket aimedRail(
   return packet;
 }
 
+lg::CommandPacket aimedShotgun(
+  const lg::ServerSnapshot& snapshot,
+  std::uint8_t attacker,
+  std::uint8_t target,
+  std::uint32_t sequence
+) {
+  lg::CommandPacket packet = aimedRail(snapshot, attacker, target, sequence);
+  packet.command.weapon = lg::Weapon::Shotgun;
+  return packet;
+}
+
 lg::Arena testArena() {
   lg::Arena arena;
   arena.min = {-20.0F, -20.0F, 0.0F};
@@ -238,6 +249,55 @@ int main() {
         snapshot.respawnTicksRemaining[1] == 0 &&
         snapshot.matchPhase == lg::MatchPhase::Live,
       "the shared death timer should respawn an FFA player"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setArena(testArena());
+    lg::MatchRules rules;
+    rules.deathRespawnTicks = 2;
+    server.setMatchRules(rules);
+    lg::BalanceConfig balance;
+    balance.shotgun.pelletCount = 2U;
+    balance.shotgun.spreadRadians = 0.12F;
+    server.applyBalanceConfig(balance);
+    lg::ScenarioSetup setup = liveSetup();
+    setup.players[1].health = 5;
+    setup.players[1].position = {0.0F, 0.0F, 0.9F};
+    setup.players[2].connected = true;
+    setup.players[2].ready = true;
+    setup.players[2].alive = true;
+    setup.players[2].health = 5;
+    setup.players[2].position = {0.0F, 0.55F, 1.35F};
+    failures += expect(
+      applySetup(server, setup),
+      "FFA shotgun multi-target setup should load"
+    );
+    const lg::ServerSnapshot beforeShot = server.snapshot();
+    const lg::ServerSnapshot snapshot = sendAndTick(
+      transport,
+      server,
+      aimedShotgun(beforeShot, 0, 1, 1)
+    );
+    const auto& shotgunStats = snapshot.matchCombatStats[0].weapons[
+      lg::weaponIndex(lg::Weapon::Shotgun)
+    ];
+    failures += expect(
+      snapshot.weaponFires[0].pelletCount == 2U &&
+        snapshot.weaponFires[0].pelletHitCount == 2U &&
+        snapshot.players[1].health == 0 &&
+        snapshot.players[2].health == 0 &&
+        snapshot.scores[0] == 2 &&
+        shotgunStats.attempts == 2U &&
+        shotgunStats.hits == 2U,
+      "an FFA shotgun blast should split pellets, score both kills, and count pellet accuracy"
+    );
+    failures += expect(
+      snapshot.localHitFeedbackEvents[0][0].active &&
+        snapshot.localHitFeedbackEvents[0][1].active,
+      "a shotgun kill on two FFA targets should retain per-target hit feedback"
     );
   }
 
