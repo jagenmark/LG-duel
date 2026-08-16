@@ -60,8 +60,10 @@ A segment that has no valid checkpoint, crosses a map/reset generation, exceeds
 its cap, or has missing data is rejected. The archive returns a self-contained
 `ReplayDemo`; no client currently receives or presents it.
 
-Current lethal provenance distinguishes self, world, and direct cases. The
-record does not yet carry enough data to distinguish splash from direct damage.
+Lethal provenance distinguishes direct, splash, self, and world cases. Each
+event carries a nonzero sequence within the replay generation and preserves a
+projectile sequence when the damage came from a projectile. Full recordings,
+rolling archives, and the bounded pending queue use the same event record.
 
 The default future camera plan is killer first-person, then killer chase, then
 victim/world for suicide, world, or no-killer deaths. `ReplayPresentationSession`
@@ -155,7 +157,8 @@ full recording can use close to 512 MiB, but stops cleanly at the cap.
   transfer or player-facing killcam exists.
 - It does not reproduce raw packet timing or pixel-identical local prediction.
 - It does not run bot AI during playback or save bot AI state.
-- Lethal provenance does not yet distinguish splash damage from direct damage.
+- Lethal provenance records direct, splash, self, and world causes plus
+  projectile sequence where present.
 - First- and third-person pullout animation support is not part of this work.
 - A demo can fail cleanly across gameplay, map, content, or protocol changes.
 - No broadcast director, cloud upload, or unbounded replay archive is planned.

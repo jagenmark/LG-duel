@@ -18,7 +18,14 @@ namespace lg::replay {
 // Server restore calls this before it changes any live authoritative state.
 [[nodiscard]] bool validateReplayCheckpoint(const ReplayCheckpoint& checkpoint,
                                             std::string* error = nullptr);
+[[nodiscard]] bool validateReplayGameplayConfig(
+  const ReplayGameplayConfig& config,
+  std::string* error = nullptr
+);
 [[nodiscard]] std::size_t encodedReplayCheckpointBytes(const ReplayCheckpoint& checkpoint);
 [[nodiscard]] std::uint64_t canonicalStateHash(const ReplayCheckpoint& checkpoint);
+[[nodiscard]] std::uint64_t canonicalGameplayConfigHash(
+  const ReplayGameplayConfig& config
+);
 
 } // namespace lg::replay

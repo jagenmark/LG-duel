@@ -41,9 +41,13 @@ std::size_t demoResidentBytes(const ReplayDemo& demo) {
     demo.ticks.capacity() * sizeof(ReplayTickInput) +
     demo.checkpoints.capacity() * sizeof(ReplayCheckpoint) +
     demo.hashes.capacity() * sizeof(ReplayStateHash) +
-    demo.lethalEvents.capacity() * sizeof(ReplayLethalEvent);
+    demo.lethalEvents.capacity() * sizeof(ReplayLethalEvent) +
+    demo.authorityBoundaries.capacity() * sizeof(ReplayAuthorityBoundary);
   for (const ReplayCheckpoint& checkpoint : demo.checkpoints) {
     bytes += checkpoint.history.capacity() * sizeof(ReplayHistoryFrame);
+  }
+  for (const ReplayAuthorityBoundary& boundary : demo.authorityBoundaries) {
+    bytes += boundary.checkpoint.history.capacity() * sizeof(ReplayHistoryFrame);
   }
   return bytes;
 }
@@ -74,7 +78,12 @@ bool ReplayRecorder::begin(
   if (config.checkpointIntervalTicks == 0U || config.hashIntervalTicks == 0U ||
       config.maximumBytes == 0U || config.maximumBytes > kMaxReplayBytes ||
       config.maximumResidentBytes == 0U || config.maximumResidentBytes > kMaxReplayResidentBytes ||
-      initialCheckpoint.serverTick != metadata.initialServerTick) {
+      initialCheckpoint.serverTick != metadata.initialServerTick ||
+      metadata.simulationRevision != kReplaySimulationRevision ||
+      metadata.configurationRevision == 0U ||
+      !validateReplayGameplayConfig(metadata.gameplayConfig) ||
+      metadata.gameplayConfigHash != canonicalGameplayConfigHash(metadata.gameplayConfig) ||
+      initialCheckpoint.gameplayConfigHash != metadata.gameplayConfigHash) {
     return fail(error, "replay recorder configuration or initial checkpoint is invalid");
   }
   const std::size_t initialCheckpointBytes = encodedReplayCheckpointBytes(initialCheckpoint);
@@ -140,6 +149,68 @@ bool ReplayRecorder::recordResolvedInput(const ReplayTickInput& input, std::stri
   estimatedBytes_ += inputBytes(input);
   if (error != nullptr) error->clear();
   return true;
+}
+
+void ReplayRecorder::recordAuthorityBoundary(const ReplayAuthorityBoundary& boundary) {
+  if (!active_ || demo_.authorityBoundaries.size() >= kMaxReplayAuthorityBoundaries ||
+      boundary.tick < demo_.metadata.initialServerTick ||
+      (!demo_.authorityBoundaries.empty() &&
+        boundary.tick <= demo_.authorityBoundaries.back().tick) ||
+      boundary.checkpoint.serverTick != boundary.tick ||
+      !validateReplayGameplayConfig(boundary.gameplayConfig) ||
+      canonicalGameplayConfigHash(boundary.gameplayConfig) !=
+        boundary.checkpoint.gameplayConfigHash) {
+    return;
+  }
+  const std::size_t checkpointBytes = encodedReplayCheckpointBytes(boundary.checkpoint);
+  if (checkpointBytes == 0U) {
+    active_ = false;
+    return;
+  }
+  // The config is bounded and small. Reserve a conservative fixed amount for
+  // its explicit fields and the boundary chunk header.
+  constexpr std::size_t kBoundaryConfigReserveBytes = 2048U;
+  const std::size_t addition = kReplayChunkHeaderBytes + checkpointBytes +
+    kBoundaryConfigReserveBytes;
+  if (!canReserve(estimatedBytes_, maximumBytes_, addition)) {
+    active_ = false;
+    return;
+  }
+  const std::size_t before = demo_.authorityBoundaries.size();
+  demo_.authorityBoundaries.push_back(boundary);
+  estimatedBytes_ += addition;
+  if (!enforceResidentLimit()) {
+    demo_.authorityBoundaries.resize(before);
+    compactResidentStorage();
+    estimatedBytes_ -= addition;
+    active_ = false;
+  }
+}
+
+void ReplayRecorder::recordLethal(const ReplayLethalEvent& event) {
+  if (!active_ || demo_.lethalEvents.size() >= kMaxReplayLethalEvents ||
+      event.tick < demo_.metadata.initialServerTick || event.replayGeneration == 0U ||
+      event.sequence == 0U ||
+      (!demo_.lethalEvents.empty() &&
+        (event.tick < demo_.lethalEvents.back().tick ||
+          (event.tick == demo_.lethalEvents.back().tick &&
+            event.sequence <= demo_.lethalEvents.back().sequence)))) {
+    return;
+  }
+  constexpr std::size_t kLethalReserveBytes = kReplayChunkHeaderBytes + 32U;
+  if (!canReserve(estimatedBytes_, maximumBytes_, kLethalReserveBytes) ||
+      residentBytes() + sizeof(ReplayLethalEvent) > maximumResidentBytes_) {
+    active_ = false;
+    return;
+  }
+  demo_.lethalEvents.push_back(event);
+  estimatedBytes_ += kLethalReserveBytes;
+  if (!enforceResidentLimit()) {
+    demo_.lethalEvents.pop_back();
+    compactResidentStorage();
+    estimatedBytes_ -= kLethalReserveBytes;
+    active_ = false;
+  }
 }
 
 bool ReplayRecorder::needsCompletedCheckpoint(std::uint32_t tick) const {
@@ -278,6 +349,10 @@ void ReplayRecorder::compactResidentStorage() {
   compactVector(demo_.checkpoints);
   compactVector(demo_.hashes);
   compactVector(demo_.lethalEvents);
+  compactVector(demo_.authorityBoundaries);
+  for (ReplayAuthorityBoundary& boundary : demo_.authorityBoundaries) {
+    compactVector(boundary.checkpoint.history);
+  }
 }
 
 } // namespace lg::replay

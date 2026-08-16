@@ -70,14 +70,14 @@ command and the data used with it:
 - slot/body connection changes, human-or-bot marker, name, team, ready state,
   spectator state, phase, rules, map, and configuration changes.
 
-The current v3 `ReplayTickInput` records only present slots. It keeps each
+The current v5 `ReplayTickInput` records only present slots. It keeps each
 present slot’s resolved command, `viewedServerTick`, consumed action edges,
 accepted jump/dash/attack/throw edges, and original attack edge command. An
-absent slot has no replay payload and must have default input state. It does not
-yet encode separate dynamic roster, name, team, ready, rule, map, or
-configuration-change records. Those records remain pending.
+absent slot has no replay payload and must have default input state. V5 carries
+dynamic roster, name, team, ready, mode, rule, reset, and configuration changes
+in explicit authority-boundary records.
 
-The replay decoder accepts only format v3. It rejects v1 and v2 before
+The replay decoder accepts only format v5. It rejects v1 through v4 before
 restoring any state.
 
 During replay, both human and bot slots inject those recorded commands through
@@ -127,7 +127,7 @@ restore without a partial rewind. During replay playback the server suppresses
 snapshot, projectile, and chat transport output; live recording still publishes
 its normal transport output.
 
-The rolling archive uses the same resolved inputs and completed checkpoints as
+The rolling archive uses the same resolved inputs, authority boundaries, and completed checkpoints as
 full recording. Its default retention is 1,500 ticks (12 seconds at 125 Hz),
 with a 16 MiB rolling-storage cap that charges native tick, checkpoint, and
 lag-history storage. It trims or stops before exceeding that cap. Segment

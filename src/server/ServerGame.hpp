@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace lg {
 
@@ -53,6 +54,11 @@ public:
   void tick(float fixedDt);
   void resetMatch();
   void applyBalanceConfig(const BalanceConfig& config);
+  [[nodiscard]] replay::ReplayGameplayConfig captureReplayGameplayConfig() const;
+  [[nodiscard]] bool applyReplayGameplayConfig(
+    const replay::ReplayGameplayConfig& config,
+    std::string* error = nullptr
+  );
   void setArena(const Arena& arena);
   void setMapDirectory(std::string mapDirectory);
   [[nodiscard]] bool loadRequestedMap(const std::string& mapName);
@@ -154,6 +160,7 @@ public:
     std::string* error = nullptr
   ) const;
   [[nodiscard]] std::optional<replay::ReplayLethalEvent> latestReplayLethal() const;
+  [[nodiscard]] std::vector<replay::ReplayLethalEvent> takeReplayLethalEvents();
   [[nodiscard]] replay::ReplayCheckpoint captureReplayCheckpoint() const;
   [[nodiscard]] bool restoreReplayCheckpoint(
     const replay::ReplayCheckpoint& checkpoint,
@@ -191,6 +198,23 @@ private:
     Vec3 sourcePosition = {};
     bool hasVictimPosition = false;
     Vec3 victimPosition = {};
+    replay::LethalKind lethalKind = replay::LethalKind::Direct;
+    std::uint32_t projectileSequence = 0;
+  };
+
+  struct ReplayAuthoritySignature {
+    std::uint32_t mapRevision = 0;
+    std::uint32_t mapContentHash = 0;
+    std::string mapName;
+    std::uint32_t configurationRevision = 0;
+    std::uint64_t gameplayConfigHash = 0;
+    GameMode gameMode = GameMode::Duel;
+    MatchRules matchRules = {};
+    std::array<bool, kDuelPlayerCount> occupied = {};
+    std::array<bool, kDuelPlayerCount> bots = {};
+    std::array<bool, kDuelPlayerCount> ready = {};
+    std::array<Team, kDuelPlayerCount> teams = {};
+    std::array<std::string, kDuelPlayerCount> names = {};
   };
 
   void receiveCommands();
@@ -285,9 +309,23 @@ private:
   void rebuildBotNavigation();
   [[nodiscard]] replay::ReplayTickInput captureResolvedReplayInput() const;
   [[nodiscard]] replay::ReplayMetadata replayMetadata() const;
+  [[nodiscard]] replay::ReplayAuthorityBoundary captureReplayAuthorityBoundary() const;
+  [[nodiscard]] ReplayAuthoritySignature replayAuthoritySignature() const;
+  [[nodiscard]] bool sameReplayAuthoritySignature(
+    const ReplayAuthoritySignature& left,
+    const ReplayAuthoritySignature& right
+  ) const;
+  void recordReplayAuthorityBoundaryIfChanged();
   [[nodiscard]] std::uint64_t replayGameplayConfigHash() const;
   void resetRollingReplay();
-  void recordReplayLethal(std::size_t attackerIndex, std::size_t targetIndex, Weapon weapon);
+  void recordReplayLethal(
+    std::size_t attackerIndex,
+    std::size_t targetIndex,
+    Weapon weapon,
+    replay::LethalKind kind = replay::LethalKind::Direct,
+    std::uint32_t projectileSequence = 0
+  );
+  void bumpReplayConfigurationRevision();
   void applyReplayInput(const replay::ReplayTickInput& input);
   void handleBotCommandRequest(const CommandPacket& packet);
   void updateClanArenaBotTeams();
@@ -474,9 +512,15 @@ private:
   ServerSnapshot snapshot_ = {};
   std::unique_ptr<replay::ReplayRecorder> replayRecorder_ = {};
   std::unique_ptr<replay::ReplayRollingBuffer> rollingReplay_ = {};
+  std::optional<replay::ReplayDemo> completedReplayRecording_ = {};
   replay::ReplayCheckpointCaptureStats replayCheckpointCaptureStats_ = {};
   std::optional<replay::ReplayLethalEvent> latestReplayLethal_ = {};
+  std::deque<replay::ReplayLethalEvent> pendingReplayLethals_ = {};
   std::uint32_t replayGeneration_ = 1;
+  std::uint32_t replayLethalSequence_ = 0;
+  std::uint32_t replayConfigurationRevision_ = 1;
+  bool applyingReplayConfig_ = false;
+  std::optional<ReplayAuthoritySignature> replayAuthoritySignature_ = {};
   std::optional<replay::ReplayTickInput> pendingReplayInput_ = {};
   bool replayPlayback_ = false;
 };

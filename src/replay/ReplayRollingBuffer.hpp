@@ -45,6 +45,7 @@ public:
   );
   void reset(ReplayMetadata metadata, ReplayCheckpoint initialCheckpoint, std::uint32_t generation);
   void recordResolvedInput(const ReplayTickInput& input);
+  void recordAuthorityBoundary(const ReplayAuthorityBoundary& boundary);
   [[nodiscard]] bool needsCompletedCheckpoint(std::uint32_t tick) const;
   void recordCompletedTick(const ReplayCheckpoint& checkpoint);
   void recordLethal(const ReplayLethalEvent& event);
@@ -67,6 +68,7 @@ private:
   std::uint32_t generation_ = 0;
   std::deque<ReplayTickInput> inputs_;
   std::deque<ReplayCheckpoint> checkpoints_;
+  std::deque<ReplayAuthorityBoundary> authorityBoundaries_;
   std::deque<ReplayStateHash> hashes_;
   std::deque<ReplayLethalEvent> lethals_;
   std::size_t estimatedBytes_ = 0;

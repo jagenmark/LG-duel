@@ -120,12 +120,25 @@ int main() {
   );
 
   std::string error;
+  lg::replay::ReplayGameplayConfig customConfig = source.captureReplayGameplayConfig();
+  customConfig.balance.rocketLauncher.speed = 31.0F;
+  customConfig.movementTuning.gravity = 27.0F;
+  failures += expect(source.applyReplayGameplayConfig(customConfig, &error),
+    "source should accept a custom replay gameplay configuration");
+  const float boundaryFireHz = customConfig.lightningFireHz + 3.0F;
   lg::replay::ReplayRecordingConfig recordingConfig;
   recordingConfig.checkpointIntervalTicks = 24U;
   recordingConfig.hashIntervalTicks = 12U;
   failures += expect(source.beginReplayRecording(recordingConfig, &error),
     "server should start authoritative replay recording");
   for (std::uint32_t tick = 0U; tick < 96U; ++tick) {
+    if (tick == 48U) {
+      lg::replay::ReplayGameplayConfig boundaryConfig =
+        source.captureReplayGameplayConfig();
+      boundaryConfig.lightningFireHz = boundaryFireHz;
+      failures += expect(source.applyReplayGameplayConfig(boundaryConfig, &error),
+        "source should accept a mid-recording authority configuration change");
+    }
     lg::CommandPacket command;
     command.playerIndex = 0U;
     command.command.sequence = 3U + tick;
@@ -167,6 +180,11 @@ int main() {
     "recording should append an exact final checkpoint off interval");
   failures += expect(recorded.has_value() && recorded->metadata.players[1].bot,
     "bot identity belongs in replay metadata");
+  failures += expect(recorded.has_value() && recorded->metadata.gameplayConfig.balance.rocketLauncher.speed == 31.0F &&
+    recorded->metadata.gameplayConfig.movementTuning.gravity == 27.0F &&
+    !recorded->authorityBoundaries.empty() &&
+    recorded->authorityBoundaries.back().gameplayConfig.lightningFireHz == boundaryFireHz,
+    "recording should retain initial and changed authoritative configuration");
 
   std::vector<std::uint8_t> bytes;
   lg::replay::ReplayDemo savedDemo;
@@ -207,6 +225,11 @@ int main() {
   lg::replay::ReplayPlaybackRunner runner(playback, savedDemo);
   failures += expect(runner.initialize(&error), "playback should restore the initial checkpoint");
   failures += expect(
+    playback.captureReplayGameplayConfig().balance.rocketLauncher.speed == 31.0F &&
+      playback.captureReplayGameplayConfig().movementTuning.gravity == 27.0F,
+    "playback should apply the recorded configuration instead of local defaults"
+  );
+  failures += expect(
     playback.snapshot().damageFeedbackRevision != revisionBeforePlaybackRestore,
     "replay restore should advance the damage-feedback timeline revision"
   );
@@ -227,6 +250,10 @@ int main() {
     const std::uint32_t revisionBeforeSeek =
       playback.snapshot().damageFeedbackRevision;
     failures += expect(runner.seek(target, &error), "checkpoint seek should reproduce the target state");
+    failures += expect(
+      playback.captureReplayGameplayConfig().lightningFireHz == boundaryFireHz,
+      "seek after an authority boundary should restore the boundary configuration"
+    );
     failures += expect(
       playback.snapshot().damageFeedbackRevision != revisionBeforeSeek,
       "checkpoint seek should advance the damage-feedback timeline revision"

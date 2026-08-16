@@ -7,7 +7,7 @@ This folder defines the replay contract for LG-duel. The core ledger is
 `e5b6c3f` (historical format v2 and safety repair), and `392f6ee` (bounded native replay
 recording memory). It is not a list of player-facing controls.
 
-The core has a bot-free format, recorder, headless playback runner, checkpoint
+The core has a bot-free v5 format, recorder, headless playback runner, checkpoint
 restore, hash checks, seek, rolling archive, self-contained lethal-segment
 extraction, transfer state, strict file helpers, presentation-session state, and
 measures. It does not yet have a `GameApp` UI, runtime demo commands, background
@@ -41,7 +41,9 @@ fixed-step gameplay code without fake UDP clients.
 | Area | Status at this commit |
 | --- | --- |
 | Authoritative recorder and headless playback runner | Implemented in `lg::replay`; covered by `lg_duel_replay_playback_tests` |
-| `.lgdemo` v3 sparse-slot encoder/decoder and canonical hash | Implemented; v1 and v2 are rejected; covered by `lg_duel_replay_codec_tests` |
+| `.lgdemo` v5 sparse-slot encoder/decoder and canonical hash | Implemented; v1 through v4 are rejected; covered by `lg_duel_replay_codec_tests` |
+| Full authoritative config and authority-boundary records | Implemented; boundary state applies before its recorded tick |
+| Lethal sequence and direct/splash/self/world provenance | Implemented in full and rolling replay records |
 | Checkpoint restore, per-tick hash check, and seek | Implemented in the headless runner |
 | Strict `.lgdemo` save/load helpers | Implemented with exclusive temporary creation and no overwrite; no app command or background job calls them |
 | Saved demo and recorder capacity | Both cap at 512 MiB and stop cleanly at the cap |

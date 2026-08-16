@@ -30,6 +30,11 @@ lg::replay::ReplayDemo validDemo() {
   demo.metadata.mapContentHash = 0x12345678U;
   demo.metadata.gameMode = lg::GameMode::FreeForAll;
   demo.metadata.visibility = lg::replay::ReplayVisibility::DeveloperFull;
+  demo.metadata.gameplayConfig.balance.rocketLauncher.speed = 31.0F;
+  demo.metadata.gameplayConfig.movementTuning.gravity = 27.0F;
+  demo.metadata.gameplayConfig.mcguffinConfig.throwSpeed = 14.0F;
+  demo.metadata.gameplayConfigHash =
+    lg::replay::canonicalGameplayConfigHash(demo.metadata.gameplayConfig);
   demo.metadata.players[0] = {0U, true, false, lg::Team::None, "ALPHA"};
   demo.metadata.players[1] = {1U, true, true, lg::Team::None, "BOT"};
   for (std::size_t index = 2U; index < demo.metadata.players.size(); ++index) {
@@ -67,6 +72,8 @@ lg::replay::ReplayDemo validDemo() {
   checkpoint.serverTick = 101U;
   checkpoint.mapRevision = 7U;
   checkpoint.projectileRevision = 3U;
+  checkpoint.gameplayConfigHash = demo.metadata.gameplayConfigHash;
+  checkpoint.lethalSequence = 4U;
   checkpoint.damageTakenSequences[0] = 17U;
   checkpoint.damageTakenSequences[1] = 23U;
   checkpoint.players[0].connected = true;
@@ -96,7 +103,26 @@ lg::replay::ReplayDemo validDemo() {
   checkpoint.history[0].players[0] = checkpoint.players[0].player;
   demo.checkpoints.push_back(checkpoint);
   demo.hashes.push_back({101U, lg::replay::canonicalStateHash(checkpoint)});
-  demo.lethalEvents.push_back({101U, 1U, 1U, 0U, lg::Weapon::RocketLauncher, 14U, lg::replay::LethalKind::Direct});
+  demo.lethalEvents.push_back({101U, 1U, 1U, 0U, lg::Weapon::RocketLauncher, 14U,
+    lg::replay::LethalKind::Direct, 1U});
+  demo.lethalEvents.push_back({101U, 1U, 0U, 1U, lg::Weapon::RocketLauncher, 15U,
+    lg::replay::LethalKind::Splash, 2U});
+  demo.lethalEvents.push_back({101U, 1U, 1U, 1U, lg::Weapon::RocketLauncher, 16U,
+    lg::replay::LethalKind::Self, 3U});
+  demo.lethalEvents.push_back({101U, 1U, 0U, lg::replay::kNoReplayPlayer,
+    lg::Weapon::LightningGun, 0U, lg::replay::LethalKind::World, 4U});
+  lg::replay::ReplayAuthorityBoundary boundary;
+  boundary.tick = 101U;
+  boundary.checkpoint = checkpoint;
+  boundary.configurationRevision = 2U;
+  boundary.gameMode = demo.metadata.gameMode;
+  boundary.matchRules = demo.metadata.matchRules;
+  boundary.players = demo.metadata.players;
+  boundary.gameplayConfig = demo.metadata.gameplayConfig;
+  boundary.gameplayConfig.movementTuning.gravity = 28.0F;
+  boundary.checkpoint.gameplayConfigHash =
+    lg::replay::canonicalGameplayConfigHash(boundary.gameplayConfig);
+  demo.authorityBoundaries.push_back(boundary);
   return demo;
 }
 
@@ -114,6 +140,13 @@ int main() {
   lg::replay::ReplayDemo decoded;
   failures += expect(lg::replay::decodeDemo(wire, decoded, &error), "valid replay should decode");
   failures += expect(decoded.metadata.mapName == source.metadata.mapName, "metadata should round trip");
+  failures += expect(
+    decoded.metadata.gameplayConfigHash == source.metadata.gameplayConfigHash &&
+      decoded.metadata.gameplayConfig.balance.rocketLauncher.speed == 31.0F &&
+      decoded.metadata.gameplayConfig.movementTuning.gravity == 27.0F &&
+      decoded.metadata.gameplayConfig.mcguffinConfig.throwSpeed == 14.0F,
+    "full gameplay configuration should round trip"
+  );
   failures += expect(decoded.ticks.size() == 1U && decoded.ticks[0].slots[0].attackEdgeAccepted,
     "accepted action edge should round trip");
   failures += expect(decoded.ticks.size() == 1U && std::all_of(
@@ -145,6 +178,18 @@ int main() {
   );
   failures += expect(decoded.hashes.size() == 1U && decoded.hashes[0].value == source.hashes[0].value,
     "state hash should round trip");
+  failures += expect(decoded.lethalEvents.size() == 4U &&
+    decoded.lethalEvents[0].sequence == 1U &&
+    decoded.lethalEvents[1].kind == lg::replay::LethalKind::Splash &&
+    decoded.lethalEvents[1].projectileSequence == 15U &&
+    decoded.lethalEvents[2].kind == lg::replay::LethalKind::Self &&
+    decoded.lethalEvents[3].kind == lg::replay::LethalKind::World,
+    "lethal sequence and all provenance kinds should round trip");
+  failures += expect(decoded.authorityBoundaries.size() == 1U &&
+    decoded.authorityBoundaries[0].configurationRevision == 2U &&
+    decoded.authorityBoundaries[0].checkpoint.gameplayConfigHash ==
+      lg::replay::canonicalGameplayConfigHash(decoded.authorityBoundaries[0].gameplayConfig),
+    "authority boundary and its config snapshot should round trip");
   failures += expect(lg::replay::canonicalStateHash(decoded.checkpoints[0]) == source.hashes[0].value,
     "canonical checkpoint hash should survive codec round trip");
 
@@ -167,6 +212,13 @@ int main() {
     failures += expect(!lg::replay::decodeDemo(wrongMagic, decoded, &error), "invalid magic should fail");
   }
   {
+    std::vector<std::uint8_t> oldVersion = validWire;
+    oldVersion[4] = 4U;
+    oldVersion[5] = 0U;
+    failures += expect(!lg::replay::decodeDemo(oldVersion, decoded, &error),
+      "v4 replay bytes must be rejected instead of reinterpreted as v5");
+  }
+  {
     lg::replay::ReplayDemo invalid = source;
     invalid.metadata.gameMode = static_cast<lg::GameMode>(255);
     failures += expect(
@@ -176,8 +228,20 @@ int main() {
   }
   {
     lg::replay::ReplayDemo invalid = source;
+    invalid.metadata.simulationRevision = lg::replay::kReplaySimulationRevision + 1U;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "an unsupported replay simulation revision should not encode");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
     invalid.ticks[0].slots[0].command.viewYawRadians = std::numeric_limits<float>::quiet_NaN();
     failures += expect(!lg::replay::encodeDemo(invalid, wire, &error), "non-finite command should not encode");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.lethalEvents[1].sequence = invalid.lethalEvents[0].sequence;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "duplicate lethal sequences in one tick should not encode");
   }
   {
     lg::replay::ReplayDemo invalid = source;

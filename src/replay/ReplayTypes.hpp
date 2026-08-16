@@ -1,6 +1,7 @@
 #pragma once
 
 #include "net/NetProtocol.hpp"
+#include "sim/BalanceConfig.hpp"
 
 #include <array>
 #include <cstddef>
@@ -14,7 +15,8 @@ namespace lg::replay {
 // bots ordinary recorded actors and keeps their private planning state out of
 // both hashes and checkpoints.
 inline constexpr std::uint16_t kReplayFormatVersionV1 = 1;
-inline constexpr std::uint16_t kReplayFormatVersion = 4;
+inline constexpr std::uint16_t kReplayFormatVersion = 5;
+inline constexpr std::uint32_t kReplaySimulationRevision = 1U;
 inline constexpr std::uint16_t kReplayTickRate = 125;
 // Saved demos may cover a full high-player match. Killcam transfer has its own
 // much smaller cap in ReplayTransfer.hpp.
@@ -26,6 +28,9 @@ inline constexpr std::size_t kMaxReplayChunkBytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t kMaxReplayTicks = 4U * 1024U * 1024U;
 inline constexpr std::size_t kMaxReplayCheckpoints = 4096U;
 inline constexpr std::size_t kMaxReplayHistoryFrames = 256U;
+inline constexpr std::size_t kMaxReplayAuthorityBoundaries = 4096U;
+inline constexpr std::size_t kMaxReplayLethalEvents = 4096U;
+inline constexpr std::size_t kMaxReplayConfigBytes = 256U * 1024U;
 inline constexpr std::size_t kMaxReplayNameBytes = kMaxPlayerNameBytes;
 inline constexpr std::size_t kMaxReplayMapNameBytes = kMaxMapNameBytes;
 inline constexpr std::uint8_t kNoReplayPlayer = 255U;
@@ -35,6 +40,7 @@ enum class ReplayChunkType : std::uint8_t {
   Checkpoint = 2,
   StateHash = 3,
   LethalEvent = 4,
+  AuthorityBoundary = 5,
 };
 
 enum class LethalKind : std::uint8_t {
@@ -51,6 +57,35 @@ enum class ReplayVisibility : std::uint8_t {
   DuelOnly = 1,
 };
 
+enum class ReplayStopReason : std::uint8_t {
+  Completed = 0,
+  MapChanged = 1,
+  Capacity = 2,
+  InvalidState = 3,
+};
+
+// This is the authoritative configuration that can affect future fixed-step
+// simulation. It is replay-owned even where a field also exists in a live
+// snapshot. Bot planning, presentation cvars, and bot random state do not
+// belong here.
+struct ReplayGameplayConfig {
+  BalanceConfig balance = {};
+  MovementTuning movementTuning = {};
+  float playerSizeScaleXY = 1.0F;
+  float playerSizeScaleZ = 1.0F;
+  float lightningKnockback = 1000.0F;
+  float lightningFireHz = 20.0F;
+  float rocketKnockback = 1000.0F;
+  std::int32_t knockbackTimeMs = 100;
+  WeaponDamageTuning weaponDamage = {};
+  float vampirism = 0.0F;
+  std::uint8_t selfDamagePercent = 100;
+  std::int32_t healthAmount = 100;
+  WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy;
+  McGuffinConfig mcguffinConfig = {};
+  MatchRules matchRules = {};
+};
+
 struct ReplayPlayerMetadata {
   std::uint8_t slot = 0;
   bool occupied = false;
@@ -64,6 +99,7 @@ struct ReplayMetadata {
   std::uint32_t protocolRevision = 0;
   std::uint64_t buildFingerprint = 0;
   std::uint64_t gameplayConfigHash = 0;
+  std::uint32_t simulationRevision = kReplaySimulationRevision;
   std::uint32_t initialServerTick = 0;
   std::uint32_t mapRevision = 1;
   std::string mapName;
@@ -71,6 +107,9 @@ struct ReplayMetadata {
   GameMode gameMode = GameMode::Duel;
   MatchRules matchRules = {};
   ReplayVisibility visibility = ReplayVisibility::DeveloperFull;
+  ReplayStopReason stopReason = ReplayStopReason::Completed;
+  ReplayGameplayConfig gameplayConfig = {};
+  std::uint32_t configurationRevision = 1U;
   std::array<ReplayPlayerMetadata, kDuelPlayerCount> players = {};
 };
 
@@ -202,6 +241,7 @@ struct ReplayCheckpoint {
   std::uint32_t mcguffinRoundLiveTicks = 0;
   std::uint32_t mcguffinThrowPickupLockoutTicks = 0;
   std::uint32_t spawnRandomState = 1;
+  std::uint32_t lethalSequence = 0;
   std::array<std::uint32_t, kDuelPlayerCount> projectileSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> rocketExplosionSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> fragEventSequences = {};
@@ -231,6 +271,19 @@ struct ReplayLethalEvent {
   Weapon weapon = Weapon::LightningGun;
   std::uint32_t projectileSequence = 0;
   LethalKind kind = LethalKind::Direct;
+  // Stable within one replay generation. Kept last for source compatibility
+  // with the pre-v5 aggregate layout.
+  std::uint32_t sequence = 0;
+};
+
+struct ReplayAuthorityBoundary {
+  std::uint32_t tick = 0;
+  ReplayCheckpoint checkpoint = {};
+  ReplayGameplayConfig gameplayConfig = {};
+  std::uint32_t configurationRevision = 1U;
+  GameMode gameMode = GameMode::Duel;
+  MatchRules matchRules = {};
+  std::array<ReplayPlayerMetadata, kDuelPlayerCount> players = {};
 };
 
 struct ReplayDemo {
@@ -239,6 +292,7 @@ struct ReplayDemo {
   std::vector<ReplayCheckpoint> checkpoints;
   std::vector<ReplayStateHash> hashes;
   std::vector<ReplayLethalEvent> lethalEvents;
+  std::vector<ReplayAuthorityBoundary> authorityBoundaries;
 };
 
 } // namespace lg::replay

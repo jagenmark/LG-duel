@@ -1,5 +1,7 @@
 #include "replay/ReplayRollingBuffer.hpp"
 
+#include "replay/ReplayCodec.hpp"
+
 #include "net/LoopbackTransport.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
@@ -23,6 +25,7 @@ lg::replay::ReplayMetadata metadata() {
   value.mapRevision = 1U;
   value.mapName = "rolling_test";
   value.mapContentHash = 1U;
+  value.gameplayConfigHash = lg::replay::canonicalGameplayConfigHash(value.gameplayConfig);
   for (std::size_t index = 0; index < value.players.size(); ++index) {
     value.players[index].slot = static_cast<std::uint8_t>(index);
   }
@@ -34,6 +37,9 @@ lg::replay::ReplayCheckpoint checkpoint(std::uint32_t tick) {
   value.serverTick = tick;
   value.mapRevision = 1U;
   value.projectileRevision = 1U;
+  value.gameplayConfigHash = lg::replay::canonicalGameplayConfigHash(
+    lg::replay::ReplayGameplayConfig{}
+  );
   value.spawnRandomState = 1U;
   value.history.push_back({tick, {}});
   return value;
@@ -74,7 +80,7 @@ int main() {
   failures += expect(stats.droppedRecords > 0U, "ring trimming should account for discarded records");
 
   const lg::replay::ReplayLethalEvent lethal = {
-    9U, 5U, 1U, 0U, lg::Weapon::RocketLauncher, 7U, lg::replay::LethalKind::Direct,
+    9U, 5U, 1U, 0U, lg::Weapon::RocketLauncher, 7U, lg::replay::LethalKind::Direct, 1U,
   };
   buffer.recordLethal(lethal);
   const std::optional<lg::replay::ReplayDemo> segment = buffer.extractSegment(lethal, 2U, 2U, &error);
@@ -96,7 +102,7 @@ int main() {
     gapBuffer.recordResolvedInput(input(1U));
     gapBuffer.recordResolvedInput(input(3U));
     const lg::replay::ReplayLethalEvent gapLethal = {
-      1U, 7U, 1U, 0U, lg::Weapon::RocketLauncher, 1U, lg::replay::LethalKind::Direct,
+      1U, 7U, 1U, 0U, lg::Weapon::RocketLauncher, 1U, lg::replay::LethalKind::Direct, 1U,
     };
     failures += expect(gapBuffer.stats().droppedRecords == 1U,
       "rolling recording must reject a non-adjacent resolved-input tick");

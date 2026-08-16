@@ -203,6 +203,148 @@ private:
   return value == ReplayVisibility::DeveloperFull || value == ReplayVisibility::DuelOnly;
 }
 
+[[nodiscard]] bool validStopReason(ReplayStopReason value) {
+  return value <= ReplayStopReason::InvalidState;
+}
+
+[[nodiscard]] bool validWeaponSwitchingMode(WeaponSwitchingMode value) {
+  return value <= WeaponSwitchingMode::Crazy;
+}
+
+[[nodiscard]] bool validFloatRange(float value, float minimum, float maximum) {
+  return std::isfinite(value) && value >= minimum && value <= maximum;
+}
+
+[[nodiscard]] bool validMatchRules(const MatchRules& rules) {
+  return rules.roundLimit > 0U && rules.playerLimit > 0U &&
+    rules.playerLimit <= kDuelPlayerCount;
+}
+
+[[nodiscard]] bool sameMatchRules(const MatchRules& left, const MatchRules& right) {
+  return left.roundLimit == right.roundLimit &&
+    left.timeLimitMinutes == right.timeLimitMinutes &&
+    left.playerLimit == right.playerLimit &&
+    left.countdownTicks == right.countdownTicks &&
+    left.roundEndTicks == right.roundEndTicks &&
+    left.matchEndTicks == right.matchEndTicks &&
+    left.deathRespawnTicks == right.deathRespawnTicks &&
+    left.showOpponentHealth == right.showOpponentHealth;
+}
+
+[[nodiscard]] bool validMovementTuning(const MovementTuning& tuning) {
+  return validFloatRange(tuning.groundAcceleration, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.airAcceleration, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.groundFriction, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.stopSpeed, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.gravity, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.maxGroundSpeed, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.maxAirSpeed, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.jumpImpulse, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.dashTargetSpeed, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.dashMaxSpeed, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.dashAcceleration, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.dashDuration, 0.0F, 1000.0F) &&
+    validFloatRange(tuning.dashCooldown, 0.0F, 1000.0F) &&
+    validFloatRange(tuning.dashGroundHopVelocity, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.dashAirHopVelocity, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.flightAcceleration, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.maxFlightSpeed, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.flightDamping, 0.0F, 100000.0F) &&
+    validFloatRange(tuning.flightGravityCancel, 0.0F, 100000.0F);
+}
+
+[[nodiscard]] bool validBalanceConfig(const BalanceConfig& config) {
+  const auto validTuning = [](const auto& tuning) {
+    return std::isfinite(tuning.range) && tuning.range >= 0.0F;
+  };
+  if (!validFloatRange(config.lightningGun.range, 0.0F, 100000.0F) ||
+      !validFloatRange(config.lightningGun.damagePerSecond, 0.0F, 100000.0F) ||
+      !validFloatRange(config.lightningGun.fireHz, 0.0F, 1000.0F) ||
+      !validFloatRange(config.lightningGun.eyeHeight, 0.0F, 100.0F) ||
+      !validFloatRange(config.lightningGun.knockbackPerSecond, 0.0F, 100000.0F) ||
+      !validFloatRange(config.lightningGun.headshotMultiplier, 0.0F, 100.0F) ||
+      !validFloatRange(config.freezeGun.range, 0.0F, 100000.0F) ||
+      !validFloatRange(config.freezeGun.fireHz, 0.0F, 1000.0F) ||
+      !validFloatRange(config.freezeGun.eyeHeight, 0.0F, 100.0F) ||
+      !validFloatRange(config.freezeGun.damagePerSecond, 0.0F, 100000.0F) ||
+      !validFloatRange(config.freezeGun.freezePerSecond, 0.0F, 100000.0F) ||
+      !validFloatRange(config.freezeGun.decayPerSecond, 0.0F, 100000.0F) ||
+      !validFloatRange(config.freezeGun.maxLevel, 0.0F, 100000.0F) ||
+      !validFloatRange(config.freezeGun.maxSlowFraction, 0.0F, 1.0F) ||
+      !validFloatRange(config.freezeGun.headshotMultiplier, 0.0F, 100.0F) ||
+      !validFloatRange(config.icePool.maxRadius, 0.0F, 100000.0F) ||
+      !validFloatRange(config.icePool.growthPerSecond, 0.0F, 100000.0F) ||
+      !validFloatRange(config.icePool.lifetimeSeconds, 0.0F, 10000.0F) ||
+      !validFloatRange(config.icePool.friction, 0.0F, 100000.0F) ||
+      !validFloatRange(config.icePool.slopeGravityScale, 0.0F, 100000.0F) ||
+      !validFloatRange(config.icePool.controlScale, 0.0F, 1.0F) ||
+      !validFloatRange(config.icePool.mergeDistance, 0.0F, 100000.0F) ||
+      !validTuning(config.railgun) || !validTuning(config.revolver) ||
+      !validTuning(config.machineGun) || !validTuning(config.shotgun) ||
+      !validFloatRange(config.sniperChargeSeconds, 0.0F, 1000.0F) ||
+      !validFloatRange(config.sniperMaxDamageMultiplier, 0.0F, 100.0F) ||
+      !validFloatRange(config.rocketLauncher.speed, 0.0F, 100000.0F) ||
+      !validFloatRange(config.rocketLauncher.radius, 0.0F, 100000.0F) ||
+      !validFloatRange(config.rocketLauncher.directHitboxHalfExtentXY, 0.0F, 100000.0F) ||
+      !validFloatRange(config.rocketLauncher.directHitboxHalfExtentZ, 0.0F, 100000.0F) ||
+      !validFloatRange(config.rocketLauncher.knockback, 0.0F, 100000.0F) ||
+      !validFloatRange(config.rocketLauncher.eyeHeight, 0.0F, 100.0F) ||
+      !validFloatRange(config.grenadeLauncher.speed, 0.0F, 100000.0F) ||
+      !validFloatRange(config.grenadeLauncher.verticalBoost, -100000.0F, 100000.0F) ||
+      !validFloatRange(config.grenadeLauncher.gravity, 0.0F, 100000.0F) ||
+      !validFloatRange(config.grenadeLauncher.bounceDamping, 0.0F, 100.0F) ||
+      !validFloatRange(config.grenadeLauncher.restSpeed, 0.0F, 100000.0F) ||
+      !validFloatRange(config.grenadeLauncher.bounceSoundMinSpeed, 0.0F, 100000.0F) ||
+      !validFloatRange(config.grenadeLauncher.projectileRadius, 0.0F, 100000.0F) ||
+      !validFloatRange(config.grenadeLauncher.projectileHitboxRadius, 0.0F, 100000.0F) ||
+      !validFloatRange(config.grenadeLauncher.radius, 0.0F, 100000.0F) ||
+      !validFloatRange(config.grenadeLauncher.knockback, 0.0F, 100000.0F) ||
+      !validFloatRange(config.grenadeLauncher.eyeHeight, 0.0F, 100.0F) ||
+      !validFloatRange(config.plasmaGun.speed, 0.0F, 100000.0F) ||
+      !validFloatRange(config.plasmaGun.radius, 0.0F, 100000.0F) ||
+      !validFloatRange(config.plasmaGun.directHitboxHalfExtentXY, 0.0F, 100000.0F) ||
+      !validFloatRange(config.plasmaGun.directHitboxHalfExtentZ, 0.0F, 100000.0F) ||
+      !validFloatRange(config.plasmaGun.knockback, 0.0F, 100000.0F) ||
+      !validFloatRange(config.plasmaGun.eyeHeight, 0.0F, 100.0F)) {
+    return false;
+  }
+  const auto validDamage = [](int value) { return value >= 0 && value <= 100000; };
+  if (!validDamage(config.revolver.damage) || !validDamage(config.machineGun.damage) ||
+      !validDamage(config.shotgun.damagePerPellet) || !validDamage(config.rocketLauncher.directDamage) ||
+      !validDamage(config.rocketLauncher.splashDamage) || !validDamage(config.grenadeLauncher.directDamage) ||
+      !validDamage(config.grenadeLauncher.splashDamage) || !validDamage(config.plasmaGun.damage) ||
+      config.shotgun.pelletCount == 0U || config.railgunCooldownTicks == 0U ||
+      config.revolverCooldownTicks == 0U || config.machineGunCooldownTicks == 0U ||
+      config.shotgunCooldownTicks == 0U || config.rocketLauncherCooldownTicks == 0U ||
+      config.grenadeLauncher.cooldownTicks == 0U || config.plasmaGun.cooldownTicks == 0U ||
+      config.rocketLauncher.maxLifetimeTicks == 0U || config.plasmaGun.maxLifetimeTicks == 0U ||
+      config.weaponPulloutTicks > 100000U || config.jumpPadRetriggerCooldownTicks > 100000U ||
+      config.smallHealthPickupAmount < 0 || config.largeHealthPickupAmount < 0 ||
+      config.weaponAmmo.spawnAmmo[0] < 0) {
+    return false;
+  }
+  for (const std::int32_t ammo : config.weaponAmmo.spawnAmmo) {
+    if (ammo < 0 || ammo > 100000) return false;
+  }
+  return true;
+}
+
+bool writeMatchRules(Writer& writer, const MatchRules& rules) {
+  return validMatchRules(rules) && writer.u16(rules.roundLimit) &&
+    writer.u16(rules.timeLimitMinutes) && writer.u8(rules.playerLimit) &&
+    writer.u16(rules.countdownTicks) && writer.u16(rules.roundEndTicks) &&
+    writer.u16(rules.matchEndTicks) && writer.u16(rules.deathRespawnTicks) &&
+    writer.boolean(rules.showOpponentHealth);
+}
+
+bool readMatchRules(Reader& reader, MatchRules& rules) {
+  return reader.u16(rules.roundLimit) && reader.u16(rules.timeLimitMinutes) &&
+    reader.u8(rules.playerLimit) && reader.u16(rules.countdownTicks) &&
+    reader.u16(rules.roundEndTicks) && reader.u16(rules.matchEndTicks) &&
+    reader.u16(rules.deathRespawnTicks) && reader.boolean(rules.showOpponentHealth) &&
+    validMatchRules(rules);
+}
+
 [[nodiscard]] bool validVec3(const Vec3& value) {
   return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
@@ -342,19 +484,292 @@ bool readRoundStats(Reader& reader, RoundCombatStats& stats) {
   return true;
 }
 
+bool writeMovementTuning(Writer& writer, const MovementTuning& tuning) {
+  return validMovementTuning(tuning) && writer.boolean(tuning.flightEnabled) &&
+    writer.f32(tuning.groundAcceleration) && writer.f32(tuning.airAcceleration) &&
+    writer.f32(tuning.groundFriction) && writer.f32(tuning.stopSpeed) &&
+    writer.f32(tuning.gravity) && writer.f32(tuning.maxGroundSpeed) &&
+    writer.f32(tuning.maxAirSpeed) && writer.f32(tuning.jumpImpulse) &&
+    writer.boolean(tuning.airControlEnabled) && writer.f32(tuning.dashTargetSpeed) &&
+    writer.f32(tuning.dashMaxSpeed) && writer.f32(tuning.dashAcceleration) &&
+    writer.f32(tuning.dashDuration) && writer.f32(tuning.dashCooldown) &&
+    writer.f32(tuning.dashGroundHopVelocity) && writer.f32(tuning.dashAirHopVelocity) &&
+    writer.f32(tuning.flightAcceleration) && writer.f32(tuning.maxFlightSpeed) &&
+    writer.f32(tuning.flightDamping) && writer.f32(tuning.flightGravityCancel);
+}
+
+bool readMovementTuning(Reader& reader, MovementTuning& tuning) {
+  return reader.boolean(tuning.flightEnabled) && reader.f32(tuning.groundAcceleration) &&
+    reader.f32(tuning.airAcceleration) && reader.f32(tuning.groundFriction) &&
+    reader.f32(tuning.stopSpeed) && reader.f32(tuning.gravity) &&
+    reader.f32(tuning.maxGroundSpeed) && reader.f32(tuning.maxAirSpeed) &&
+    reader.f32(tuning.jumpImpulse) && reader.boolean(tuning.airControlEnabled) &&
+    reader.f32(tuning.dashTargetSpeed) && reader.f32(tuning.dashMaxSpeed) &&
+    reader.f32(tuning.dashAcceleration) && reader.f32(tuning.dashDuration) &&
+    reader.f32(tuning.dashCooldown) && reader.f32(tuning.dashGroundHopVelocity) &&
+    reader.f32(tuning.dashAirHopVelocity) && reader.f32(tuning.flightAcceleration) &&
+    reader.f32(tuning.maxFlightSpeed) && reader.f32(tuning.flightDamping) &&
+    reader.f32(tuning.flightGravityCancel) && validMovementTuning(tuning);
+}
+
+bool writeHitscanTuning(Writer& writer, const HitscanTuning& tuning) {
+  return writer.f32(tuning.range) && writer.i32(tuning.damage) &&
+    writer.f32(tuning.eyeHeight) && writer.f32(tuning.knockback) &&
+    writer.f32(tuning.headshotMultiplier);
+}
+
+bool readHitscanTuning(Reader& reader, HitscanTuning& tuning) {
+  return reader.f32(tuning.range) && reader.i32(tuning.damage) &&
+    reader.f32(tuning.eyeHeight) && reader.f32(tuning.knockback) &&
+    reader.f32(tuning.headshotMultiplier);
+}
+
+bool writeGameplayConfig(Writer& writer, const ReplayGameplayConfig& config) {
+  const BalanceConfig& balance = config.balance;
+  if (!validBalanceConfig(balance) || !validMovementTuning(config.movementTuning) ||
+      !validFloatRange(config.playerSizeScaleXY, 0.01F, 100.0F) ||
+      !validFloatRange(config.playerSizeScaleZ, 0.01F, 100.0F) ||
+      !validFloatRange(config.lightningKnockback, 0.0F, 100000.0F) ||
+      !validFloatRange(config.lightningFireHz, 0.0F, 1000.0F) ||
+      !validFloatRange(config.rocketKnockback, 0.0F, 100000.0F) ||
+      config.knockbackTimeMs < 0 || config.knockbackTimeMs > 10000 ||
+      config.vampirism < 0.0F || config.vampirism > 100.0F ||
+      !std::isfinite(config.vampirism) || config.healthAmount <= 0 ||
+      config.healthAmount > 100000 || config.selfDamagePercent > 100U ||
+      !validWeaponSwitchingMode(config.weaponSwitchingMode) ||
+      !isValidMcGuffinConfig(config.mcguffinConfig) ||
+      !validMatchRules(config.matchRules)) {
+    return false;
+  }
+  const auto writeLightning = [&writer](const LightningGunTuning& tuning) {
+    return writer.f32(tuning.range) && writer.f32(tuning.damagePerSecond) &&
+      writer.f32(tuning.fireHz) && writer.f32(tuning.eyeHeight) &&
+      writer.f32(tuning.knockbackPerSecond) && writer.f32(tuning.headshotMultiplier);
+  };
+  const auto writeFreeze = [&writer](const FreezeGunTuning& tuning) {
+    return writer.f32(tuning.range) && writer.f32(tuning.fireHz) && writer.f32(tuning.eyeHeight) &&
+      writer.f32(tuning.damagePerSecond) && writer.f32(tuning.freezePerSecond) &&
+      writer.f32(tuning.decayPerSecond) && writer.f32(tuning.maxLevel) &&
+      writer.f32(tuning.maxSlowFraction) && writer.f32(tuning.headshotMultiplier);
+  };
+  const auto writeIce = [&writer](const IcePoolTuning& tuning) {
+    return writer.f32(tuning.maxRadius) && writer.f32(tuning.growthPerSecond) &&
+      writer.f32(tuning.lifetimeSeconds) && writer.f32(tuning.friction) &&
+      writer.f32(tuning.slopeGravityScale) && writer.f32(tuning.controlScale) &&
+      writer.f32(tuning.mergeDistance);
+  };
+  const auto writeMachine = [&writer](const MachineGunTuning& tuning) {
+    return writer.f32(tuning.range) && writer.i32(tuning.damage) && writer.f32(tuning.eyeHeight) &&
+      writer.f32(tuning.knockback) && writer.f32(tuning.spreadRadians) &&
+      writer.f32(tuning.headshotMultiplier);
+  };
+  const auto writeShotgun = [&writer](const ShotgunTuning& tuning) {
+    return writer.f32(tuning.range) && writer.u8(tuning.pelletCount) &&
+      writer.i32(tuning.damagePerPellet) && writer.f32(tuning.spreadRadians) &&
+      writer.f32(tuning.eyeHeight) && writer.f32(tuning.knockback) &&
+      writer.f32(tuning.headshotMultiplier);
+  };
+  const auto writeRocket = [&writer](const RocketLauncherTuning& tuning) {
+    return writer.f32(tuning.speed) && writer.f32(tuning.radius) &&
+      writer.f32(tuning.directHitboxHalfExtentXY) && writer.f32(tuning.directHitboxHalfExtentZ) &&
+      writer.i32(tuning.directDamage) && writer.i32(tuning.splashDamage) &&
+      writer.f32(tuning.knockback) && writer.f32(tuning.eyeHeight) &&
+      writer.u32(tuning.maxLifetimeTicks);
+  };
+  const auto writeGrenade = [&writer](const GrenadeLauncherTuning& tuning) {
+    return writer.f32(tuning.speed) && writer.f32(tuning.verticalBoost) &&
+      writer.f32(tuning.gravity) && writer.f32(tuning.bounceDamping) &&
+      writer.f32(tuning.restSpeed) && writer.f32(tuning.bounceSoundMinSpeed) &&
+      writer.f32(tuning.projectileRadius) && writer.f32(tuning.projectileHitboxRadius) &&
+      writer.f32(tuning.radius) && writer.i32(tuning.directDamage) &&
+      writer.i32(tuning.splashDamage) && writer.f32(tuning.knockback) &&
+      writer.f32(tuning.eyeHeight) && writer.u32(tuning.fuseTicks) &&
+      writer.u32(tuning.cooldownTicks);
+  };
+  const auto writePlasma = [&writer](const PlasmaGunTuning& tuning) {
+    return writer.f32(tuning.speed) && writer.f32(tuning.radius) &&
+      writer.f32(tuning.directHitboxHalfExtentXY) && writer.f32(tuning.directHitboxHalfExtentZ) &&
+      writer.i32(tuning.damage) && writer.f32(tuning.knockback) &&
+      writer.f32(tuning.eyeHeight) && writer.u32(tuning.maxLifetimeTicks) &&
+      writer.u32(tuning.cooldownTicks);
+  };
+  const auto writeWeaponAmmo = [&writer](const WeaponAmmoConfig& ammo) {
+    if (!writer.boolean(ammo.infiniteAmmo)) return false;
+    for (const std::int32_t value : ammo.spawnAmmo) if (!writer.i32(value)) return false;
+    return true;
+  };
+  const auto writeMcGuffin = [&writer](const McGuffinConfig& value) {
+    return writer.u16(value.scoreLimit) && writer.u16(value.pointsPerSecond) &&
+      writer.u16(value.carryPointsPerSecond) && writer.u16(value.carryPointLimit) &&
+      writer.u32(value.initialSpawnTicks) && writer.u32(value.installationDelayTicks) &&
+      writer.u32(value.stealTicks) && writer.u32(value.returnTicks) &&
+      writer.f32(value.throwSpeed) && writer.f32(value.throwUpSpeed) &&
+      writer.f32(value.throwVelocityInheritance) && writer.f32(value.throwGravity) &&
+      writer.f32(value.throwBounceDamping) && writer.u32(value.throwPickupLockoutTicks) &&
+      writer.u32(value.finalHoldTicks) && writer.f32(value.pickupRadius);
+  };
+  return writeLightning(balance.lightningGun) && writeFreeze(balance.freezeGun) &&
+    writeIce(balance.icePool) && writeHitscanTuning(writer, balance.railgun) &&
+    writer.f32(balance.sniperChargeSeconds) && writer.f32(balance.sniperMaxDamageMultiplier) &&
+    writer.u32(balance.railgunCooldownTicks) && writeHitscanTuning(writer, balance.revolver) &&
+    writer.u32(balance.revolverCooldownTicks) && writeMachine(balance.machineGun) &&
+    writer.u32(balance.machineGunCooldownTicks) && writeShotgun(balance.shotgun) &&
+    writer.u32(balance.shotgunCooldownTicks) && writeRocket(balance.rocketLauncher) &&
+    writer.u32(balance.rocketLauncherCooldownTicks) && writeGrenade(balance.grenadeLauncher) &&
+    writePlasma(balance.plasmaGun) && writeWeaponAmmo(balance.weaponAmmo) &&
+    writer.u32(balance.weaponPulloutTicks) && writer.u32(balance.jumpPadRetriggerCooldownTicks) &&
+    writer.i32(balance.smallHealthPickupAmount) && writer.i32(balance.largeHealthPickupAmount) &&
+    writer.u32(balance.smallHealthPickupCooldownTicks) && writer.u32(balance.largeHealthPickupCooldownTicks) &&
+    writeMovementTuning(writer, config.movementTuning) &&
+    writer.f32(config.playerSizeScaleXY) && writer.f32(config.playerSizeScaleZ) &&
+    writer.f32(config.lightningKnockback) && writer.f32(config.lightningFireHz) &&
+    writer.f32(config.rocketKnockback) && writer.i32(config.knockbackTimeMs) &&
+    writer.i32(config.weaponDamage.shotgunDamagePerPellet) &&
+    writer.i32(config.weaponDamage.machineGunDamage) &&
+    writer.i32(config.weaponDamage.lightningGunDamage) &&
+    writer.i32(config.weaponDamage.railgunDamage) &&
+    writer.i32(config.weaponDamage.rocketLauncherDamage) &&
+    writer.i32(config.weaponDamage.plasmaGunDamage) &&
+    writer.i32(config.weaponDamage.freezeGunDamage) && writer.f32(config.vampirism) &&
+    writer.u8(config.selfDamagePercent) && writer.i32(config.healthAmount) &&
+    writer.u8(static_cast<std::uint8_t>(config.weaponSwitchingMode)) &&
+    writeMcGuffin(config.mcguffinConfig) && writeMatchRules(writer, config.matchRules);
+}
+
+bool readGameplayConfig(Reader& reader, ReplayGameplayConfig& config) {
+  BalanceConfig& balance = config.balance;
+  const auto readLightning = [&reader](LightningGunTuning& tuning) {
+    return reader.f32(tuning.range) && reader.f32(tuning.damagePerSecond) &&
+      reader.f32(tuning.fireHz) && reader.f32(tuning.eyeHeight) &&
+      reader.f32(tuning.knockbackPerSecond) && reader.f32(tuning.headshotMultiplier);
+  };
+  const auto readFreeze = [&reader](FreezeGunTuning& tuning) {
+    return reader.f32(tuning.range) && reader.f32(tuning.fireHz) && reader.f32(tuning.eyeHeight) &&
+      reader.f32(tuning.damagePerSecond) && reader.f32(tuning.freezePerSecond) &&
+      reader.f32(tuning.decayPerSecond) && reader.f32(tuning.maxLevel) &&
+      reader.f32(tuning.maxSlowFraction) && reader.f32(tuning.headshotMultiplier);
+  };
+  const auto readIce = [&reader](IcePoolTuning& tuning) {
+    return reader.f32(tuning.maxRadius) && reader.f32(tuning.growthPerSecond) &&
+      reader.f32(tuning.lifetimeSeconds) && reader.f32(tuning.friction) &&
+      reader.f32(tuning.slopeGravityScale) && reader.f32(tuning.controlScale) &&
+      reader.f32(tuning.mergeDistance);
+  };
+  const auto readMachine = [&reader](MachineGunTuning& tuning) {
+    return reader.f32(tuning.range) && reader.i32(tuning.damage) && reader.f32(tuning.eyeHeight) &&
+      reader.f32(tuning.knockback) && reader.f32(tuning.spreadRadians) &&
+      reader.f32(tuning.headshotMultiplier);
+  };
+  const auto readShotgun = [&reader](ShotgunTuning& tuning) {
+    return reader.f32(tuning.range) && reader.u8(tuning.pelletCount) &&
+      reader.i32(tuning.damagePerPellet) && reader.f32(tuning.spreadRadians) &&
+      reader.f32(tuning.eyeHeight) && reader.f32(tuning.knockback) &&
+      reader.f32(tuning.headshotMultiplier);
+  };
+  const auto readRocket = [&reader](RocketLauncherTuning& tuning) {
+    return reader.f32(tuning.speed) && reader.f32(tuning.radius) &&
+      reader.f32(tuning.directHitboxHalfExtentXY) && reader.f32(tuning.directHitboxHalfExtentZ) &&
+      reader.i32(tuning.directDamage) && reader.i32(tuning.splashDamage) &&
+      reader.f32(tuning.knockback) && reader.f32(tuning.eyeHeight) &&
+      reader.u32(tuning.maxLifetimeTicks);
+  };
+  const auto readGrenade = [&reader](GrenadeLauncherTuning& tuning) {
+    return reader.f32(tuning.speed) && reader.f32(tuning.verticalBoost) &&
+      reader.f32(tuning.gravity) && reader.f32(tuning.bounceDamping) &&
+      reader.f32(tuning.restSpeed) && reader.f32(tuning.bounceSoundMinSpeed) &&
+      reader.f32(tuning.projectileRadius) && reader.f32(tuning.projectileHitboxRadius) &&
+      reader.f32(tuning.radius) && reader.i32(tuning.directDamage) &&
+      reader.i32(tuning.splashDamage) && reader.f32(tuning.knockback) &&
+      reader.f32(tuning.eyeHeight) && reader.u32(tuning.fuseTicks) &&
+      reader.u32(tuning.cooldownTicks);
+  };
+  const auto readPlasma = [&reader](PlasmaGunTuning& tuning) {
+    return reader.f32(tuning.speed) && reader.f32(tuning.radius) &&
+      reader.f32(tuning.directHitboxHalfExtentXY) && reader.f32(tuning.directHitboxHalfExtentZ) &&
+      reader.i32(tuning.damage) && reader.f32(tuning.knockback) &&
+      reader.f32(tuning.eyeHeight) && reader.u32(tuning.maxLifetimeTicks) &&
+      reader.u32(tuning.cooldownTicks);
+  };
+  const auto readWeaponAmmo = [&reader](WeaponAmmoConfig& ammo) {
+    if (!reader.boolean(ammo.infiniteAmmo)) return false;
+    for (std::int32_t& value : ammo.spawnAmmo) if (!reader.i32(value)) return false;
+    return true;
+  };
+  const auto readMcGuffin = [&reader](McGuffinConfig& value) {
+    return reader.u16(value.scoreLimit) && reader.u16(value.pointsPerSecond) &&
+      reader.u16(value.carryPointsPerSecond) && reader.u16(value.carryPointLimit) &&
+      reader.u32(value.initialSpawnTicks) && reader.u32(value.installationDelayTicks) &&
+      reader.u32(value.stealTicks) && reader.u32(value.returnTicks) &&
+      reader.f32(value.throwSpeed) && reader.f32(value.throwUpSpeed) &&
+      reader.f32(value.throwVelocityInheritance) && reader.f32(value.throwGravity) &&
+      reader.f32(value.throwBounceDamping) && reader.u32(value.throwPickupLockoutTicks) &&
+      reader.u32(value.finalHoldTicks) && reader.f32(value.pickupRadius);
+  };
+  std::uint8_t switching = 0;
+  if (!readLightning(balance.lightningGun) || !readFreeze(balance.freezeGun) ||
+      !readIce(balance.icePool) || !readHitscanTuning(reader, balance.railgun) ||
+      !reader.f32(balance.sniperChargeSeconds) || !reader.f32(balance.sniperMaxDamageMultiplier) ||
+      !reader.u32(balance.railgunCooldownTicks) || !readHitscanTuning(reader, balance.revolver) ||
+      !reader.u32(balance.revolverCooldownTicks) || !readMachine(balance.machineGun) ||
+      !reader.u32(balance.machineGunCooldownTicks) || !readShotgun(balance.shotgun) ||
+      !reader.u32(balance.shotgunCooldownTicks) || !readRocket(balance.rocketLauncher) ||
+      !reader.u32(balance.rocketLauncherCooldownTicks) || !readGrenade(balance.grenadeLauncher) ||
+      !readPlasma(balance.plasmaGun) || !readWeaponAmmo(balance.weaponAmmo) ||
+      !reader.u32(balance.weaponPulloutTicks) || !reader.u32(balance.jumpPadRetriggerCooldownTicks) ||
+      !reader.i32(balance.smallHealthPickupAmount) || !reader.i32(balance.largeHealthPickupAmount) ||
+      !reader.u32(balance.smallHealthPickupCooldownTicks) || !reader.u32(balance.largeHealthPickupCooldownTicks) ||
+      !readMovementTuning(reader, config.movementTuning) ||
+      !reader.f32(config.playerSizeScaleXY) || !reader.f32(config.playerSizeScaleZ) ||
+      !reader.f32(config.lightningKnockback) || !reader.f32(config.lightningFireHz) ||
+      !reader.f32(config.rocketKnockback) || !reader.i32(config.knockbackTimeMs) ||
+      !reader.i32(config.weaponDamage.shotgunDamagePerPellet) ||
+      !reader.i32(config.weaponDamage.machineGunDamage) ||
+      !reader.i32(config.weaponDamage.lightningGunDamage) ||
+      !reader.i32(config.weaponDamage.railgunDamage) ||
+      !reader.i32(config.weaponDamage.rocketLauncherDamage) ||
+      !reader.i32(config.weaponDamage.plasmaGunDamage) ||
+      !reader.i32(config.weaponDamage.freezeGunDamage) || !reader.f32(config.vampirism) ||
+      !reader.u8(config.selfDamagePercent) || !reader.i32(config.healthAmount) ||
+      !reader.u8(switching) || !readMcGuffin(config.mcguffinConfig) ||
+      !readMatchRules(reader, config.matchRules)) {
+    return false;
+  }
+  config.weaponSwitchingMode = static_cast<WeaponSwitchingMode>(switching);
+  return validWeaponSwitchingMode(config.weaponSwitchingMode) &&
+    validBalanceConfig(config.balance) && validMovementTuning(config.movementTuning) &&
+    validFloatRange(config.playerSizeScaleXY, 0.01F, 100.0F) &&
+    validFloatRange(config.playerSizeScaleZ, 0.01F, 100.0F) &&
+    validFloatRange(config.lightningKnockback, 0.0F, 100000.0F) &&
+    validFloatRange(config.lightningFireHz, 0.0F, 1000.0F) &&
+    validFloatRange(config.rocketKnockback, 0.0F, 100000.0F) &&
+    config.knockbackTimeMs >= 0 && config.knockbackTimeMs <= 10000 &&
+    config.vampirism >= 0.0F && config.vampirism <= 100.0F &&
+    config.healthAmount > 0 && config.healthAmount <= 100000 &&
+    config.selfDamagePercent <= 100U && isValidMcGuffinConfig(config.mcguffinConfig);
+}
+
 bool writeMetadata(Writer& writer, const ReplayMetadata& metadata) {
   if (metadata.mapName.empty() || metadata.mapName.size() > kMaxReplayMapNameBytes ||
       metadata.mapContentHash == 0U || metadata.mapRevision == 0U ||
-      !isValidGameMode(metadata.gameMode) || !validVisibility(metadata.visibility)) return false;
+      !isValidGameMode(metadata.gameMode) || !validVisibility(metadata.visibility) ||
+      !validStopReason(metadata.stopReason) ||
+      metadata.simulationRevision != kReplaySimulationRevision ||
+      metadata.configurationRevision == 0U || !validMatchRules(metadata.matchRules)) return false;
+  if (!validateReplayGameplayConfig(metadata.gameplayConfig) ||
+      !sameMatchRules(metadata.gameplayConfig.matchRules, metadata.matchRules) ||
+      metadata.gameplayConfigHash != canonicalGameplayConfigHash(metadata.gameplayConfig)) {
+    return false;
+  }
   if (!writer.u32(metadata.formatFlags) || !writer.u32(metadata.protocolRevision) ||
-      !writer.u64(metadata.buildFingerprint) || !writer.u64(metadata.gameplayConfigHash) || !writer.u32(metadata.initialServerTick) ||
+      !writer.u64(metadata.buildFingerprint) || !writer.u64(metadata.gameplayConfigHash) ||
+      !writer.u32(metadata.simulationRevision) || !writer.u32(metadata.initialServerTick) ||
       !writer.u32(metadata.mapRevision) || !writer.string(metadata.mapName, kMaxReplayMapNameBytes) ||
       !writer.u32(metadata.mapContentHash) || !writer.u8(static_cast<std::uint8_t>(metadata.gameMode)) ||
-      !writer.u16(metadata.matchRules.roundLimit) || !writer.u16(metadata.matchRules.timeLimitMinutes) ||
-      !writer.u8(metadata.matchRules.playerLimit) || !writer.u16(metadata.matchRules.countdownTicks) ||
-      !writer.u16(metadata.matchRules.roundEndTicks) || !writer.u16(metadata.matchRules.matchEndTicks) ||
-      !writer.u16(metadata.matchRules.deathRespawnTicks) || !writer.boolean(metadata.matchRules.showOpponentHealth) ||
-      !writer.u8(static_cast<std::uint8_t>(metadata.visibility))) return false;
+      !writeMatchRules(writer, metadata.matchRules) ||
+      !writer.u8(static_cast<std::uint8_t>(metadata.visibility)) ||
+      !writer.u8(static_cast<std::uint8_t>(metadata.stopReason)) ||
+      !writer.u32(metadata.configurationRevision)) return false;
+  if (!writeGameplayConfig(writer, metadata.gameplayConfig)) return false;
   for (std::size_t index = 0; index < metadata.players.size(); ++index) {
     const ReplayPlayerMetadata& player = metadata.players[index];
     if (player.slot != index || !isValidTeam(player.team) ||
@@ -369,19 +784,24 @@ bool writeMetadata(Writer& writer, const ReplayMetadata& metadata) {
 bool readMetadata(Reader& reader, ReplayMetadata& metadata) {
   std::uint8_t gameMode = 0;
   std::uint8_t visibility = 0;
+  std::uint8_t stopReason = 0;
   if (!reader.u32(metadata.formatFlags) || !reader.u32(metadata.protocolRevision) ||
-      !reader.u64(metadata.buildFingerprint) || !reader.u64(metadata.gameplayConfigHash) || !reader.u32(metadata.initialServerTick) ||
+      !reader.u64(metadata.buildFingerprint) || !reader.u64(metadata.gameplayConfigHash) ||
+      !reader.u32(metadata.simulationRevision) || !reader.u32(metadata.initialServerTick) ||
       !reader.u32(metadata.mapRevision) || !reader.string(metadata.mapName, kMaxReplayMapNameBytes) ||
       !reader.u32(metadata.mapContentHash) || !reader.u8(gameMode) ||
-      !reader.u16(metadata.matchRules.roundLimit) || !reader.u16(metadata.matchRules.timeLimitMinutes) ||
-      !reader.u8(metadata.matchRules.playerLimit) || !reader.u16(metadata.matchRules.countdownTicks) ||
-      !reader.u16(metadata.matchRules.roundEndTicks) || !reader.u16(metadata.matchRules.matchEndTicks) ||
-      !reader.u16(metadata.matchRules.deathRespawnTicks) || !reader.boolean(metadata.matchRules.showOpponentHealth) ||
-      !reader.u8(visibility)) return false;
+      !readMatchRules(reader, metadata.matchRules) || !reader.u8(visibility) ||
+      !reader.u8(stopReason) || !reader.u32(metadata.configurationRevision) ||
+      !readGameplayConfig(reader, metadata.gameplayConfig)) return false;
   metadata.gameMode = static_cast<GameMode>(gameMode);
   metadata.visibility = static_cast<ReplayVisibility>(visibility);
+  metadata.stopReason = static_cast<ReplayStopReason>(stopReason);
   if (metadata.mapName.empty() || metadata.mapRevision == 0U || metadata.mapContentHash == 0U ||
-      !isValidGameMode(metadata.gameMode) || !validVisibility(metadata.visibility)) return false;
+      !isValidGameMode(metadata.gameMode) || !validVisibility(metadata.visibility) ||
+      !validStopReason(metadata.stopReason) || metadata.simulationRevision == 0U ||
+      metadata.configurationRevision == 0U ||
+      !sameMatchRules(metadata.gameplayConfig.matchRules, metadata.matchRules) ||
+      metadata.gameplayConfigHash != canonicalGameplayConfigHash(metadata.gameplayConfig)) return false;
   for (std::size_t index = 0; index < metadata.players.size(); ++index) {
     ReplayPlayerMetadata& player = metadata.players[index];
     std::uint8_t team = 0;
@@ -533,7 +953,8 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
   for (const std::uint32_t value : checkpoint.mcguffinStealTicks) if (!writer.u32(value)) return false;
   if (!writer.u32(checkpoint.mcguffinCarrySubPoints) || !writer.u16(checkpoint.mcguffinCarriedPoints) ||
       !writer.u32(checkpoint.mcguffinFinalHoldTicks) || !writer.u32(checkpoint.mcguffinRoundLiveTicks) ||
-      !writer.u32(checkpoint.mcguffinThrowPickupLockoutTicks) || !writer.u32(checkpoint.spawnRandomState)) return false;
+      !writer.u32(checkpoint.mcguffinThrowPickupLockoutTicks) || !writer.u32(checkpoint.spawnRandomState) ||
+      !writer.u32(checkpoint.lethalSequence)) return false;
   const auto writeU32Array = [&writer](const auto& values) {
     for (const std::uint32_t value : values) if (!writer.u32(value)) return false;
     return true;
@@ -638,6 +1059,7 @@ bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
   if (!reader.u32(checkpoint.mcguffinCarrySubPoints) || !reader.u16(checkpoint.mcguffinCarriedPoints) ||
       !reader.u32(checkpoint.mcguffinFinalHoldTicks) || !reader.u32(checkpoint.mcguffinRoundLiveTicks) ||
       !reader.u32(checkpoint.mcguffinThrowPickupLockoutTicks) || !reader.u32(checkpoint.spawnRandomState) ||
+      !reader.u32(checkpoint.lethalSequence) ||
       checkpoint.spawnRandomState == 0U) return false;
   const auto readU32Array = [&reader](auto& values) {
     for (std::uint32_t& value : values) if (!reader.u32(value)) return false;
@@ -673,6 +1095,57 @@ bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
   return true;
 }
 
+bool writePlayerMetadata(Writer& writer, const ReplayPlayerMetadata& player, std::size_t index) {
+  return player.slot == index && isValidTeam(player.team) &&
+    player.name.size() <= kMaxReplayNameBytes && (player.occupied || !player.bot) &&
+    writer.u8(player.slot) && writer.boolean(player.occupied) && writer.boolean(player.bot) &&
+    writer.u8(static_cast<std::uint8_t>(player.team)) && writer.string(player.name, kMaxReplayNameBytes);
+}
+
+bool readPlayerMetadata(Reader& reader, ReplayPlayerMetadata& player, std::size_t index) {
+  std::uint8_t team = 0;
+  if (!reader.u8(player.slot) || !reader.boolean(player.occupied) || !reader.boolean(player.bot) ||
+      !reader.u8(team) || !reader.string(player.name, kMaxReplayNameBytes)) return false;
+  player.team = static_cast<Team>(team);
+  return player.slot == index && isValidTeam(player.team) && (player.occupied || !player.bot);
+}
+
+bool writeAuthorityBoundary(Writer& writer, const ReplayAuthorityBoundary& boundary) {
+  if (boundary.tick != boundary.checkpoint.serverTick ||
+      boundary.configurationRevision == 0U || !isValidGameMode(boundary.gameMode) ||
+      !validMatchRules(boundary.matchRules) ||
+      !sameMatchRules(boundary.gameplayConfig.matchRules, boundary.matchRules) ||
+      canonicalGameplayConfigHash(boundary.gameplayConfig) != boundary.checkpoint.gameplayConfigHash ||
+      !validateReplayGameplayConfig(boundary.gameplayConfig) ||
+      !validateReplayCheckpoint(boundary.checkpoint)) return false;
+  if (!writer.u32(boundary.tick) || !writer.u32(boundary.configurationRevision) ||
+      !writer.u8(static_cast<std::uint8_t>(boundary.gameMode)) ||
+      !writeMatchRules(writer, boundary.matchRules)) return false;
+  for (std::size_t index = 0; index < boundary.players.size(); ++index) {
+    if (!writePlayerMetadata(writer, boundary.players[index], index)) return false;
+  }
+  return writeGameplayConfig(writer, boundary.gameplayConfig) &&
+    writeCheckpoint(writer, boundary.checkpoint);
+}
+
+bool readAuthorityBoundary(Reader& reader, ReplayAuthorityBoundary& boundary) {
+  std::uint8_t mode = 0;
+  if (!reader.u32(boundary.tick) || !reader.u32(boundary.configurationRevision) ||
+      !reader.u8(mode) || !readMatchRules(reader, boundary.matchRules)) return false;
+  boundary.gameMode = static_cast<GameMode>(mode);
+  if (!isValidGameMode(boundary.gameMode) ||
+      boundary.configurationRevision == 0U) return false;
+  for (std::size_t index = 0; index < boundary.players.size(); ++index) {
+    if (!readPlayerMetadata(reader, boundary.players[index], index)) return false;
+  }
+  if (!readGameplayConfig(reader, boundary.gameplayConfig) ||
+      !readCheckpoint(reader, boundary.checkpoint)) return false;
+  return boundary.tick == boundary.checkpoint.serverTick &&
+    sameMatchRules(boundary.gameplayConfig.matchRules, boundary.matchRules) &&
+    canonicalGameplayConfigHash(boundary.gameplayConfig) == boundary.checkpoint.gameplayConfigHash &&
+    validateReplayCheckpoint(boundary.checkpoint);
+}
+
 bool writeHash(Writer& writer, const ReplayStateHash& hash) {
   return writer.u32(hash.tick) && writer.u64(hash.value);
 }
@@ -683,10 +1156,15 @@ bool readHash(Reader& reader, ReplayStateHash& hash) {
 
 bool writeLethal(Writer& writer, const ReplayLethalEvent& event) {
   return event.victim < kDuelPlayerCount && (event.killer < kDuelPlayerCount || event.killer == kNoReplayPlayer) &&
-    validWeapon(event.weapon) && validLethalKind(event.kind) && writer.u32(event.tick) &&
+    event.replayGeneration != 0U && event.sequence != 0U && validWeapon(event.weapon) &&
+    validLethalKind(event.kind) &&
+    ((event.kind == LethalKind::Self && event.killer == event.victim) ||
+      (event.kind == LethalKind::World && event.killer == kNoReplayPlayer) ||
+      (event.kind == LethalKind::Direct && event.killer != kNoReplayPlayer) ||
+      (event.kind == LethalKind::Splash && event.killer != kNoReplayPlayer)) && writer.u32(event.tick) &&
     writer.u32(event.replayGeneration) && writer.u8(event.victim) && writer.u8(event.killer) &&
     writer.u8(static_cast<std::uint8_t>(event.weapon)) && writer.u32(event.projectileSequence) &&
-    writer.u8(static_cast<std::uint8_t>(event.kind));
+    writer.u8(static_cast<std::uint8_t>(event.kind)) && writer.u32(event.sequence);
 }
 
 bool readLethal(Reader& reader, ReplayLethalEvent& event) {
@@ -694,11 +1172,16 @@ bool readLethal(Reader& reader, ReplayLethalEvent& event) {
   std::uint8_t kind = 0;
   if (!reader.u32(event.tick) || !reader.u32(event.replayGeneration) || !reader.u8(event.victim) ||
       !reader.u8(event.killer) || !reader.u8(weapon) || !reader.u32(event.projectileSequence) ||
-      !reader.u8(kind)) return false;
+      !reader.u8(kind) || !reader.u32(event.sequence)) return false;
   event.weapon = static_cast<Weapon>(weapon);
   event.kind = static_cast<LethalKind>(kind);
   return event.victim < kDuelPlayerCount && (event.killer < kDuelPlayerCount || event.killer == kNoReplayPlayer) &&
-    validWeapon(event.weapon) && validLethalKind(event.kind);
+    event.replayGeneration != 0U && event.sequence != 0U && validWeapon(event.weapon) &&
+    validLethalKind(event.kind) &&
+    ((event.kind == LethalKind::Self && event.killer == event.victim) ||
+      (event.kind == LethalKind::World && event.killer == kNoReplayPlayer) ||
+      (event.kind == LethalKind::Direct && event.killer != kNoReplayPlayer) ||
+      (event.kind == LethalKind::Splash && event.killer != kNoReplayPlayer));
 }
 
 [[nodiscard]] std::uint32_t crc32(const std::vector<std::uint8_t>& payload) {
@@ -725,6 +1208,32 @@ bool fail(std::string* error, std::string_view message) {
 }
 
 } // namespace
+
+bool validateReplayGameplayConfig(
+  const ReplayGameplayConfig& config,
+  std::string* error
+) {
+  std::vector<std::uint8_t> bytes;
+  Writer writer(bytes);
+  if (!writeGameplayConfig(writer, config) || !writer.ok() ||
+      bytes.size() > kMaxReplayConfigBytes) {
+    return fail(error, "replay gameplay configuration is invalid");
+  }
+  if (error != nullptr) error->clear();
+  return true;
+}
+
+std::uint64_t canonicalGameplayConfigHash(const ReplayGameplayConfig& config) {
+  std::vector<std::uint8_t> bytes;
+  Writer writer(bytes);
+  if (!writeGameplayConfig(writer, config) || !writer.ok()) return 0U;
+  std::uint64_t hash = 1469598103934665603ULL;
+  for (const std::uint8_t byte : bytes) {
+    hash ^= byte;
+    hash *= 1099511628211ULL;
+  }
+  return hash;
+}
 
 std::uint64_t canonicalStateHash(const ReplayCheckpoint& checkpoint) {
   std::vector<std::uint8_t> bytes;
@@ -758,7 +1267,8 @@ std::size_t encodedReplayCheckpointBytes(const ReplayCheckpoint& checkpoint) {
 bool encodeDemo(const ReplayDemo& demo, std::vector<std::uint8_t>& bytes, std::string* error) {
   bytes.clear();
   if (demo.ticks.size() > kMaxReplayTicks || demo.checkpoints.size() > kMaxReplayCheckpoints ||
-      demo.hashes.size() > kMaxReplayTicks || demo.lethalEvents.size() > kMaxReplayTicks) {
+      demo.hashes.size() > kMaxReplayTicks || demo.lethalEvents.size() > kMaxReplayLethalEvents ||
+      demo.authorityBoundaries.size() > kMaxReplayAuthorityBoundaries) {
     return fail(error, "replay contains too many records");
   }
   std::vector<std::uint8_t> metadataBytes;
@@ -812,14 +1322,35 @@ bool encodeDemo(const ReplayDemo& demo, std::vector<std::uint8_t>& bytes, std::s
     if (!writeHash(payloadWriter, hash) || !writeChunk(writer, ReplayChunkType::StateHash, payload)) return fail(error, "hash record is invalid");
   }
   std::uint32_t previousLethal = 0;
+  std::uint32_t previousLethalSequence = 0;
   bool hasLethal = false;
   for (const ReplayLethalEvent& event : demo.lethalEvents) {
-    if ((hasLethal && event.tick < previousLethal) || event.tick < demo.metadata.initialServerTick) return fail(error, "lethal events are out of order");
+    if ((hasLethal && (event.tick < previousLethal ||
+          (event.tick == previousLethal && event.sequence <= previousLethalSequence))) ||
+        event.sequence == 0U ||
+        event.tick < demo.metadata.initialServerTick) return fail(error, "lethal events are out of order");
     previousLethal = event.tick;
+    previousLethalSequence = event.sequence;
     hasLethal = true;
     std::vector<std::uint8_t> payload;
     Writer payloadWriter(payload);
     if (!writeLethal(payloadWriter, event) || !writeChunk(writer, ReplayChunkType::LethalEvent, payload)) return fail(error, "lethal record is invalid");
+  }
+  std::uint32_t previousBoundary = 0;
+  bool hasBoundary = false;
+  for (const ReplayAuthorityBoundary& boundary : demo.authorityBoundaries) {
+    if ((hasBoundary && boundary.tick <= previousBoundary) ||
+        boundary.tick < demo.metadata.initialServerTick) {
+      return fail(error, "authority boundaries are out of order");
+    }
+    previousBoundary = boundary.tick;
+    hasBoundary = true;
+    std::vector<std::uint8_t> payload;
+    Writer payloadWriter(payload);
+    if (!writeAuthorityBoundary(payloadWriter, boundary) || !payloadWriter.ok() ||
+        !writeChunk(writer, ReplayChunkType::AuthorityBoundary, payload)) {
+      return fail(error, "authority boundary is invalid or too large");
+    }
   }
   if (!writer.ok() || encoded.size() < kFilePreambleBytes || encoded.size() > kMaxReplayBytes) {
     return fail(error, "replay exceeds size limit");
@@ -860,10 +1391,13 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
   std::uint32_t previousCheckpoint = 0;
   std::uint32_t previousHash = 0;
   std::uint32_t previousLethal = 0;
+  std::uint32_t previousLethalSequence = 0;
+  std::uint32_t previousBoundary = 0;
   bool hasTick = false;
   bool hasCheckpoint = false;
   bool hasHash = false;
   bool hasLethal = false;
+  bool hasBoundary = false;
   while (reader.remaining() > 0U) {
     std::uint8_t typeValue = 0;
     std::uint32_t payloadSize = 0;
@@ -916,15 +1450,33 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
       break;
     }
     case ReplayChunkType::LethalEvent: {
-      if (decoded.lethalEvents.size() >= kMaxReplayTicks) return fail(error, "replay has too many lethal events");
+      if (decoded.lethalEvents.size() >= kMaxReplayLethalEvents) return fail(error, "replay has too many lethal events");
       ReplayLethalEvent event;
       if (!readLethal(payloadReader, event) || !payloadReader.done() ||
-          event.tick < decoded.metadata.initialServerTick || (hasLethal && event.tick < previousLethal)) {
+          event.tick < decoded.metadata.initialServerTick ||
+          (hasLethal && (event.tick < previousLethal ||
+            (event.tick == previousLethal && event.sequence <= previousLethalSequence)))) {
         return fail(error, "replay lethal event is invalid or out of order");
       }
       previousLethal = event.tick;
+      previousLethalSequence = event.sequence;
       hasLethal = true;
       decoded.lethalEvents.push_back(event);
+      break;
+    }
+    case ReplayChunkType::AuthorityBoundary: {
+      if (decoded.authorityBoundaries.size() >= kMaxReplayAuthorityBoundaries) {
+        return fail(error, "replay has too many authority boundaries");
+      }
+      ReplayAuthorityBoundary boundary;
+      if (!readAuthorityBoundary(payloadReader, boundary) || !payloadReader.done() ||
+          boundary.tick < decoded.metadata.initialServerTick ||
+          (hasBoundary && boundary.tick <= previousBoundary)) {
+        return fail(error, "replay authority boundary is invalid or out of order");
+      }
+      previousBoundary = boundary.tick;
+      hasBoundary = true;
+      decoded.authorityBoundaries.push_back(std::move(boundary));
       break;
     }
     default:
