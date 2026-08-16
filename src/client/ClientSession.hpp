@@ -69,6 +69,10 @@ public:
     bool wantsScoreboardStats = false,
     bool requestSpectator = false
   );
+  void sendKeepalive(
+    std::uint32_t sequence,
+    bool usePresentedServerTick = true
+  );
 
   [[nodiscard]] ClientConnectionState state() const;
   [[nodiscard]] bool connected() const;

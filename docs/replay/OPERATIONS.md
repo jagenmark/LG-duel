@@ -2,9 +2,10 @@
 
 The local runtime controls in this page are implemented. PR-C also wires a
 narrow remote Duel transfer and killcam path. Team-mode visibility filters,
-HUD progress, and cinematic controls remain outside this work. The core records
-a `ReplayDemo`, and the app/server layers use bounded workers for codec and
-disk work.
+cinematic controls, and persistent transfer telemetry remain outside this
+work. The core records a `ReplayDemo`, and the app/server layers use bounded
+workers for codec and disk work. Remote playback shows a KILLCAM label, killer,
+weapon, cause, progress, and a skip prompt.
 
 ## Planned recording and playback controls
 
@@ -122,8 +123,10 @@ packet budget, and a failed transfer only skips the killcam.
 `ConnectAccept` gives each UDP connection a session ID. The server accepts only
 ACK/Cancel messages from the authenticated endpoint that owns that session. The
 client binds Begin/Chunk messages to its current session and active transfer.
-Replay or map generation changes cancel pending and active work. The
-coordinator rejects missing clients, stale sessions or generations, non-Duel
+Replay or map generation changes drop pending work and mark active work for an
+explicit Cancel on the next coordinator packet poll; a lost Cancel is covered
+by the receiver timeout. It rejects missing clients,
+stale sessions or generations, non-Duel
 modes, bot victims, oversized segments, malformed chunks, and cross-match
 map/content data.
 
@@ -151,7 +154,8 @@ Duel in this slice.
 bytes. Rolling stats add retained records, bytes, and drops. Transfer stats add
 chunks, acknowledgements, retries, and cancellation. `killcam_status` reports
 coordinator pending events, encode jobs, active transfers, and packet sends;
-the app still needs richer HUD progress and persistent transfer telemetry.
+the KILLCAM HUD reports playback progress while persistent transfer telemetry
+remains outside PR-C.
 
 `lg_duel_replay_performance_tests` recorded this focused 512-tick measure:
 
@@ -179,10 +183,9 @@ full recording can use close to 512 MiB, but stops cleanly at the cap.
   does not reproduce the original client prediction frame.
 - Free camera has no separate movement command yet; it starts at the followed
   body.
-- The remote slice has no HUD progress, replay timeline, or cinematic director.
-- There is no full two-process lethal-to-playback soak test yet; focused codec,
-  retry/timeout, quota, receiver, coordinator, and UDP loopback tests cover the
-  current seams.
+- The remote slice has no cinematic director or full replay timeline. Its
+  bounded UDP test covers coordinator request, real lethal event, transfer,
+  decode, playback, and live return; it is not a two-process soak test.
 - Team-mode visibility filtering is not implemented; ordinary remote transfer
   stays disabled outside Duel.
 - Transfer and replay telemetry is not persistent.

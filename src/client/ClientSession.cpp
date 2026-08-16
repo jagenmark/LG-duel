@@ -190,6 +190,13 @@ void ClientSession::sendCommand(
   }
 }
 
+void ClientSession::sendKeepalive(
+  std::uint32_t sequence,
+  bool usePresentedServerTick
+) {
+  if (game_) game_->sendKeepalive(sequence, usePresentedServerTick);
+}
+
 ClientConnectionState ClientSession::state() const {
   return state_;
 }

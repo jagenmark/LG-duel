@@ -39,8 +39,9 @@ lethal marker -> post-tick coordinator -> bounded encode worker
 The core and local app now implement the resolved-input, `ReplayDemo`, codec,
 checkpoint, headless runner, rolling archive, lethal-segment extraction,
 transfer state, file helpers, presentation-session state, bounded I/O, and the
-replay-only runtime. PR-C adds the narrow remote Duel transfer path. Visual HUD
-progress, team visibility filtering, and cinematic controls remain future work.
+replay-only runtime. PR-C adds the narrow remote Duel transfer path and the
+KILLCAM HUD overlay with killer, weapon, cause, progress, and skip prompt.
+Team visibility filtering and cinematic controls remain future work.
 
 The server records the final command after human acceptance and after bot
 generation, but before movement and combat consume it. It captures the completed
@@ -179,5 +180,7 @@ promise the exact pixels from the killer's locally predicted original frame.
 Map changes, map revisions, hard reset, and replay-generation changes clear the
 rolling record and end a matching replay or killcam. The archive rejects a
 segment that spans a generation or lacks a valid earlier checkpoint. The
+coordinator marks pending and active transfers for an explicit Cancel packet;
+the receiver still has an idle/overall timeout if that packet is lost. The
 coordinator and client receiver invoke the same cleanup path and leave live
 play intact when they reject data.

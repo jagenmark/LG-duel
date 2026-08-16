@@ -208,6 +208,21 @@ void ClientGame::sendCommand(
   }
 }
 
+void ClientGame::sendKeepalive(
+  std::uint32_t sequence,
+  bool usePresentedServerTick
+) {
+  CommandPacket packet;
+  packet.playerIndex = spectator_
+    ? kNoAssignedPlayer
+    : static_cast<std::uint8_t>(localPlayerIndex_);
+  packet.command.sequence = sequence;
+  packet.viewedServerTick = usePresentedServerTick
+    ? interpolation_.presentationServerTick()
+    : snapshot_.serverTick;
+  transport_.sendCommand(packet);
+}
+
 void ClientGame::receiveSnapshots() {
   auto receivedStorage = std::make_unique<ServerSnapshot>();
   ServerSnapshot& received = *receivedStorage;

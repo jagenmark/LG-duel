@@ -11,6 +11,87 @@
 
 namespace lg::replay {
 
+bool validateRemoteKillcamPlayback(
+    const ReplayDemo& demo,
+    std::uint8_t expectedVictim,
+    std::uint32_t expectedGeneration,
+    std::uint32_t expectedLethalSequence,
+    std::uint8_t& followSlot,
+    std::string* error) {
+    followSlot = kNoReplayPlayer;
+    const auto failValidation = [error](const char* message) {
+        if (error != nullptr) *error = message;
+        return false;
+    };
+    if (expectedVictim >= kDuelPlayerCount || expectedGeneration == 0U ||
+        expectedLethalSequence == 0U) {
+        return failValidation("killcam identity is invalid");
+    }
+    if (demo.ticks.empty()) {
+        return failValidation("killcam has no replay ticks");
+    }
+
+    const ReplayLethalEvent* lethal = nullptr;
+    for (const ReplayLethalEvent& event : demo.lethalEvents) {
+        if (event.replayGeneration != expectedGeneration ||
+            event.sequence != expectedLethalSequence) {
+            continue;
+        }
+        if (lethal != nullptr) {
+            return failValidation("killcam lethal identity is duplicated");
+        }
+        lethal = &event;
+    }
+    if (lethal == nullptr) {
+        return failValidation("killcam lethal identity is missing");
+    }
+    if (lethal->tick < demo.ticks.front().tick ||
+        lethal->tick > demo.ticks.back().tick) {
+        return failValidation("killcam lethal tick is outside the replay segment");
+    }
+    if (lethal->victim != expectedVictim ||
+        !demo.metadata.players[expectedVictim].occupied) {
+        return failValidation("killcam victim does not match the live body");
+    }
+
+    const bool killerIsPlayer = lethal->killer < kDuelPlayerCount;
+    if (lethal->killer != kNoReplayPlayer && !killerIsPlayer) {
+        return failValidation("killcam killer slot is invalid");
+    }
+    if (killerIsPlayer && !demo.metadata.players[lethal->killer].occupied) {
+        return failValidation("killcam killer is not recorded in the segment");
+    }
+    switch (lethal->kind) {
+        case LethalKind::Direct:
+        case LethalKind::Splash:
+            if (!killerIsPlayer || lethal->killer == lethal->victim) {
+                return failValidation("killcam combat killer is invalid");
+            }
+            break;
+        case LethalKind::Self:
+            if (!killerIsPlayer || lethal->killer != lethal->victim) {
+                return failValidation("killcam self killer is invalid");
+            }
+            break;
+        case LethalKind::World:
+            if (lethal->killer != kNoReplayPlayer) {
+                return failValidation("killcam world event has a killer");
+            }
+            break;
+    }
+
+    followSlot = killerIsPlayer && lethal->killer != lethal->victim
+        ? lethal->killer
+        : lethal->victim;
+    if (followSlot >= kDuelPlayerCount ||
+        !demo.metadata.players[followSlot].occupied) {
+        followSlot = kNoReplayPlayer;
+        return failValidation("killcam follow slot is not recorded");
+    }
+    if (error != nullptr) error->clear();
+    return true;
+}
+
 class ReplayRuntime::NullTransport final : public NetTransport {
 public:
     void sendCommand(const CommandPacket&) override {}

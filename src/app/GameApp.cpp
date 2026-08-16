@@ -8951,6 +8951,20 @@ int GameApp::run() const {
             }
           }
         }
+        std::uint8_t validatedKillcamFollowSlot = replay::kNoReplayPlayer;
+        bool validKillcamIdentity = false;
+        if (result->demo.has_value() && pendingKillcamContext.has_value() &&
+            localPlayer < kDuelPlayerCount) {
+          std::string identityError;
+          validKillcamIdentity = replay::validateRemoteKillcamPlayback(
+            *result->demo,
+            static_cast<std::uint8_t>(localPlayer),
+            pendingKillcamContext->generation,
+            pendingKillcamContext->lethalSequence,
+            validatedKillcamFollowSlot,
+            &identityError
+          );
+        }
         const bool currentBodyMatches =
           liveGame != nullptr && liveGame->hasSnapshot() &&
           liveGame->snapshot().hasLocalClientState &&
@@ -8994,7 +9008,7 @@ int GameApp::run() const {
           pendingReplayConsoleOutput.push_back(
             "killcam decode failed: " + result->error
           );
-        } else if (!sameLiveDuel) {
+        } else if (!sameLiveDuel || !validKillcamIdentity) {
           pendingReplayConsoleOutput.push_back(
             "killcam rejected: stale, cross-match, or unauthorized replay"
           );
@@ -9002,11 +9016,7 @@ int GameApp::run() const {
           replay::ReplayRuntimeConfig runtimeConfig;
           runtimeConfig.mapDirectory = replayMapDirectory.string();
           runtimeConfig.autoplay = true;
-          runtimeConfig.initialFollowSlot =
-            localLethal->killer < kDuelPlayerCount &&
-                    localLethal->killer != localLethal->victim
-                ? localLethal->killer
-                : localLethal->victim;
+          runtimeConfig.initialFollowSlot = validatedKillcamFollowSlot;
           auto candidate = std::make_unique<replay::ReplayRuntime>(
             std::move(*result->demo), std::move(runtimeConfig)
           );
@@ -9875,7 +9885,7 @@ int GameApp::run() const {
     if (replayInputActive && session.readyForPlay()) {
       // Keep the authenticated live command stream alive while replay owns
       // presentation. Replay controls never enter this packet.
-      session.sendCommand(UserCommand{}, false, false);
+      session.sendKeepalive(commandSequence++);
     }
 
     const std::optional<std::size_t> currentWeaponPresentationSubject =

@@ -48,15 +48,9 @@ bool ReplayPresentationSession::begin(const ReplayDemo &demo,
   }
   if (initialFollowSlot >= followable_.size() ||
       !followable_[initialFollowSlot]) {
-    const auto firstFollowable =
-        std::find(followable_.begin(), followable_.end(), true);
-    if (firstFollowable == followable_.end()) {
-      state_ = {};
-      state_.stopReason = ReplayPresentationStopReason::InvalidDemo;
-      return fail(error, "replay presentation has no player to follow");
-    }
-    initialFollowSlot =
-        static_cast<std::uint8_t>(firstFollowable - followable_.begin());
+    state_ = {};
+    state_.stopReason = ReplayPresentationStopReason::InvalidDemo;
+    return fail(error, "replay presentation follow slot is not recorded");
   }
   state_ = {};
   state_.active = true;

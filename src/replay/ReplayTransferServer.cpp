@@ -110,8 +110,11 @@ std::vector<ReplayTransferOutbound> ReplayTransferServer::poll(
   std::vector<ReplayTransferOutbound> result;
   result.reserve(std::min(packetBudget, slots_.size()));
   if (packetBudget == 0U) return result;
-  for (std::size_t index = 0U;
-       index < slots_.size() && result.size() < packetBudget; ++index) {
+  const std::size_t start = pollCursor_ % slots_.size();
+  std::size_t considered = 0U;
+  while (considered < slots_.size() && result.size() < packetBudget) {
+    const std::size_t index = (start + considered) % slots_.size();
+    ++considered;
     Slot& slot = slots_[index];
     if (!slot.active) continue;
     const std::optional<ReplayTransferMessage> message = slot.sender.nextMessage(now);
@@ -124,6 +127,7 @@ std::vector<ReplayTransferOutbound> ReplayTransferServer::poll(
       slot = {};
     }
   }
+  pollCursor_ = (start + considered) % slots_.size();
   return result;
 }
 
@@ -138,7 +142,12 @@ void ReplayTransferServer::clearClient(
 }
 
 void ReplayTransferServer::clear() {
-  for (Slot& slot : slots_) slot = {};
+  // Keep the slot until poll() emits the typed cancellation. Dropping it here
+  // would leave the client waiting for its timeout and would also make a
+  // generation or map reset indistinguishable from packet loss.
+  for (Slot& slot : slots_) {
+    if (slot.active) slot.sender.cancel(ReplayTransferCancelReason::Invalid);
+  }
 }
 
 bool ReplayTransferServer::active(std::uint8_t clientIndex) const {

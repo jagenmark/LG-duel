@@ -20,6 +20,17 @@ struct ReplayRuntimeConfig {
     bool autoplay = false;
 };
 
+// Validate the identity carried by a remote killcam before ReplayRuntime is
+// allowed to choose a camera subject. The caller supplies the live victim,
+// replay generation, and lethal sequence captured at request time.
+[[nodiscard]] bool validateRemoteKillcamPlayback(
+    const ReplayDemo& demo,
+    std::uint8_t expectedVictim,
+    std::uint32_t expectedGeneration,
+    std::uint32_t expectedLethalSequence,
+    std::uint8_t& followSlot,
+    std::string* error = nullptr);
+
 // One presentation input for both live and replay rendering. The app can
 // switch this source at a frame boundary and then feed the same renderer,
 // HUD, effects, and audio code from the selected snapshot.

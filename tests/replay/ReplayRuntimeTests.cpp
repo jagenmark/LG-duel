@@ -80,6 +80,40 @@ lg::replay::ReplayDemo makeRecordedDemo(lg::ServerSnapshot& finalSnapshot) {
 
 int main() {
   int failures = 0;
+  {
+    lg::replay::ReplayDemo identityDemo;
+    identityDemo.metadata.players[0].occupied = true;
+    identityDemo.metadata.players[1].occupied = true;
+    identityDemo.ticks.push_back({100U, {}});
+    identityDemo.ticks.push_back({101U, {}});
+    identityDemo.lethalEvents.push_back({
+      101U, 5U, 0U, 1U, lg::Weapon::Railgun, 0U,
+      lg::replay::LethalKind::Direct, 7U,
+    });
+    std::uint8_t followSlot = lg::replay::kNoReplayPlayer;
+    std::string identityError;
+    failures += expect(
+      lg::replay::validateRemoteKillcamPlayback(
+        identityDemo, 0U, 5U, 7U, followSlot, &identityError
+      ) && followSlot == 1U,
+      "remote killcam validation should bind the killer follow slot"
+    );
+    identityDemo.lethalEvents.front().tick = 102U;
+    failures += expect(
+      !lg::replay::validateRemoteKillcamPlayback(
+        identityDemo, 0U, 5U, 7U, followSlot, &identityError
+      ),
+      "remote killcam validation should reject an event past the segment end"
+    );
+    identityDemo.lethalEvents.front().tick = 101U;
+    identityDemo.lethalEvents.front().killer = 2U;
+    failures += expect(
+      !lg::replay::validateRemoteKillcamPlayback(
+        identityDemo, 0U, 5U, 7U, followSlot, &identityError
+      ),
+      "remote killcam validation should reject an unrecorded killer slot"
+    );
+  }
   lg::ServerSnapshot finalSnapshot;
   const lg::replay::ReplayDemo demo = makeRecordedDemo(finalSnapshot);
   failures += expect(!demo.ticks.empty(), "runtime fixture should record input ticks");

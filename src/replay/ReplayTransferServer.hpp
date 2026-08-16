@@ -81,6 +81,7 @@ private:
   ReplayTransferServerConfig config_ = {};
   std::array<Slot, kMaxNetworkClients> slots_ = {};
   std::uint32_t nextTransferId_ = 1U;
+  std::size_t pollCursor_ = 0U;
 };
 
 } // namespace lg::replay

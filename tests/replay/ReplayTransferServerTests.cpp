@@ -1,5 +1,6 @@
 #include "replay/ReplayTransferServer.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
@@ -109,8 +110,39 @@ int main() {
       cancel.size() == 1U &&
           std::holds_alternative<lg::replay::ReplayTransferCancel>(
               cancel.front().message) &&
-          !server.active(1U),
+      !server.active(1U),
       "server cancel should emit once and release the slot");
+
+  lg::replay::ReplayTransferServer fairServer(config);
+  failures += expect(fairServer.start(0U, 50U, 10U, {1U}, 0U, &error) &&
+                         fairServer.start(1U, 51U, 10U, {2U}, 0U, &error),
+                     "server should accept two transfers for fair polling");
+  const auto firstFairPacket = fairServer.poll(0U, 1U);
+  const auto secondFairPacket = fairServer.poll(1U, 1U);
+  failures += expect(
+      firstFairPacket.size() == 1U && secondFairPacket.size() == 1U &&
+          firstFairPacket.front().clientIndex == 0U &&
+          secondFairPacket.front().clientIndex == 1U,
+      "packet budget polling should rotate across active clients");
+
+  failures += expect(fairServer.start(2U, 52U, 11U, {3U}, 2U, &error),
+                     "server should accept a transfer before clear cancellation");
+  (void)fairServer.poll(2U, 8U);
+  fairServer.clear();
+  const auto clearPackets = fairServer.poll(3U, 8U);
+  const auto clearCancel = std::find_if(
+      clearPackets.begin(), clearPackets.end(),
+      [](const lg::replay::ReplayTransferOutbound& packet) {
+        const auto* cancelMessage =
+            std::get_if<lg::replay::ReplayTransferCancel>(&packet.message);
+        return cancelMessage != nullptr &&
+               cancelMessage->reason ==
+                   lg::replay::ReplayTransferCancelReason::Invalid;
+      });
+  failures += expect(clearCancel != clearPackets.end(),
+                     "clear should deliver invalid cancellation packets");
+  failures += expect(fairServer.activeCount() == 0U,
+                     "clear cancellation should release all sender slots");
 
   return failures == 0 ? 0 : 1;
 }

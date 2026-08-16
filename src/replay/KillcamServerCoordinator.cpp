@@ -246,11 +246,16 @@ void KillcamServerCoordinator::processClientMessages() {
 void KillcamServerCoordinator::expireDisconnectedTransfers() {
   for (std::size_t index = 0U; index < kMaxNetworkClients; ++index) {
     const auto current = transfers_.status(static_cast<std::uint8_t>(index));
-    if (current.has_value() &&
-        (current->generation != server_.replayGeneration() ||
-         transport_.clientSession(static_cast<std::uint8_t>(index)) !=
-             current->sessionId)) {
+    if (!current.has_value()) continue;
+    const std::uint8_t clientIndex = static_cast<std::uint8_t>(index);
+    const std::uint32_t sessionId = transport_.clientSession(clientIndex);
+    if (sessionId != current->sessionId) {
       transfers_.clearClient(static_cast<std::uint8_t>(index));
+    } else if (current->generation != server_.replayGeneration()) {
+      // Keep the slot until poll() sends the typed cancellation. A silent
+      // drop makes the receiver wait for its timeout after a reset.
+      transfers_.cancel(clientIndex, current->sessionId,
+                        ReplayTransferCancelReason::Invalid);
     }
   }
 }
@@ -273,6 +278,7 @@ void KillcamServerCoordinator::update(std::uint64_t now) {
   expireDisconnectedTransfers();
   if (!config_.enabled) {
     (void)server_.takeReplayLethalEvents();
+    sendDuePackets(now);
     return;
   }
   drainLethalEvents();
