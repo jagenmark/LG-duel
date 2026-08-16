@@ -281,6 +281,22 @@ std::string grenadeConfig(float hitboxRadius) {
   };
 }
 
+std::string grenadeBurstConfig() {
+  return
+    "version 1\n"
+    "weapon.gl.speed 500\n"
+    "weapon.gl.vertical_boost 0\n"
+    "weapon.gl.gravity 0\n"
+    "weapon.gl.bounce_damping 0.7\n"
+    "weapon.gl.rest_speed 1.5\n"
+    "weapon.gl.bounce_sound_min_speed 1.2\n"
+    "weapon.gl.projectile_radius 0.05\n"
+    "weapon.gl.projectile_hitbox_radius 0.05\n"
+    "weapon.gl.fuse_seconds 0.016\n"
+    "weapon.gl.radius 3.0\n"
+    "weapon.gl.cooldown_ticks 1\n";
+}
+
 std::string tinyQuakeMap() {
   return R"({
 "classname" "worldspawn"
@@ -331,6 +347,49 @@ int main() {
     failures += expect(transport.receiveCommand(received), "loopback should return second queued command");
     failures += expect(received.command.sequence == 4, "loopback should preserve all queued commands");
     failures += expect(!transport.receiveCommand(received), "empty loopback command queue should report false");
+  }
+
+  {
+    ScopedBalanceConfigDirectory configDirectory(grenadeBurstConfig());
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 20.0F};
+    arena.spawnPositions[0] = {0.0F, 0.0F, 0.5F};
+    arena.spawnPositions[1] = {-3.5F, 0.0F, 0.5F};
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand first;
+    first.sequence = 1;
+    first.attack = true;
+    first.weapon = lg::Weapon::GrenadeLauncher;
+    first.viewYawRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{0, first, false});
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand second = first;
+    second.sequence = 2;
+    second.viewYawRadians = 3.14159265359F;
+    transport.sendCommand(lg::CommandPacket{0, second, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+
+    std::size_t explosionCount = 0;
+    bool sameOwner = true;
+    for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+      if ((snapshot.rocketExplosionActiveMask & (1U << slot)) == 0U) continue;
+      ++explosionCount;
+      sameOwner = sameOwner &&
+        snapshot.rocketExplosions[slot].ownerPlayerIndex == 0 &&
+        snapshot.rocketExplosions[slot].weapon == lg::Weapon::GrenadeLauncher;
+    }
+    failures += expect(
+      explosionCount == 2U && sameOwner,
+      "two same-owner grenades should keep both same-tick explosion records"
+    );
   }
 
   {

@@ -208,6 +208,9 @@ struct RocketExplosionResult {
   std::uint32_t sequence = 0;
   std::uint32_t projectileSequence = 0;
   bool active = false;
+  // The event stream is global. Keep the projectile owner in the record so a
+  // slot index never acts as an authority id when several blasts share a tick.
+  std::uint8_t ownerPlayerIndex = 255;
   Weapon weapon = Weapon::RocketLauncher;
 };
 

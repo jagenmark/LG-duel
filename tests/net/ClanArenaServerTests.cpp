@@ -20,6 +20,22 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+bool hasExplosionForOwner(
+  const lg::ServerSnapshot& snapshot,
+  std::size_t owner
+) {
+  for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+    if (
+      (snapshot.rocketExplosionActiveMask & (1U << slot)) != 0U &&
+      snapshot.rocketExplosions[slot].active &&
+      snapshot.rocketExplosions[slot].ownerPlayerIndex == owner
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 lg::ServerSnapshot latestSnapshot(lg::LoopbackTransport& transport) {
   lg::ServerSnapshot latest;
   lg::ServerSnapshot received;
@@ -515,7 +531,7 @@ int main() {
     for (int tick = 0; tick < 80; ++tick) {
       server.tick(lg::kFixedTickSeconds);
       snapshot = latestSnapshot(transport);
-      if (snapshot.rocketExplosions[1].active) {
+      if (hasExplosionForOwner(snapshot, 1)) {
         exploded = true;
         if (snapshot.players[1].health < ownerHealth) {
           break;

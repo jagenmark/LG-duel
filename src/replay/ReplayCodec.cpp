@@ -542,7 +542,10 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
       !writeU32Array(checkpoint.fragEventSequences) || !writeU32Array(checkpoint.localHitFeedbackSequences) ||
       !writeU32Array(checkpoint.damageTakenSequences) ||
       !writeU32Array(checkpoint.footstepSequences) || !writeU32Array(checkpoint.grenadeBounceEventSequences) ||
-      !writeU32Array(checkpoint.grenadeBounceSequences) || !writeU32Array(checkpoint.spawnLastUsedTicks)) return false;
+      !writeU32Array(checkpoint.grenadeBounceSequences) || !writeU32Array(checkpoint.spawnLastUsedTicks) ||
+      !writer.u32(checkpoint.rocketExplosionSequence) ||
+      !writer.u32(checkpoint.fragEventSequence) ||
+      !writer.u32(checkpoint.grenadeBounceEventSequence)) return false;
   for (const ReplayFootstepState& footstep : checkpoint.footstepStates) {
     if (!validVec3(footstep.previousPosition) || !std::isfinite(footstep.distanceSinceStep) ||
         footstep.distanceSinceStep < 0.0F || !writeVec3(writer, footstep.previousPosition) ||
@@ -647,7 +650,10 @@ bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
       !readU32Array(checkpoint.fragEventSequences) || !readU32Array(checkpoint.localHitFeedbackSequences) ||
       !readU32Array(checkpoint.damageTakenSequences) ||
       !readU32Array(checkpoint.footstepSequences) || !readU32Array(checkpoint.grenadeBounceEventSequences) ||
-      !readU32Array(checkpoint.grenadeBounceSequences) || !readU32Array(checkpoint.spawnLastUsedTicks)) return false;
+      !readU32Array(checkpoint.grenadeBounceSequences) || !readU32Array(checkpoint.spawnLastUsedTicks) ||
+      !reader.u32(checkpoint.rocketExplosionSequence) ||
+      !reader.u32(checkpoint.fragEventSequence) ||
+      !reader.u32(checkpoint.grenadeBounceEventSequence)) return false;
   for (ReplayFootstepState& footstep : checkpoint.footstepStates) {
     if (!readVec3(reader, footstep.previousPosition) || !reader.f32(footstep.distanceSinceStep) ||
         !reader.boolean(footstep.wasOnGround) || !reader.boolean(footstep.initialized) ||

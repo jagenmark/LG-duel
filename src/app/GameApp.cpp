@@ -659,6 +659,9 @@ struct TransientTracerStore {
   std::array<std::uint8_t, kMaxTransientEffects> effectExpiryGraceState = {};
   CombatEffectEventHistory eventHistory = {};
   std::uint32_t explosionEventsConsumedThisFrame = 0;
+  std::uint32_t lastExplosionSequence = 0;
+  std::uint32_t combatRevision = 0;
+  bool hasCombatRevision = false;
 
   void update(float dt) {
     explosionEventsConsumedThisFrame = 0;
@@ -732,6 +735,24 @@ struct TransientTracerStore {
     }
     ++explosionEventsConsumedThisFrame;
     return true;
+  }
+
+  [[nodiscard]] std::uint32_t lastExplosionSequenceValue() const {
+    return lastExplosionSequence;
+  }
+
+  void setLastExplosionSequence(std::uint32_t sequence) {
+    lastExplosionSequence = sequence;
+  }
+
+  void prepareCombatRevision(std::uint32_t revision) {
+    if (hasCombatRevision && combatRevision == revision) {
+      return;
+    }
+    lastExplosionSequence = 0;
+    eventHistory = {};
+    combatRevision = revision;
+    hasCombatRevision = true;
   }
 
   void add(
@@ -1556,23 +1577,64 @@ void spawnExplosionEffects(
   );
 }
 
+template <typename Event, typename Handle>
+void forEachUnseenCombatEvent(
+  const std::array<Event, kDuelPlayerCount>& events,
+  std::uint16_t activeMask,
+  std::uint32_t& cursor,
+  Handle handle
+) {
+  std::array<std::size_t, kDuelPlayerCount> slots = {};
+  std::size_t count = 0;
+  for (std::size_t slot = 0; slot < events.size(); ++slot) {
+    if (
+      (activeMask & static_cast<std::uint16_t>(1U << slot)) != 0U &&
+      events[slot].active && events[slot].sequence != 0U
+    ) {
+      slots[count++] = slot;
+    }
+  }
+  std::sort(
+    slots.begin(),
+    slots.begin() + static_cast<std::ptrdiff_t>(count),
+    [&events](std::size_t left, std::size_t right) {
+      return isSequenceNewer(events[right].sequence, events[left].sequence);
+    }
+  );
+  for (std::size_t index = 0; index < count; ++index) {
+    const Event& event = events[slots[index]];
+    if (cursor != 0U && !isSequenceNewer(event.sequence, cursor)) {
+      continue;
+    }
+    handle(event);
+    cursor = event.sequence;
+  }
+}
+
 void consumeExplosionEvents(
   TransientTracerStore& store,
   CombatEffects& combatEffects,
   const CombatEffectsTuning& effectsTuning,
-  const std::array<RocketExplosionResult, kDuelPlayerCount>& explosions
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& explosions,
+  std::uint16_t activeMask,
+  std::uint32_t combatRevision
 ) {
-  for (std::size_t owner = 0; owner < explosions.size(); ++owner) {
-    const RocketExplosionResult& explosion = explosions[owner];
-    if (!explosion.active) {
-      continue;
+  store.prepareCombatRevision(combatRevision);
+  std::uint32_t cursor = store.lastExplosionSequenceValue();
+  forEachUnseenCombatEvent(
+    explosions,
+    activeMask,
+    cursor,
+    [&store, &combatEffects, &effectsTuning](const RocketExplosionResult& explosion) {
+      if (
+        explosion.ownerPlayerIndex < kDuelPlayerCount &&
+        store.acceptExplosion(explosion.ownerPlayerIndex, explosion.sequence)
+      ) {
+        spawnExplosionEffects(store, combatEffects, effectsTuning, explosion);
+      }
     }
-    const std::uint8_t eventOwner = static_cast<std::uint8_t>(owner);
-    if (!store.acceptExplosion(eventOwner, explosion.sequence)) {
-      continue;
-    }
-    spawnExplosionEffects(store, combatEffects, effectsTuning, explosion);
-  }
+  );
+  store.setLastExplosionSequence(cursor);
 }
 
 struct LocalInputState {
@@ -2524,16 +2586,14 @@ struct KillFeedState {
   };
 
   std::vector<Entry> entries;
-  std::array<FragEvent, kDuelPlayerCount> previousFragEvents = {};
-  std::array<bool, kDuelPlayerCount> previousFragActive = {};
-  std::array<std::uint32_t, kDuelPlayerCount> previousSelfExplosionSequences = {};
+  std::uint32_t previousFragSequence = 0;
+  std::uint32_t previousCombatRevision = 0;
 };
 
 void resetKillFeedState(KillFeedState& state) {
   state.entries.clear();
-  state.previousFragEvents = {};
-  state.previousFragActive = {};
-  state.previousSelfExplosionSequences = {};
+  state.previousFragSequence = 0;
+  state.previousCombatRevision = 0;
 }
 
 void updateKillFeedState(KillFeedState& state, float deltaSeconds) {
@@ -2554,6 +2614,7 @@ void updateKillFeedState(KillFeedState& state, float deltaSeconds) {
     ),
     state.entries.end()
   );
+
 }
 
 void consumeKillFeedEvents(
@@ -2561,69 +2622,35 @@ void consumeKillFeedEvents(
   const ServerSnapshot& snapshot
 ) {
   constexpr std::size_t kMaxKillFeedEntries = 8;
-  for (
-    std::size_t attackerIndex = 0;
-    attackerIndex < kDuelPlayerCount;
-    ++attackerIndex
-  ) {
-    const FragEvent& frag = snapshot.fragEvents[attackerIndex];
-    if (!frag.active) {
-      state.previousFragActive[attackerIndex] = false;
-      state.previousFragEvents[attackerIndex] = {};
-      continue;
-    }
-
-    const bool freshEvent =
-      !state.previousFragActive[attackerIndex] ||
-      !sameFragEvent(frag, state.previousFragEvents[attackerIndex]);
-    state.previousFragActive[attackerIndex] = true;
-    state.previousFragEvents[attackerIndex] = frag;
-
-    if (!freshEvent || frag.targetPlayerIndex >= kDuelPlayerCount) {
-      continue;
-    }
-
-    state.entries.push_back({
-      snapshot.playerNames[attackerIndex],
-      frag.targetPlayerIndex == attackerIndex
-        ? std::string{}
-        : snapshot.playerNames[frag.targetPlayerIndex],
-      frag.weapon,
-      0.0F,
-    });
-    if (state.entries.size() > kMaxKillFeedEntries) {
-      state.entries.erase(state.entries.begin());
-    }
+  if (state.previousCombatRevision != snapshot.damageFeedbackRevision) {
+    state.previousFragSequence = 0;
+    state.previousCombatRevision = snapshot.damageFeedbackRevision;
   }
-
-  for (
-    std::size_t ownerIndex = 0;
-    ownerIndex < kDuelPlayerCount;
-    ++ownerIndex
-  ) {
-    const RocketExplosionResult& explosion = snapshot.rocketExplosions[ownerIndex];
-    const FragEvent& frag = snapshot.fragEvents[ownerIndex];
-    if (
-      !explosion.active ||
-      explosion.ownerDamageApplied <= 0 ||
-      snapshot.players[ownerIndex].health > 0 ||
-      explosion.sequence == state.previousSelfExplosionSequences[ownerIndex] ||
-      (frag.active && frag.targetPlayerIndex == ownerIndex)
-    ) {
-      continue;
+  forEachUnseenCombatEvent(
+    snapshot.fragEvents,
+    snapshot.fragActiveMask,
+    state.previousFragSequence,
+    [&state, &snapshot, kMaxKillFeedEntries](const FragEvent& frag) {
+      if (
+        frag.attackerPlayerIndex >= kDuelPlayerCount ||
+        frag.targetPlayerIndex >= kDuelPlayerCount
+      ) {
+        return;
+      }
+      state.entries.push_back({
+        snapshot.playerNames[frag.attackerPlayerIndex],
+        frag.targetPlayerIndex == frag.attackerPlayerIndex
+          ? std::string{}
+          : snapshot.playerNames[frag.targetPlayerIndex],
+        frag.weapon,
+        0.0F,
+      });
+      if (state.entries.size() > kMaxKillFeedEntries) {
+        state.entries.erase(state.entries.begin());
+      }
     }
+  );
 
-    state.previousSelfExplosionSequences[ownerIndex] = explosion.sequence;
-    state.entries.push_back({
-      snapshot.playerNames[ownerIndex],
-      std::string{},
-      explosion.weapon,
-      0.0F,
-    });
-    if (state.entries.size() > kMaxKillFeedEntries) {
-      state.entries.erase(state.entries.begin());
-    }
-  }
 }
 
 std::vector<HudRenderState::KillFeedLine> killFeedPresentation(
@@ -6365,12 +6392,10 @@ int GameApp::run() const {
   std::array<WeaponFireResult, kDuelPlayerCount> lastPlayedWeaponFires = {};
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedWeaponFireAudioTicks = {};
   std::array<bool, kDuelPlayerCount> hasLastPlayedWeaponFire = {};
-  std::array<RocketExplosionResult, kDuelPlayerCount> lastPlayedRocketExplosions = {};
-  std::array<std::uint32_t, kDuelPlayerCount> lastPlayedRocketExplosionAudioTicks = {};
-  std::array<bool, kDuelPlayerCount> hasLastPlayedRocketExplosion = {};
-  std::array<FragEvent, kDuelPlayerCount> lastPlayedFragEvents = {};
-  std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFragAudioTicks = {};
-  std::array<bool, kDuelPlayerCount> hasLastPlayedFragEvent = {};
+  std::uint32_t lastPlayedRocketExplosionSequence = 0;
+  std::uint32_t lastPlayedFragSequence = 0;
+  std::uint32_t lastPlayedGrenadeBounceSequence = 0;
+  std::uint32_t lastPlayedCombatEventRevision = 0;
   DamageNumberState damageNumberState;
   std::uint32_t lastDamageNumberServerTick = 0;
   std::array<std::uint32_t, kDuelPlayerCount> lastDamageNumberFeedbackSequences = {};
@@ -6383,8 +6408,6 @@ int GameApp::run() const {
   std::uint32_t directionalDamageMapRevision = 0;
   std::uint32_t directionalDamageTimelineRevision = 0;
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
-  std::array<std::uint32_t, kDuelPlayerCount>
-    lastPlayedGrenadeBounceAudioSequences = {};
   std::uint32_t lastLocalRailFireTick = 0;
   bool hasLocalRailFireTick = false;
   bool localRailReadySoundPlayed = true;
@@ -9210,14 +9233,11 @@ int GameApp::run() const {
       lastPlayedWeaponFires = {};
       lastPlayedWeaponFireAudioTicks = {};
       hasLastPlayedWeaponFire = {};
-      lastPlayedRocketExplosions = {};
-      lastPlayedRocketExplosionAudioTicks = {};
-      hasLastPlayedRocketExplosion = {};
-      lastPlayedFragEvents = {};
-      lastPlayedFragAudioTicks = {};
-      hasLastPlayedFragEvent = {};
+      lastPlayedRocketExplosionSequence = 0;
+      lastPlayedFragSequence = 0;
+      lastPlayedGrenadeBounceSequence = 0;
+      lastPlayedCombatEventRevision = 0;
       lastPlayedFootstepAudioSequences = {};
-      lastPlayedGrenadeBounceAudioSequences = {};
       lastLocalRailFireTick = 0;
       hasLocalRailFireTick = false;
       localRailReadySoundPlayed = true;
@@ -9304,6 +9324,12 @@ int GameApp::run() const {
       (!session.spectator() || deathCamera.mode == DeathCameraMode::Teammate)
     ) {
       const ServerSnapshot& audioSnapshot = currentAudioGame->snapshot();
+      if (lastPlayedCombatEventRevision != audioSnapshot.damageFeedbackRevision) {
+        lastPlayedRocketExplosionSequence = 0;
+        lastPlayedFragSequence = 0;
+        lastPlayedGrenadeBounceSequence = 0;
+        lastPlayedCombatEventRevision = audioSnapshot.damageFeedbackRevision;
+      }
       if (
         !audioStateInitialized ||
         audioSnapshot.serverTick != lastAudioServerTick
@@ -9505,50 +9531,61 @@ int GameApp::run() const {
               }
               lastPlayedFootstepAudioSequences[playerIndex] = event.sequence;
             }
-            for (
-              std::size_t eventIndex = 0;
-              eventIndex < audioSnapshot.grenadeBounceAudioEvents.size();
-              ++eventIndex
-            ) {
-              const GrenadeBounceAudioEvent& event =
-                audioSnapshot.grenadeBounceAudioEvents[eventIndex];
-              if (
-                !event.active ||
-                event.sequence == lastPlayedGrenadeBounceAudioSequences[eventIndex]
-              ) {
-                continue;
-              }
-              const SpatialAudio spatial =
-                worldAudio(
+            forEachUnseenCombatEvent(
+              audioSnapshot.grenadeBounceAudioEvents,
+              audioSnapshot.grenadeBounceActiveMask,
+              lastPlayedGrenadeBounceSequence,
+              [&audio, &audioListener, &soundVolume](const GrenadeBounceAudioEvent& event) {
+                const SpatialAudio spatial = worldAudio(
                   soundVolume("s_gl_bounce_volume"),
                   event.position,
                   audioListener
                 );
-              audio.playGrenadeBounce(spatial.volume * 0.5F, spatial.pan);
-              lastPlayedGrenadeBounceAudioSequences[eventIndex] = event.sequence;
-            }
+                audio.playGrenadeBounce(spatial.volume * 0.5F, spatial.pan);
+              }
+            );
           }
         }
         if (soundEnabled && audioStateInitialized) {
-          const FragEvent& localFrag =
-            audioSnapshot.fragEvents[feedbackPlayerIndex];
-          if (
-            localFrag.active &&
-            localFrag.targetPlayerIndex != feedbackPlayerIndex &&
-            shouldPlaySnapshotAudioEvent(
-              hasLastPlayedFragEvent[feedbackPlayerIndex],
-              sameFragEvent(localFrag, lastPlayedFragEvents[feedbackPlayerIndex]),
-              audioSnapshot.serverTick,
-              lastPlayedFragAudioTicks[feedbackPlayerIndex],
-              kTransientAudioEventTicks
-            )
-          ) {
-            audio.playFrag(fragVolume);
-            lastPlayedFragEvents[feedbackPlayerIndex] = localFrag;
-            lastPlayedFragAudioTicks[feedbackPlayerIndex] = audioSnapshot.serverTick;
-            hasLastPlayedFragEvent[feedbackPlayerIndex] = true;
-          }
+          forEachUnseenCombatEvent(
+            audioSnapshot.fragEvents,
+            audioSnapshot.fragActiveMask,
+            lastPlayedFragSequence,
+            [&audio, &audioSnapshot, feedbackPlayerIndex, fragVolume](const FragEvent& frag) {
+              if (
+                frag.attackerPlayerIndex < kDuelPlayerCount &&
+                frag.targetPlayerIndex < kDuelPlayerCount &&
+                frag.attackerPlayerIndex == feedbackPlayerIndex &&
+                frag.targetPlayerIndex != feedbackPlayerIndex
+              ) {
+                audio.playFrag(fragVolume);
+              }
+            }
+          );
 
+          forEachUnseenCombatEvent(
+            audioSnapshot.rocketExplosions,
+            audioSnapshot.rocketExplosionActiveMask,
+            lastPlayedRocketExplosionSequence,
+            [&audio, &audioListener, &soundVolume, &hitVolume,
+             feedbackPlayerIndex](const RocketExplosionResult& explosion) {
+              if (explosion.ownerPlayerIndex >= kDuelPlayerCount) {
+                return;
+              }
+              const SpatialAudio explosionAudio = worldAudio(
+                soundVolume("s_rl_explosion_volume"),
+                explosion.position,
+                audioListener
+              );
+              audio.playRocketExplosion(explosionAudio.volume, explosionAudio.pan);
+              if (
+                explosion.ownerPlayerIndex == feedbackPlayerIndex &&
+                explosion.opponentDamageApplied > 0
+              ) {
+                audio.playHit(hitVolume, explosion.opponentDamageApplied);
+              }
+            }
+          );
           for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
 
             const WeaponFireResult& fire = audioSnapshot.weaponFires[playerIndex];
@@ -9627,39 +9664,6 @@ int GameApp::run() const {
               hasLastPlayedWeaponFire[playerIndex] = true;
             }
 
-            const RocketExplosionResult& explosion =
-              audioSnapshot.rocketExplosions[playerIndex];
-            if (
-              explosion.active &&
-              shouldPlaySnapshotAudioEvent(
-                hasLastPlayedRocketExplosion[playerIndex],
-                sameRocketExplosionEvent(
-                  explosion,
-                  lastPlayedRocketExplosions[playerIndex]
-                ),
-                audioSnapshot.serverTick,
-                lastPlayedRocketExplosionAudioTicks[playerIndex],
-                kTransientAudioEventTicks
-              )
-            ) {
-              const SpatialAudio explosionAudio = worldAudio(
-                  soundVolume("s_rl_explosion_volume"),
-                  explosion.position,
-                  audioListener
-              );
-              audio.playRocketExplosion(explosionAudio.volume, explosionAudio.pan);
-              if (
-                localWeaponEvent &&
-                explosion.opponentDamageApplied > 0
-              ) {
-                audio.playHit(hitVolume, explosion.opponentDamageApplied);
-                lastHitSoundServerTick = audioSnapshot.serverTick;
-              }
-              lastPlayedRocketExplosions[playerIndex] = explosion;
-              lastPlayedRocketExplosionAudioTicks[playerIndex] =
-                audioSnapshot.serverTick;
-              hasLastPlayedRocketExplosion[playerIndex] = true;
-            }
           }
 
           if (
@@ -9896,6 +9900,8 @@ int GameApp::run() const {
     std::array<RemotePlayerView, kDuelPlayerCount> renderRemotePlayers = {};
     std::array<WeaponFireResult, kDuelPlayerCount> renderWeaponFires = {};
     std::array<RocketExplosionResult, kDuelPlayerCount> renderRocketExplosions = {};
+    std::uint16_t renderRocketExplosionActiveMask = 0;
+    std::uint32_t renderCombatRevision = 0;
     std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> renderRockets = {};
     IcePoolArray renderIcePools = {};
     std::array<bool, kDuelPlayerCount> freezeGunPulseDue = {};
@@ -10137,6 +10143,8 @@ int GameApp::run() const {
           renderRemotePlayers[playerIndex].weaponSwitchPresentation.displayedWeapon;
       }
       renderRocketExplosions = renderSnapshot.rocketExplosions;
+      renderRocketExplosionActiveMask = renderSnapshot.rocketExplosionActiveMask;
+      renderCombatRevision = renderSnapshot.damageFeedbackRevision;
       renderRockets = renderClient->projectiles();
       renderIcePools = renderSnapshot.icePools;
       const LocalHitFeedbackBatch hitFeedback = session.spectator()
@@ -11349,7 +11357,9 @@ int GameApp::run() const {
       transientTracerStore,
       combatEffects,
       frameEffectsTuning,
-      renderRocketExplosions
+      renderRocketExplosions,
+      renderRocketExplosionActiveMask,
+      renderCombatRevision
     );
     transientTracerStore.fillActive(
       activeTransientTracers,

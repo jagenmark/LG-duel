@@ -13,6 +13,24 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+bool hasFrag(
+  const lg::ServerSnapshot& snapshot,
+  std::size_t attacker,
+  std::size_t target
+) {
+  for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+    if (
+      (snapshot.fragActiveMask & (1U << slot)) != 0U &&
+      snapshot.fragEvents[slot].active &&
+      snapshot.fragEvents[slot].attackerPlayerIndex == attacker &&
+      snapshot.fragEvents[slot].targetPlayerIndex == target
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 lg::Arena objectiveArena() {
   lg::Arena arena;
   arena.min = {-10.0F, -5.0F, -1.0F};
@@ -504,7 +522,7 @@ int main() {
     respawnServer.tick(lg::kFixedTickSeconds);
     const lg::PlayerState& newLife = respawnServer.snapshot().players[1];
     failures += expect(
-      respawnServer.snapshot().fragEvents[0].active &&
+      hasFrag(respawnServer.snapshot(), 0, 1) &&
         newLife.health == 100 &&
         respawnServer.snapshot().respawnTicksRemaining[1] == 0 &&
         newLife.velocity.x == 0.0F && newLife.velocity.y == 0.0F &&

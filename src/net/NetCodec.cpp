@@ -1284,7 +1284,13 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
 }
 
 bool writeRocketExplosion(Writer& writer, const RocketExplosionResult& result) {
-  if (!result.active || result.weapon > kLastWeapon) {
+  if (
+    !result.active ||
+    result.ownerPlayerIndex >= kDuelPlayerCount ||
+    result.sequence == 0U ||
+    result.projectileSequence == 0U ||
+    result.weapon > kLastWeapon
+  ) {
     return false;
   }
   return writeVec3(writer, result.position) &&
@@ -1293,12 +1299,14 @@ bool writeRocketExplosion(Writer& writer, const RocketExplosionResult& result) {
     writer.writeI32(result.opponentDamageApplied) &&
     writer.writeU32(result.sequence) &&
     writer.writeU32(result.projectileSequence) &&
+    writer.writeU8(result.ownerPlayerIndex) &&
     writer.writeU8(static_cast<std::uint8_t>(result.weapon));
 }
 
 bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
   std::int32_t ownerDamageApplied = 0;
   std::int32_t opponentDamageApplied = 0;
+  std::uint8_t ownerPlayerIndex = 0;
   std::uint8_t weapon = 0;
   result.active = true;
   if (
@@ -1308,6 +1316,7 @@ bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
     !reader.readI32(opponentDamageApplied) ||
     !reader.readU32(result.sequence) ||
     !reader.readU32(result.projectileSequence) ||
+    !reader.readU8(ownerPlayerIndex) ||
     !reader.readU8(weapon)
   ) {
     return false;
@@ -1317,12 +1326,16 @@ bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
     result.radius > 100.0F ||
     ownerDamageApplied < 0 ||
     opponentDamageApplied < 0 ||
+    result.sequence == 0U ||
+    result.projectileSequence == 0U ||
+    ownerPlayerIndex >= kDuelPlayerCount ||
     weapon > static_cast<std::uint8_t>(kLastWeapon)
   ) {
     return false;
   }
   result.ownerDamageApplied = ownerDamageApplied;
   result.opponentDamageApplied = opponentDamageApplied;
+  result.ownerPlayerIndex = ownerPlayerIndex;
   result.weapon = static_cast<Weapon>(weapon);
   return true;
 }
@@ -1347,7 +1360,11 @@ bool writeGrenadeBounceAudioEvent(
   Writer& writer,
   const GrenadeBounceAudioEvent& event
 ) {
-  return event.active && writer.writeU32(event.sequence) &&
+  return event.active &&
+    event.sequence != 0U &&
+    event.ownerPlayerIndex < kDuelPlayerCount &&
+    writer.writeU32(event.sequence) &&
+    writer.writeU8(event.ownerPlayerIndex) &&
     writeVec3(writer, event.position);
 }
 
@@ -1355,35 +1372,52 @@ bool readGrenadeBounceAudioEvent(
   Reader& reader,
   GrenadeBounceAudioEvent& event
 ) {
+  std::uint8_t ownerPlayerIndex = 0;
   event.active = true;
-  return reader.readU32(event.sequence) && readVec3(reader, event.position);
+  return reader.readU32(event.sequence) &&
+    reader.readU8(ownerPlayerIndex) &&
+    readVec3(reader, event.position) &&
+    event.sequence != 0U &&
+    ownerPlayerIndex < kDuelPlayerCount &&
+    (event.ownerPlayerIndex = ownerPlayerIndex, true);
 }
 
 bool writeFragEvent(Writer& writer, const FragEvent& event) {
   if (
-    !event.active || event.targetPlayerIndex >= kDuelPlayerCount ||
+    !event.active ||
+    event.sequence == 0U ||
+    event.attackerPlayerIndex >= kDuelPlayerCount ||
+    event.targetPlayerIndex >= kDuelPlayerCount ||
     event.weapon > kLastWeapon
   ) {
     return false;
   }
   return writer.writeU32(event.sequence) &&
+    writer.writeU8(event.attackerPlayerIndex) &&
     writer.writeU8(event.targetPlayerIndex) &&
     writer.writeU8(static_cast<std::uint8_t>(event.weapon));
 }
 
 bool readFragEvent(Reader& reader, FragEvent& event) {
+  std::uint8_t attackerPlayerIndex = 0;
   std::uint8_t weapon = 0;
   if (
     !reader.readU32(event.sequence) ||
+    !reader.readU8(attackerPlayerIndex) ||
     !reader.readU8(event.targetPlayerIndex) ||
     !reader.readU8(weapon)
   ) {
     return false;
   }
-  if (weapon > static_cast<std::uint8_t>(kLastWeapon)) {
+  if (
+    event.sequence == 0U ||
+    attackerPlayerIndex >= kDuelPlayerCount ||
+    weapon > static_cast<std::uint8_t>(kLastWeapon)
+  ) {
     return false;
   }
   event.active = true;
+  event.attackerPlayerIndex = attackerPlayerIndex;
   event.weapon = static_cast<Weapon>(weapon);
   return event.targetPlayerIndex < kDuelPlayerCount;
 }
@@ -1576,6 +1610,72 @@ bool writeSparseArray(
       return false;
     }
   }
+  return true;
+}
+
+// The combat presentation streams are global sequence rings, not owner rows.
+// Keep the slot mask explicit on the wire and leave record order as slot order;
+// clients sort by the validated sequence before presenting the burst.
+template <typename Array, typename WriteValue>
+bool writeCombatEventStream(
+  Writer& writer,
+  const Array& values,
+  std::uint16_t requestedMask,
+  WriteValue writeValue
+) {
+  static_assert(std::tuple_size_v<Array> == kDuelPlayerCount);
+  std::uint16_t activeMask = requestedMask;
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    const std::uint16_t bit = static_cast<std::uint16_t>(1U << index);
+    if ((activeMask & bit) != 0U && !values[index].active) {
+      return false;
+    }
+    if (values[index].active) {
+      if (
+        values[index].sequence == 0U ||
+        static_cast<std::size_t>(values[index].sequence - 1U) % values.size() !=
+          index
+      ) {
+        return false;
+      }
+      activeMask |= bit;
+    }
+  }
+  if (!writer.writeU16(activeMask)) return false;
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    if ((activeMask & static_cast<std::uint16_t>(1U << index)) != 0U &&
+        !writeValue(writer, values[index], index)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename Array, typename ReadValue>
+bool readCombatEventStream(
+  Reader& reader,
+  Array& values,
+  std::uint16_t& activeMask,
+  ReadValue readValue
+) {
+  static_assert(std::tuple_size_v<Array> == kDuelPlayerCount);
+  std::uint16_t decodedMask = 0;
+  if (!reader.readU16(decodedMask)) return false;
+  values = {};
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    if ((decodedMask & static_cast<std::uint16_t>(1U << index)) != 0U &&
+        !readValue(reader, values[index])) {
+      return false;
+    }
+    if (
+      (decodedMask & static_cast<std::uint16_t>(1U << index)) != 0U &&
+      static_cast<std::size_t>(values[index].sequence - 1U) % values.size() !=
+        index
+    ) {
+      return false;
+    }
+  }
+  activeMask = decodedMask;
   return true;
 }
 
@@ -1974,14 +2074,32 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
         [](const auto& value) { return value.active; }, writeLightningGun) ||
       !writeSparseArray(writer, snapshot.weaponFires,
         [](const auto& value) { return value.fired; }, writeWeaponFire) ||
-      !writeSparseArray(writer, snapshot.rocketExplosions,
-        [](const auto& value) { return value.active; }, writeRocketExplosion) ||
+      !writeCombatEventStream(
+        writer,
+        snapshot.rocketExplosions,
+        snapshot.rocketExplosionActiveMask,
+        [](Writer& streamWriter, const RocketExplosionResult& source, std::size_t) {
+          return writeRocketExplosion(streamWriter, source);
+        }
+      ) ||
       !writeSparseArray(writer, snapshot.footstepAudioEvents,
         [](const auto& value) { return value.active; }, writeFootstepAudioEvent) ||
-      !writeSparseArray(writer, snapshot.grenadeBounceAudioEvents,
-        [](const auto& value) { return value.active; }, writeGrenadeBounceAudioEvent) ||
-      !writeSparseArray(writer, snapshot.fragEvents,
-        [](const auto& value) { return value.active; }, writeFragEvent)) {
+      !writeCombatEventStream(
+        writer,
+        snapshot.grenadeBounceAudioEvents,
+        snapshot.grenadeBounceActiveMask,
+        [](Writer& streamWriter, const GrenadeBounceAudioEvent& source, std::size_t) {
+          return writeGrenadeBounceAudioEvent(streamWriter, source);
+        }
+      ) ||
+      !writeCombatEventStream(
+        writer,
+        snapshot.fragEvents,
+        snapshot.fragActiveMask,
+        [](Writer& streamWriter, const FragEvent& source, std::size_t) {
+          return writeFragEvent(streamWriter, source);
+        }
+      )) {
     return false;
   }
   constexpr std::size_t hitFeedbackBitCount =
@@ -2262,19 +2380,26 @@ bool encodeBoundedGameplaySnapshot(
   }
   bounded.footstepAudioEvents.fill({});
   bounded.grenadeBounceAudioEvents.fill({});
+  bounded.grenadeBounceActiveMask = 0;
   if (encodeServerSnapshot(bounded, wire)) return true;
 
   // Recurring beams cost less to lose than one-shot feedback.
   bounded.lightningGuns.fill({});
   if (encodeServerSnapshot(bounded, wire)) return true;
 
-  // The next snapshot is self-contained, so transient fire and blast visuals
-  // may be cut before player, projectile, objective, or score state.
-  bounded.weaponFires.fill({});
+  // A retained blast burst may fill all sixteen slots. Drop that stream before
+  // one-shot fire cues so old visuals cannot hide a newer shot.
   bounded.rocketExplosions.fill({});
+  bounded.rocketExplosionActiveMask = 0;
+  if (encodeServerSnapshot(bounded, wire)) return true;
+
+  // The next snapshot is self-contained, so transient fire cues may be cut
+  // before player, projectile, objective, or score state.
+  bounded.weaponFires.fill({});
   if (encodeServerSnapshot(bounded, wire)) return true;
 
   bounded.fragEvents.fill({});
+  bounded.fragActiveMask = 0;
   for (auto& events : bounded.localHitFeedbackEvents) events.fill({});
   if (encodeServerSnapshot(bounded, wire)) return true;
 
@@ -2351,10 +2476,25 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   if (!readSparseArray(reader, decoded.lightningGuns, readLightningGun) ||
       !readSparseArray(reader, decoded.weaponFires, readWeaponFire) ||
-      !readSparseArray(reader, decoded.rocketExplosions, readRocketExplosion) ||
+      !readCombatEventStream(
+        reader,
+        decoded.rocketExplosions,
+        decoded.rocketExplosionActiveMask,
+        readRocketExplosion
+      ) ||
       !readSparseArray(reader, decoded.footstepAudioEvents, readFootstepAudioEvent) ||
-      !readSparseArray(reader, decoded.grenadeBounceAudioEvents, readGrenadeBounceAudioEvent) ||
-      !readSparseArray(reader, decoded.fragEvents, readFragEvent)) {
+      !readCombatEventStream(
+        reader,
+        decoded.grenadeBounceAudioEvents,
+        decoded.grenadeBounceActiveMask,
+        readGrenadeBounceAudioEvent
+      ) ||
+      !readCombatEventStream(
+        reader,
+        decoded.fragEvents,
+        decoded.fragActiveMask,
+        readFragEvent
+      )) {
     return false;
   }
   constexpr std::size_t hitFeedbackBitCount =

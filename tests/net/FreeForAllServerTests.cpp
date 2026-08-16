@@ -557,6 +557,114 @@ int main() {
     );
   }
 
+  for (std::size_t victimCount : {2U, 3U}) {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setArena(testArena());
+    lg::MatchRules rules;
+    rules.deathRespawnTicks = 10;
+    server.setMatchRules(rules);
+
+    lg::ScenarioSetup setup = liveSetup(99, 0, 1);
+    setup.players[0].position = {-4.0F, 0.0F, 0.9F};
+    for (std::size_t victim = 1; victim <= victimCount; ++victim) {
+      setup.players[victim].connected = true;
+      setup.players[victim].ready = true;
+      setup.players[victim].alive = true;
+      setup.players[victim].health = 1;
+      setup.players[victim].position = {
+        4.0F,
+        static_cast<float>(victim - 1U) * 0.55F,
+        0.9F,
+      };
+      setup.players[victim].onGround = true;
+    }
+    failures += expect(
+      applySetup(server, setup),
+      "FFA rocket multi-kill setup should load"
+    );
+
+    lg::CommandPacket rocket;
+    rocket.playerIndex = 0;
+    rocket.command.sequence = 1;
+    rocket.command.attack = true;
+    rocket.command.weapon = lg::Weapon::RocketLauncher;
+    rocket.command.viewYawRadians = 0.0F;
+    transport.sendCommand(rocket);
+
+    lg::ServerSnapshot snapshot = server.snapshot();
+    for (int tick = 0; tick < 120 && snapshot.matchPhase == lg::MatchPhase::Live;
+         ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+
+    std::size_t fragCount = 0;
+    bool explicitAttacker = true;
+    for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+      if ((snapshot.fragActiveMask & (1U << slot)) == 0U) continue;
+      ++fragCount;
+      explicitAttacker = explicitAttacker &&
+        snapshot.fragEvents[slot].attackerPlayerIndex == 0;
+    }
+    failures += expect(
+      snapshot.scores[0] == static_cast<lg::PlayerScore>(99U + victimCount) &&
+        snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
+        snapshot.matchWinner == 0 && fragCount == victimCount && explicitAttacker,
+      victimCount == 2U
+        ? "one rocket should score and present two kills before FFA match end"
+        : "one rocket should score and present three kills before FFA match end"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setArena(testArena());
+    lg::MatchRules rules;
+    rules.deathRespawnTicks = 10;
+    server.setMatchRules(rules);
+    lg::ScenarioSetup setup = liveSetup(0, 0, 100);
+    setup.players[0].position = {-6.0F, -4.0F, 0.9F};
+    setup.players[1].position = {-6.0F, 4.0F, 0.9F};
+    for (std::size_t target = 2; target < 4; ++target) {
+      setup.players[target].connected = true;
+      setup.players[target].ready = true;
+      setup.players[target].alive = true;
+      setup.players[target].health = 80;
+      setup.players[target].position = {
+        6.0F,
+        target == 2U ? -4.0F : 4.0F,
+        0.9F,
+      };
+      setup.players[target].onGround = true;
+    }
+    failures += expect(
+      applySetup(server, setup),
+      "simultaneous FFA frag setup should load"
+    );
+    const lg::ServerSnapshot before = server.snapshot();
+    transport.sendCommand(aimedRail(before, 0, 2, 1));
+    transport.sendCommand(aimedRail(before, 1, 3, 1));
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+
+    std::uint16_t attackerMask = 0;
+    std::size_t fragCount = 0;
+    for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+      if ((snapshot.fragActiveMask & (1U << slot)) == 0U) continue;
+      ++fragCount;
+      attackerMask |= static_cast<std::uint16_t>(
+        1U << snapshot.fragEvents[slot].attackerPlayerIndex
+      );
+    }
+    failures += expect(
+      snapshot.scores[0] == 1 && snapshot.scores[1] == 1 &&
+        fragCount == 2U && attackerMask == 0x3U,
+      "two attackers should keep both same-tick frags with explicit ids"
+    );
+  }
+
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);

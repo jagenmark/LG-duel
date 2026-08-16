@@ -69,6 +69,9 @@ lg::replay::ReplayDemo validDemo() {
   checkpoint.projectileRevision = 3U;
   checkpoint.damageTakenSequences[0] = 17U;
   checkpoint.damageTakenSequences[1] = 23U;
+  checkpoint.rocketExplosionSequence = 31U;
+  checkpoint.fragEventSequence = 32U;
+  checkpoint.grenadeBounceEventSequence = 33U;
   checkpoint.players[0].connected = true;
   checkpoint.players[0].participating = true;
   checkpoint.players[0].player.position = {1.0F, 2.0F, 3.0F};
@@ -142,6 +145,13 @@ int main() {
     decoded.checkpoints.size() == 1U &&
       decoded.checkpoints[0].damageTakenSequences == source.checkpoints[0].damageTakenSequences,
     "damage-event sequences should round trip in replay checkpoints"
+  );
+  failures += expect(
+    decoded.checkpoints.size() == 1U &&
+      decoded.checkpoints[0].rocketExplosionSequence == 31U &&
+      decoded.checkpoints[0].fragEventSequence == 32U &&
+      decoded.checkpoints[0].grenadeBounceEventSequence == 33U,
+    "global combat-event sequences should round trip in replay checkpoints"
   );
   failures += expect(decoded.hashes.size() == 1U && decoded.hashes[0].value == source.hashes[0].value,
     "state hash should round trip");
