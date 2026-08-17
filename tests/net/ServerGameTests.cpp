@@ -281,6 +281,22 @@ std::string grenadeConfig(float hitboxRadius) {
   };
 }
 
+std::string grenadeBurstConfig() {
+  return
+    "version 1\n"
+    "weapon.gl.speed 500\n"
+    "weapon.gl.vertical_boost 0\n"
+    "weapon.gl.gravity 0\n"
+    "weapon.gl.bounce_damping 0.7\n"
+    "weapon.gl.rest_speed 1.5\n"
+    "weapon.gl.bounce_sound_min_speed 1.2\n"
+    "weapon.gl.projectile_radius 0.05\n"
+    "weapon.gl.projectile_hitbox_radius 0.05\n"
+    "weapon.gl.fuse_seconds 0.016\n"
+    "weapon.gl.radius 3.0\n"
+    "weapon.gl.cooldown_ticks 1\n";
+}
+
 std::string tinyQuakeMap() {
   return R"({
 "classname" "worldspawn"
@@ -331,6 +347,49 @@ int main() {
     failures += expect(transport.receiveCommand(received), "loopback should return second queued command");
     failures += expect(received.command.sequence == 4, "loopback should preserve all queued commands");
     failures += expect(!transport.receiveCommand(received), "empty loopback command queue should report false");
+  }
+
+  {
+    ScopedBalanceConfigDirectory configDirectory(grenadeBurstConfig());
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 20.0F};
+    arena.spawnPositions[0] = {0.0F, 0.0F, 0.5F};
+    arena.spawnPositions[1] = {-3.5F, 0.0F, 0.5F};
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand first;
+    first.sequence = 1;
+    first.attack = true;
+    first.weapon = lg::Weapon::GrenadeLauncher;
+    first.viewYawRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{0, first, false});
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand second = first;
+    second.sequence = 2;
+    second.viewYawRadians = 3.14159265359F;
+    transport.sendCommand(lg::CommandPacket{0, second, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+
+    std::size_t explosionCount = 0;
+    bool sameOwner = true;
+    for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
+      if ((snapshot.rocketExplosionActiveMask & (1U << slot)) == 0U) continue;
+      ++explosionCount;
+      sameOwner = sameOwner &&
+        snapshot.rocketExplosions[slot].ownerPlayerIndex == 0 &&
+        snapshot.rocketExplosions[slot].weapon == lg::Weapon::GrenadeLauncher;
+    }
+    failures += expect(
+      explosionCount == 2U && sameOwner,
+      "two same-owner grenades should keep both same-tick explosion records"
+    );
   }
 
   {
@@ -468,6 +527,54 @@ int main() {
         snapshot.scores[0] == 0 &&
         snapshot.scores[1] == 0,
       "warmup kill should emit a frag event, respawn, and not affect score"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    server.setConnectedPlayers({true, false});
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+    server.setConnectedPlayers({true, true});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+
+    lg::BalanceConfig balance;
+    balance.shotgun.pelletCount = 1U;
+    balance.shotgun.spreadRadians = 0.0F;
+    server.applyBalanceConfig(balance);
+
+    lg::CommandPacket lethalWarmupDamage;
+    lethalWarmupDamage.playerIndex = 0;
+    lethalWarmupDamage.command.sequence = 1;
+    lethalWarmupDamage.requestMovementTuning = true;
+    lethalWarmupDamage.weaponDamage.shotgunDamagePerPellet = 100;
+    transport.sendCommand(lethalWarmupDamage);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand warmupShotgun;
+    warmupShotgun.sequence = 2;
+    warmupShotgun.attack = true;
+    warmupShotgun.planarAim = true;
+    warmupShotgun.viewYawRadians = 0.0F;
+    warmupShotgun.weapon = lg::Weapon::Shotgun;
+    transport.sendCommand(lg::CommandPacket{0, warmupShotgun, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForReady &&
+        snapshot.fragEvents[0].active &&
+        snapshot.fragEvents[0].targetPlayerIndex == 1U &&
+        snapshot.fragEvents[0].weapon == lg::Weapon::Shotgun &&
+        snapshot.players[1].health == 100 &&
+        snapshot.respawnTicksRemaining[1] == 0 &&
+        snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0,
+      "warmup shotgun kill should respawn at once and keep its frag event"
     );
   }
 
@@ -3567,6 +3674,114 @@ int main() {
     arena.min = {-20.0F, -20.0F, 0.0F};
     arena.max = {20.0F, 20.0F, 10.0F};
     arena.spawnCount = 2;
+    arena.spawnPositions[0] = {-3.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {3.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+
+    lg::ScenarioSetup setup;
+    setup.seed = 46;
+    setup.match.phase = lg::MatchPhase::Live;
+    for (std::size_t index = 0; index < 2; ++index) {
+      setup.players[index].connected = true;
+      setup.players[index].ready = true;
+      setup.players[index].alive = true;
+      setup.players[index].health = 5;
+      setup.players[index].position = {
+        index == 0 ? -3.0F : 3.0F,
+        0.0F,
+        0.9F,
+      };
+      setup.players[index].onGround = true;
+    }
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "same-tick Duel draw scenario should load"
+    );
+
+    const lg::ServerSnapshot beforeShots = server.snapshot();
+    lg::UserCommand firstShot;
+    firstShot.sequence = 1;
+    firstShot.weapon = lg::Weapon::Railgun;
+    firstShot.attack = true;
+    aimAtPlayerBody(firstShot, beforeShots, 0, 1);
+    lg::UserCommand secondShot = firstShot;
+    aimAtPlayerBody(secondShot, beforeShots, 1, 0);
+    transport.sendCommand(lg::CommandPacket{0, firstShot, false});
+    transport.sendCommand(lg::CommandPacket{1, secondShot, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[0].health == 0 && snapshot.players[1].health == 0 &&
+        snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
+        snapshot.roundWinner == 255U && snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0,
+      "mutual same-tick Duel kills should end the round without an award"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 10.0F};
+    arena.spawnCount = 2;
+    arena.spawnPositions[0] = {-3.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {3.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+
+    lg::ScenarioSetup setup;
+    setup.seed = 47;
+    setup.match.gameMode = lg::GameMode::ClanArena;
+    setup.match.phase = lg::MatchPhase::Live;
+    for (std::size_t index = 0; index < 2; ++index) {
+      setup.players[index].connected = true;
+      setup.players[index].ready = true;
+      setup.players[index].alive = true;
+      setup.players[index].team = index == 0 ? lg::Team::Red : lg::Team::Blue;
+      setup.players[index].health = 5;
+      setup.players[index].position = {
+        index == 0 ? -3.0F : 3.0F,
+        0.0F,
+        0.9F,
+      };
+      setup.players[index].onGround = true;
+    }
+    std::string setupError;
+    failures += expect(
+      server.applyScenarioSetup(setup, &setupError),
+      "same-tick Clan Arena draw scenario should load"
+    );
+
+    const lg::ServerSnapshot beforeShots = server.snapshot();
+    lg::UserCommand firstShot;
+    firstShot.sequence = 1;
+    firstShot.weapon = lg::Weapon::Railgun;
+    firstShot.attack = true;
+    aimAtPlayerBody(firstShot, beforeShots, 0, 1);
+    lg::UserCommand secondShot = firstShot;
+    aimAtPlayerBody(secondShot, beforeShots, 1, 0);
+    transport.sendCommand(lg::CommandPacket{0, firstShot, false});
+    transport.sendCommand(lg::CommandPacket{1, secondShot, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[0].health == 0 && snapshot.players[1].health == 0 &&
+        snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
+        snapshot.roundWinningTeam == lg::Team::None &&
+        snapshot.teamScores[0] == 0 && snapshot.teamScores[1] == 0,
+      "mutual same-tick Clan Arena kills should end the round without an award"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 10.0F};
+    arena.spawnCount = 2;
     arena.spawnPositions[0] = {-6.0F, 0.0F, 0.0F};
     arena.spawnPositions[1] = {6.0F, 0.0F, 0.0F};
     server.setArena(arena);
@@ -3768,6 +3983,14 @@ int main() {
       snapshot.weaponFires[0].damageApplied ==
         static_cast<int>(snapshot.weaponFires[0].pelletHitCount) * 5,
       "shotgun event should report pellet-scaled damage"
+    );
+    failures += expect(
+      std::hypot(
+        snapshot.weaponFires[0].knockbackImpulse.x,
+        snapshot.weaponFires[0].knockbackImpulse.y,
+        snapshot.weaponFires[0].knockbackImpulse.z
+      ) > 0.0F,
+      "shotgun event should replicate aggregate knockback"
     );
     const int healthAfterFirstShot = snapshot.players[1].health;
     failures += expect(

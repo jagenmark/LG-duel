@@ -4500,7 +4500,8 @@ int main() {
     {0.0F, -1.0F, 0.0F},
     {0.0F, 0.0F, 1.0F},
     0.0872665F,
-    5U
+    5U,
+    lg::kShotgunPelletCount
   );
   failures += expect(
     std::isfinite(sharedPelletDirection.x) &&

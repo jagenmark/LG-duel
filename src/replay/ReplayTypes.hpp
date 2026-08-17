@@ -256,6 +256,15 @@ struct ReplayCheckpoint {
   std::array<ReplayFootstepState, kDuelPlayerCount> footstepStates = {};
   std::array<std::uint32_t, kDuelPlayerCount> grenadeBounceEventSequences = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> grenadeBounceSequences = {};
+  // Global presentation-stream counters. The arrays above remain in the
+  // checkpoint shape for format tooling that reads older native state, while
+  // these counters are the authoritative sequence state for version 5.
+  std::uint32_t rocketExplosionSequence = 0;
+  std::uint32_t fragEventSequence = 0;
+  std::uint32_t grenadeBounceEventSequence = 0;
+  std::uint8_t rocketExplosionNextSlot = 0;
+  std::uint8_t fragEventNextSlot = 0;
+  std::uint8_t grenadeBounceEventNextSlot = 0;
   std::array<std::uint32_t, Arena::kTeamSpawnCount> spawnLastUsedTicks = {};
   std::array<bool, Arena::kTeamSpawnCount> spawnWasUsed = {};
   std::uint32_t nextDeathmatchSpawnIndex = 0;

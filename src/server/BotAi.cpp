@@ -22,6 +22,15 @@ constexpr float kNavReachRadius = 0.55F;
 constexpr float kBotNavDt = 1.0F / 125.0F;
 constexpr float kCommonBotTargetFovDegrees = 108.0F;
 constexpr float kMaximumObservedSpeed = 60.0F;
+// Retain a still-visible opponent unless a challenger is clearly closer.
+// The absolute floor protects close-range fights; the relative term scales
+// the commitment margin at long range.
+constexpr float kTargetSwitchMinimumDistanceAdvantage = 0.75F;
+constexpr float kTargetSwitchRelativeDistanceAdvantage = 0.12F;
+constexpr int kHealthRecoveryThreshold = 45;
+constexpr float kMinimumHealthResourceMemorySeconds = 1.50F;
+constexpr float kHealthRouteCostBias = 1.0F;
+constexpr float kHealthResourceSwitchUtilityMultiplier = 1.20F;
 
 struct NavSamplingBounds {
   Vec3 min = {};
@@ -141,6 +150,18 @@ struct NavSamplingBounds {
   return {minimum, maximum};
 }
 
+[[nodiscard]] bool playerTouchesKillVolume(
+  const Arena& arena,
+  CollisionBounds bounds,
+  Vec3 position
+) {
+  for (std::size_t index = 0; index < arena.killVolumeCount; ++index) {
+    const ArenaKillVolume& volume = arena.killVolumes[index];
+    if (playerTouchesTriggerVolume(bounds, position, volume.min, volume.max)) return true;
+  }
+  return false;
+}
+
 [[nodiscard]] bool canStandAt(
   const Arena& arena,
   CollisionBounds bounds,
@@ -149,7 +170,8 @@ struct NavSamplingBounds {
   PlayerState player;
   player.position = position;
   player.bounds = bounds;
-  return !playerPositionSolid(arena, player, position);
+  return !playerPositionSolid(arena, player, position) &&
+    !playerTouchesKillVolume(arena, bounds, position);
 }
 
 // Keep this geometric precondition in step with Movement.cpp's trigger test.
@@ -289,7 +311,8 @@ struct NavSamplingBounds {
         const float offsetX = static_cast<float>(x) * kSpacing;
         const Vec3 center = pickup.position + Vec3{offsetX, offsetY, offsetZ};
         if (playerTouchesHealthPickup(bounds, center, pickup) &&
-            !playerPositionSolid(arena, player, center)) {
+            !playerPositionSolid(arena, player, center) &&
+            !playerTouchesKillVolume(arena, bounds, center)) {
           firstFreeCenter = center;
           return true;
         }
@@ -302,7 +325,8 @@ struct NavSamplingBounds {
 
 // A cheap player-bounds sweep filters links that a straight walking command
 // plainly cannot enter. It never accepts a link: every surviving edge still
-// runs the full fixed-step movement proof below.
+// runs the full fixed-step movement proof below. Kill volumes stay out of this
+// chord test because a jump or drop can safely clear one before the proof ends.
 [[nodiscard]] bool linearlyBlockedForPlayer(
   const Arena& arena,
   CollisionBounds bounds,
@@ -324,7 +348,8 @@ struct NavSamplingBounds {
   );
   for (std::size_t sample = 1U; sample < samples; ++sample) {
     const float fraction = static_cast<float>(sample) / static_cast<float>(samples);
-    if (playerPositionSolid(arena, player, from + (to - from) * fraction)) return true;
+    const Vec3 position = from + (to - from) * fraction;
+    if (playerPositionSolid(arena, player, position)) return true;
   }
   const CollisionResult trace = resolvePlayerArenaCollision(arena, player, to, to - from);
   return distance3d(trace.position, to) > kNavReachRadius;
@@ -346,7 +371,8 @@ struct NavSamplingBounds {
   bool foundStart = false;
   for (std::size_t raise = 0; raise <= 12U; ++raise) {
     start = hint + Vec3{0.0F, 0.0F, static_cast<float>(raise) * 0.25F};
-    if (!playerPositionSolid(arena, player, start)) {
+    if (!playerPositionSolid(arena, player, start) &&
+        !playerTouchesKillVolume(arena, bounds, start)) {
       foundStart = true;
       break;
     }
@@ -362,7 +388,8 @@ struct NavSamplingBounds {
     const CollisionResult landing = resolvePlayerArenaCollision(
       arena, player, probe - Vec3{0.0F, 0.0F, 0.75F}, {0.0F, 0.0F, -1.0F}
     );
-    if (landing.onGround && !playerPositionSolid(arena, player, landing.position)) {
+    if (landing.onGround && !playerPositionSolid(arena, player, landing.position) &&
+        !playerTouchesKillVolume(arena, bounds, landing.position)) {
       position = landing.position;
       return true;
     }
@@ -379,6 +406,7 @@ struct NavSamplingBounds {
   player.movementMode = MovementMode::Airborne;
   for (std::size_t tick = 0; tick < 250U; ++tick) {
     simulateMovement(player, settle, arena, MovementTuning{}, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) return false;
     if (player.onGround && !playerPositionSolid(arena, player, player.position)) {
       position = player.position;
       return true;
@@ -409,6 +437,7 @@ struct BotNavTraversalProof {
   player.health = 100;
   player.onGround = true;
   player.movementMode = MovementMode::Grounded;
+  if (playerTouchesKillVolume(arena, bounds, player.position)) return proof;
   const Vec3 delta = to - from;
   const float distance = std::max(0.01F, distance3d(from, to));
   UserCommand command;
@@ -436,6 +465,7 @@ struct BotNavTraversalProof {
   for (int tick = 0; tick < ticks; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
     ++proof.simulatedTicks;
+    if (playerTouchesKillVolume(arena, bounds, player.position)) return proof;
     if (distance3d(player.position, to) <= kNavReachRadius) {
       proof.reached = true;
       return proof;
@@ -474,6 +504,9 @@ struct BotNavTraversalProof {
   bool launched = false;
   for (std::size_t tick = 0; tick < 32U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) {
+      return BotNavSpecialFailureStage::Landing;
+    }
     if (player.jumpPadCooldownTicksRemaining == kDefaultJumpPadCooldownTicks) {
       launched = true;
       break;
@@ -482,6 +515,9 @@ struct BotNavTraversalProof {
   if (!launched) return BotNavSpecialFailureStage::TriggerActivation;
   for (std::size_t tick = 0; tick < 768U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) {
+      return BotNavSpecialFailureStage::Landing;
+    }
     if (player.onGround && !playerPositionSolid(arena, player, player.position)) {
       landing = player.position;
       return BotNavSpecialFailureStage::None;
@@ -508,6 +544,9 @@ struct BotNavTraversalProof {
   bool teleported = false;
   for (std::size_t tick = 0; tick < 32U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) {
+      return BotNavSpecialFailureStage::Landing;
+    }
     if (distance3d(player.position, destination) <= 0.01F) {
       teleported = true;
       break;
@@ -516,6 +555,9 @@ struct BotNavTraversalProof {
   if (!teleported) return BotNavSpecialFailureStage::TriggerActivation;
   for (std::size_t tick = 0; tick < 384U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) {
+      return BotNavSpecialFailureStage::Landing;
+    }
     if (player.onGround && !playerPositionSolid(arena, player, player.position)) {
       landing = player.position;
       return BotNavSpecialFailureStage::None;
@@ -551,6 +593,7 @@ struct BotNavTraversalProof {
   bool touched = playerTouchesHealthPickup(bounds, player.position, pickup);
   for (std::size_t tick = 0; tick < 384U; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (playerTouchesKillVolume(arena, bounds, player.position)) return false;
     touched = touched || playerTouchesHealthPickup(bounds, player.position, pickup);
     if (!touched) continue;
     command.forwardMove = 0.0F;
@@ -1334,7 +1377,9 @@ BotNavigationMap buildBotNavigationMap(
       ? BotNavLinkKind::Walk : BotNavLinkKind::Step;
     // A local edge can descend a tall authored ledge. Keep the proof bounded,
     // but allow its fixed simulation window to cover a normal fall instead of
-    // rejecting it at the former one-second cap.
+    // rejecting it at the former one-second cap. Kill volumes are checked by
+    // the traversal proof, so survivable drops remain legal while lethal ones
+    // never become graph edges.
     bool reached = runProof(from, to, false, sameLevelSimpleWalk);
     // A gap can have equal floor heights.  Prove a normal jump in that case
     // too; z alone does not describe the movement rule.
@@ -1956,6 +2001,9 @@ void BotBrain::reset(std::uint32_t seed) {
   stuckSamplePosition_ = {};
   strafeDirection_ = 1;
   targetPlayerIndex_ = kNoAssignedPlayer;
+  healthResourceIndex_ = std::numeric_limits<std::size_t>::max();
+  healthResourceUtility_ = -std::numeric_limits<float>::infinity();
+  healthRouteCost_ = std::numeric_limits<float>::infinity();
   patrolNode_ = BotNavigationMap::kMaxNodes;
   carrierObjectiveDestination_ = {};
   const std::uint32_t identitySeed = seed == 0U ? 0xB07D0D6EU : seed;
@@ -2006,6 +2054,8 @@ std::uint64_t BotBrain::deterministicHash() const {
   mixFloat(strafeSeconds_); mixFloat(stuckSampleSeconds_); mixFloat(stuckRecoverySeconds_);
   mixFloat(stuckSamplePosition_.x); mixFloat(stuckSamplePosition_.y); mixFloat(stuckSamplePosition_.z);
   mix(static_cast<std::uint32_t>(strafeDirection_)); mix(targetPlayerIndex_);
+  mix(static_cast<std::uint32_t>(healthResourceIndex_));
+  mixFloat(healthResourceUtility_); mixFloat(healthRouteCost_);
   mix(static_cast<std::uint32_t>(patrolNode_));
   mixFloat(carrierObjectiveDestination_.x); mixFloat(carrierObjectiveDestination_.y);
   mixFloat(carrierObjectiveDestination_.z); mix(hasCarrierObjectiveDestination_);
@@ -2065,6 +2115,201 @@ Weapon BotBrain::chooseWeapon(
     return sense.selectedWeapon;
   }
   return best;
+}
+
+bool BotBrain::planHealthRecovery(
+  const BotSenseFrame& sense,
+  const BotDifficultyProfile& profile,
+  const BotNavigationMap& navigation
+) {
+  pathCount_ = 0;
+  pathCursor_ = 0;
+  const std::size_t noResource = std::numeric_limits<std::size_t>::max();
+  const auto clearPlan = [&] {
+    healthResourceIndex_ = noResource;
+    healthResourceUtility_ = -std::numeric_limits<float>::infinity();
+    healthRouteCost_ = std::numeric_limits<float>::infinity();
+  };
+  const int missingHealth = std::max(0, sense.self.maxHealth - sense.self.health);
+  const std::size_t startNode = nearestBotNavNode(navigation, sense.self.position);
+  if (missingHealth <= 0 || startNode >= navigation.nodeCount) {
+    clearPlan();
+    return false;
+  }
+
+  // One deterministic single-source pass gives comparable directed
+  // route costs to every remembered health anchor at replan cadence.
+  std::array<float, BotNavigationMap::kMaxNodes> routeCosts = {};
+  std::array<std::uint16_t, BotNavigationMap::kMaxNodes> cameFrom = {};
+  std::array<bool, BotNavigationMap::kMaxNodes> closed = {};
+  std::array<std::uint16_t, BotNavigationMap::kMaxNodes> heap = {};
+  std::array<std::uint16_t, BotNavigationMap::kMaxNodes> heapPosition = {};
+  routeCosts.fill(std::numeric_limits<float>::infinity());
+  cameFrom.fill(UINT16_MAX);
+  heapPosition.fill(UINT16_MAX);
+
+  const auto comesBefore = [&](std::size_t first, std::size_t second) {
+    return routeCosts[first] < routeCosts[second] ||
+      (routeCosts[first] == routeCosts[second] && first < second);
+  };
+  std::size_t heapCount = 0;
+  const auto siftUp = [&](std::size_t index) {
+    while (index > 0U) {
+      const std::size_t parent = (index - 1U) / 2U;
+      if (!comesBefore(heap[index], heap[parent])) break;
+      std::swap(heap[index], heap[parent]);
+      heapPosition[heap[index]] = static_cast<std::uint16_t>(index);
+      heapPosition[heap[parent]] = static_cast<std::uint16_t>(parent);
+      index = parent;
+    }
+  };
+  const auto siftDown = [&](std::size_t index) {
+    while (true) {
+      const std::size_t left = index * 2U + 1U;
+      if (left >= heapCount) break;
+      const std::size_t right = left + 1U;
+      std::size_t child = left;
+      if (right < heapCount && comesBefore(heap[right], heap[left])) child = right;
+      if (!comesBefore(heap[child], heap[index])) break;
+      std::swap(heap[index], heap[child]);
+      heapPosition[heap[index]] = static_cast<std::uint16_t>(index);
+      heapPosition[heap[child]] = static_cast<std::uint16_t>(child);
+      index = child;
+    }
+  };
+  const auto pushOrDecrease = [&](std::size_t node) {
+    if (heapPosition[node] == UINT16_MAX) {
+      heap[heapCount] = static_cast<std::uint16_t>(node);
+      heapPosition[node] = static_cast<std::uint16_t>(heapCount++);
+    }
+    siftUp(heapPosition[node]);
+  };
+
+  routeCosts[startNode] = 0.0F;
+  pushOrDecrease(startNode);
+  while (heapCount > 0U) {
+    const std::size_t current = heap[0];
+    --heapCount;
+    if (heapCount > 0U) {
+      heap[0] = heap[heapCount];
+      heapPosition[heap[0]] = 0U;
+      siftDown(0U);
+    }
+    heapPosition[current] = UINT16_MAX;
+    if (closed[current]) continue;
+    closed[current] = true;
+    const auto relax = [&](const BotNavLink& link) {
+      if (closed[link.to]) return;
+      const float tentative = routeCosts[current] + distance3d(
+        navigation.nodes[current].position, navigation.nodes[link.to].position
+      );
+      if (tentative < routeCosts[link.to]) {
+        routeCosts[link.to] = tentative;
+        cameFrom[link.to] = static_cast<std::uint16_t>(current);
+        pushOrDecrease(link.to);
+      }
+    };
+    if (navigation.outgoingLinksPrepared) {
+      for (std::uint16_t linkIndex = navigation.outgoingLinkHead[current];
+           linkIndex != UINT16_MAX;
+           linkIndex = navigation.outgoingLinkNext[linkIndex]) {
+        relax(navigation.links[linkIndex]);
+      }
+    } else {
+      for (std::size_t linkIndex = 0; linkIndex < navigation.linkCount; ++linkIndex) {
+        const BotNavLink& link = navigation.links[linkIndex];
+        if (link.from == current) relax(link);
+      }
+    }
+  }
+
+  const float memorySeconds = std::max(
+    kMinimumHealthResourceMemorySeconds, profile.memorySeconds
+  );
+  std::size_t bestResource = noResource;
+  float bestUtility = -std::numeric_limits<float>::infinity();
+  float bestRouteCost = std::numeric_limits<float>::infinity();
+  float currentUtility = -std::numeric_limits<float>::infinity();
+  float currentRouteCost = std::numeric_limits<float>::infinity();
+  for (std::size_t index = 0; index < resourceMemory_.size(); ++index) {
+    const ResourceMemory& resource = resourceMemory_[index];
+    if (!resource.valid || !resource.available || resource.value <= 0) continue;
+    const std::size_t anchor = navigation.healthAnchorNodes[index];
+    if (anchor >= navigation.nodeCount || !std::isfinite(routeCosts[anchor])) continue;
+    const int recoverableHealth = std::min(resource.value, missingHealth);
+    if (recoverableHealth <= 0) continue;
+    const float confidence = std::clamp(
+      1.0F - resource.ageSeconds / memorySeconds, 0.0F, 1.0F
+    );
+    if (confidence <= 0.0F) continue;
+    // Score only health the bot can actually receive. Sightings become
+    // less trustworthy with age, and graph cost replaces geometric proximity.
+    const float utility = static_cast<float>(recoverableHealth) * confidence /
+      (kHealthRouteCostBias + routeCosts[anchor]);
+    if (index == healthResourceIndex_) {
+      currentUtility = utility;
+      currentRouteCost = routeCosts[anchor];
+    }
+    if (utility > bestUtility ||
+        (utility == bestUtility && index < bestResource)) {
+      bestResource = index;
+      bestUtility = utility;
+      bestRouteCost = routeCosts[anchor];
+    }
+  }
+  if (bestResource == noResource) {
+    clearPlan();
+    return false;
+  }
+
+  std::size_t selectedResource = bestResource;
+  float selectedUtility = bestUtility;
+  float selectedRouteCost = bestRouteCost;
+  // Retain the current pickup unless a challenger is at least 20%
+  // better, preventing minor memory or route changes from churning paths.
+  if (healthResourceIndex_ < resourceMemory_.size() &&
+      bestResource != healthResourceIndex_ &&
+      std::isfinite(currentUtility) &&
+      bestUtility < currentUtility *
+        kHealthResourceSwitchUtilityMultiplier) {
+    selectedResource = healthResourceIndex_;
+    selectedUtility = currentUtility;
+    selectedRouteCost = currentRouteCost;
+  }
+
+  const std::size_t targetNode =
+    navigation.healthAnchorNodes[selectedResource];
+  std::array<std::uint16_t, BotNavigationMap::kMaxNodes> reversed = {};
+  std::size_t count = 0;
+  bool reachedStart = false;
+  for (std::size_t node = targetNode; count < reversed.size(); ) {
+    reversed[count++] = static_cast<std::uint16_t>(node);
+    if (node == startNode) {
+      reachedStart = true;
+      break;
+    }
+    const std::uint16_t previous = cameFrom[node];
+    if (previous == UINT16_MAX) {
+      count = 0;
+      break;
+    }
+    node = previous;
+  }
+  if (!reachedStart) {
+    clearPlan();
+    return false;
+  }
+  while (count > 0U && pathCount_ < path_.size()) {
+    path_[pathCount_++] = reversed[--count];
+  }
+  if (pathCount_ > 1U && path_[0] == startNode) pathCursor_ = 1U;
+  if (pathCount_ > 2U && path_[pathCursor_] == lastWaypoint_) {
+    ++pathCursor_;
+  }
+  healthResourceIndex_ = selectedResource;
+  healthResourceUtility_ = selectedUtility;
+  healthRouteCost_ = selectedRouteCost;
+  return pathCount_ > 0U;
 }
 
 bool BotBrain::planPath(
@@ -2219,7 +2464,8 @@ BotMotor BotBrain::tick(
   for (ResourceMemory& memory : resourceMemory_) {
     if (!memory.valid) continue;
     memory.ageSeconds += dt;
-    if (memory.ageSeconds > std::max(1.50F, profile.memorySeconds)) {
+    if (memory.ageSeconds > std::max(
+        kMinimumHealthResourceMemorySeconds, profile.memorySeconds)) {
       memory.valid = false;
     }
   }
@@ -2240,6 +2486,10 @@ BotMotor BotBrain::tick(
   float visibleDistance = std::numeric_limits<float>::infinity();
   bool visibleTargetGrounded = false;
   bool visibleTargetSplashSurface = false;
+  std::size_t currentVisibleTarget = kDuelPlayerCount;
+  float currentVisibleDistance = std::numeric_limits<float>::infinity();
+  bool currentVisibleTargetGrounded = false;
+  bool currentVisibleTargetSplashSurface = false;
   for (std::size_t index = 0; index < sense.visibleEnemyCount; ++index) {
     const BotObservedEnemy& enemy = sense.visibleEnemies[index];
     if (enemy.playerIndex >= kDuelPlayerCount) continue;
@@ -2267,11 +2517,32 @@ BotMotor BotBrain::tick(
       memory.valid = true;
     }
     const float distance = horizontalDistance(sense.self.position, enemy.position);
-    if (distance < visibleDistance) {
+    const bool betterCandidate = distance < visibleDistance ||
+      (distance == visibleDistance && enemy.playerIndex < visibleTarget);
+    if (betterCandidate) {
       visibleDistance = distance;
       visibleTarget = enemy.playerIndex;
       visibleTargetGrounded = enemy.onGround;
       visibleTargetSplashSurface = enemy.nearbySplashSurface;
+    }
+    if (enemy.playerIndex == targetPlayerIndex_) {
+      currentVisibleTarget = enemy.playerIndex;
+      currentVisibleDistance = distance;
+      currentVisibleTargetGrounded = enemy.onGround;
+      currentVisibleTargetSplashSurface = enemy.nearbySplashSurface;
+    }
+  }
+  if (currentVisibleTarget < kDuelPlayerCount &&
+      visibleTarget != currentVisibleTarget) {
+    const float switchAdvantage = std::max(
+      kTargetSwitchMinimumDistanceAdvantage,
+      currentVisibleDistance * kTargetSwitchRelativeDistanceAdvantage
+    );
+    if (visibleDistance + switchAdvantage >= currentVisibleDistance) {
+      visibleTarget = currentVisibleTarget;
+      visibleDistance = currentVisibleDistance;
+      visibleTargetGrounded = currentVisibleTargetGrounded;
+      visibleTargetSplashSurface = currentVisibleTargetSplashSurface;
     }
   }
 
@@ -2345,28 +2616,55 @@ BotMotor BotBrain::tick(
   } else if (!carrierDelivery) {
     hasCarrierObjectiveDestination_ = false;
   }
+
+  const auto clearHealthRecoveryPlan = [&] {
+    healthResourceIndex_ = std::numeric_limits<std::size_t>::max();
+    healthResourceUtility_ = -std::numeric_limits<float>::infinity();
+    healthRouteCost_ = std::numeric_limits<float>::infinity();
+    pathCount_ = 0;
+    pathCursor_ = 0;
+    replanSeconds_ = 0.0F;
+  };
+  const bool committedHealthResourceValid =
+    healthResourceIndex_ < resourceMemory_.size() &&
+    resourceMemory_[healthResourceIndex_].valid &&
+    resourceMemory_[healthResourceIndex_].available &&
+    resourceMemory_[healthResourceIndex_].value > 0 &&
+    navigation.healthAnchorNodes[healthResourceIndex_] < navigation.nodeCount;
+  if (healthResourceIndex_ < resourceMemory_.size() &&
+      (carrierDelivery ||
+       sense.self.health >= kHealthRecoveryThreshold ||
+       sense.self.health >= sense.self.maxHealth ||
+       !committedHealthResourceValid)) {
+    clearHealthRecoveryPlan();
+  }
+  if (!carrierDelivery &&
+      sense.self.health < kHealthRecoveryThreshold &&
+      sense.self.health < sense.self.maxHealth &&
+      replanSeconds_ <= dt &&
+      planHealthRecovery(sense, profile, navigation)) {
+    // This runs before the common replan timer decrement below. Add this
+    // tick so the resulting interval matches normal A* replans.
+    replanSeconds_ = dt +
+      profile.planningIntervalSeconds * traits_.movementCadenceBias +
+      randomFloat(RandomStream::Tactics, 0.0F, 0.12F);
+  }
+  if (healthResourceIndex_ < resourceMemory_.size()) {
+    output.healthResourceIndex = healthResourceIndex_;
+    output.healthResourceUtility = healthResourceUtility_;
+    output.healthRouteCost = healthRouteCost_;
+  }
+
   // Delivery comes before combat and recovery movement. A carrier can still
   // aim and fire after reacting, but it must not abandon its legal base goal.
   if (carrierDelivery) {
     movementGoal = sense.objective.scoringPosition;
     output.goal = BotGoalKind::Objective;
-  } else if (sense.self.health < 45) {
-    float bestDistance = std::numeric_limits<float>::infinity();
-    for (std::size_t index = 0; index < resourceMemory_.size(); ++index) {
-      const ResourceMemory& resource = resourceMemory_[index];
-      if (!resource.valid || !resource.available || resource.value <= 0) continue;
-      const float distance = horizontalDistance(sense.self.position, resource.position);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        // The public resource index selects the corresponding map-load touch
-        // proof. This uses the exact collision-settled node for both ordinary
-        // and airborne pickups instead of snapping back to the authored point.
-        const std::size_t healthAnchor = navigation.healthAnchorNodes[index];
-        movementGoal = healthAnchor < navigation.nodeCount
-          ? navigation.nodes[healthAnchor].position : resource.position;
-        output.goal = BotGoalKind::RecoverHealth;
-      }
-    }
+  } else if (healthResourceIndex_ < resourceMemory_.size()) {
+    const std::size_t healthAnchor =
+      navigation.healthAnchorNodes[healthResourceIndex_];
+    movementGoal = navigation.nodes[healthAnchor].position;
+    output.goal = BotGoalKind::RecoverHealth;
   }
   Vec3 combatTarget = sense.self.position;
   if (target < kDuelPlayerCount) {
@@ -2491,12 +2789,12 @@ BotMotor BotBrain::tick(
   }
 
   Vec3 moveTarget = movementGoal;
-  // Visible combat permits direct movement. A known health or objective goal
-  // still uses the graph, so a visible enemy cannot turn it into a wall run.
-  const bool directTarget = output.goal == BotGoalKind::Chase && targetVisible &&
-    targetDecisionAllowed;
+  // Combat movement uses the same movement-proven graph as every other goal.
+  // Direct visible-target steering used to bypass it completely, which let a
+  // target on the other side of an exposed platform pull the bot straight
+  // over the edge.
   replanSeconds_ -= dt;
-  if (!directTarget && output.goal != BotGoalKind::Safe && replanSeconds_ <= 0.0F) {
+  if (output.goal != BotGoalKind::Safe && replanSeconds_ <= 0.0F) {
     const bool pathFound = planPath(navigation, sense.self.position, movementGoal);
     if (!pathFound) {
       // Never fall through to direct input when A* cannot bridge components.
@@ -2507,7 +2805,7 @@ BotMotor BotBrain::tick(
     replanSeconds_ = profile.planningIntervalSeconds * traits_.movementCadenceBias +
       randomFloat(RandomStream::Tactics, 0.0F, 0.12F);
   }
-  if (!directTarget && pathCursor_ < pathCount_) {
+  if (pathCursor_ < pathCount_) {
     while (pathCursor_ < pathCount_ && distance3d(sense.self.position,
       navigation.nodes[path_[pathCursor_]].position) <= kNavReachRadius) {
       lastWaypoint_ = path_[pathCursor_++];
@@ -2518,7 +2816,7 @@ BotMotor BotBrain::tick(
     } else {
       moveTarget = sense.self.position;
     }
-  } else if (!directTarget) {
+  } else {
     moveTarget = sense.self.position;
   }
 
@@ -2526,10 +2824,14 @@ BotMotor BotBrain::tick(
   moveDelta.z = 0.0F;
   const float moveLength = length(moveDelta);
   const bool wantsMovement = output.goal != BotGoalKind::Safe && moveLength > 0.20F;
+  // Recovery is a one-tick stop. The stuck sample below can trigger another
+  // recovery only after a fresh 0.50 second observation window, so a bot gets
+  // a full tick to use the route that this recovery invalidated.
+  stuckRecoverySeconds_ = std::max(0.0F, stuckRecoverySeconds_ - dt);
   stuckSampleSeconds_ += dt;
   if (wantsMovement && stuckSampleSeconds_ >= 0.50F) {
     if (horizontalDistance(sense.self.position, stuckSamplePosition_) < 0.12F) {
-      stuckRecoverySeconds_ = 0.55F;
+      stuckRecoverySeconds_ = dt;
       strafeDirection_ = -strafeDirection_;
       pathCount_ = 0;
       pathCursor_ = 0;
@@ -2538,7 +2840,6 @@ BotMotor BotBrain::tick(
     stuckSamplePosition_ = sense.self.position;
     stuckSampleSeconds_ = 0.0F;
   }
-  stuckRecoverySeconds_ = std::max(0.0F, stuckRecoverySeconds_ - dt);
   output.recoveredFromStuck = stuckRecoverySeconds_ > 0.0F;
 
   if (sense.dodgeOverride && !sense.standstill) {
@@ -2563,7 +2864,11 @@ BotMotor BotBrain::tick(
       -std::cos(command.viewYawRadians), 0.0F};
     command.forwardMove = std::clamp(dot(direction, forward), -1.0F, 1.0F);
     command.rightMove = std::clamp(dot(direction, right), -1.0F, 1.0F);
-    if (output.goal == BotGoalKind::Chase && targetVisible && targetDecisionAllowed) {
+    // Do not blend free-form combat dodging into a movement-proven edge.
+    // Strafing, random hops, and dashes can invalidate the exact input that
+    // made that edge safe near a drop. Aim and firing remain independent.
+    if (output.goal == BotGoalKind::Chase && targetVisible && targetDecisionAllowed &&
+        output.waypointNode >= navigation.nodeCount) {
       strafeSeconds_ -= dt;
       if (strafeSeconds_ <= 0.0F) {
         strafeDirection_ = (randomU32(RandomStream::Movement) & 1U) == 0U ? -1 : 1;
@@ -2589,8 +2894,13 @@ BotMotor BotBrain::tick(
     }
   }
   if (output.recoveredFromStuck && !sense.standstill) {
-    command.rightMove = static_cast<float>(strafeDirection_);
-    command.jump = sense.self.onGround;
+    // Recovery already clears the stale route and forces an immediate replan.
+    // The former blind sideways jump was useful against a wall but dangerous
+    // at a ledge, so do not add unproved movement while the new path is chosen.
+    command.forwardMove = 0.0F;
+    command.rightMove = 0.0F;
+    command.jump = false;
+    command.dash = false;
   }
 
   const float yawError = target < kDuelPlayerCount

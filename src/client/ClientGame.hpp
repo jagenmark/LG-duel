@@ -108,7 +108,6 @@ private:
   void receiveProjectileUpdates();
   void advanceProjectiles(float elapsedSeconds);
   void removeExplodedProjectile(
-    std::size_t owner,
     const RocketExplosionResult& explosion
   );
 
@@ -151,7 +150,7 @@ private:
   };
   std::array<ExplodedProjectileKey, kMaxRocketProjectiles>
     explodedProjectileKeys_ = {};
-  std::array<std::uint32_t, kMaxPlayers> processedExplosionSequences_ = {};
+  std::uint32_t processedExplosionSequence_ = 0;
   std::size_t nextExplodedProjectileKey_ = 0;
   std::uint32_t projectileRevision_ = 0;
   bool hasProjectileRevision_ = false;

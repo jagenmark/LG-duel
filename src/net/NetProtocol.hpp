@@ -285,12 +285,14 @@ struct FootstepAudioEvent {
 struct GrenadeBounceAudioEvent {
   bool active = false;
   std::uint32_t sequence = 0;
+  std::uint8_t ownerPlayerIndex = 255;
   Vec3 position = {};
 };
 
 struct FragEvent {
   bool active = false;
   std::uint32_t sequence = 0;
+  std::uint8_t attackerPlayerIndex = 255;
   std::uint8_t targetPlayerIndex = 255;
   Weapon weapon = Weapon::LightningGun;
 };
@@ -447,9 +449,15 @@ struct ServerSnapshot {
   std::array<LightningGunResult, kDuelPlayerCount> lightningGuns = {};
   std::array<WeaponFireResult, kDuelPlayerCount> weaponFires = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> rocketExplosions = {};
+  // The three presentation streams below use sequence-indexed global slots.
+  // The mask is separate so an inactive slot can retain old bytes without
+  // becoming a live event on the wire.
+  std::uint16_t rocketExplosionActiveMask = 0;
   std::array<FootstepAudioEvent, kDuelPlayerCount> footstepAudioEvents = {};
   std::array<GrenadeBounceAudioEvent, kDuelPlayerCount> grenadeBounceAudioEvents = {};
+  std::uint16_t grenadeBounceActiveMask = 0;
   std::array<FragEvent, kDuelPlayerCount> fragEvents = {};
+  std::uint16_t fragActiveMask = 0;
   std::array<
     std::array<LocalHitFeedbackEvent, kLocalHitFeedbackEventWindow>,
     kDuelPlayerCount

@@ -36,6 +36,7 @@ bool sameRocketExplosionEvent(
     lhs.ownerDamageApplied == rhs.ownerDamageApplied &&
     lhs.opponentDamageApplied == rhs.opponentDamageApplied &&
     lhs.sequence == rhs.sequence &&
+    lhs.ownerPlayerIndex == rhs.ownerPlayerIndex &&
     lhs.radius == rhs.radius &&
     sameVec3(lhs.position, rhs.position);
 }
@@ -43,6 +44,7 @@ bool sameRocketExplosionEvent(
 bool sameFragEvent(const FragEvent& lhs, const FragEvent& rhs) {
   return lhs.active == rhs.active &&
     lhs.sequence == rhs.sequence &&
+    lhs.attackerPlayerIndex == rhs.attackerPlayerIndex &&
     lhs.targetPlayerIndex == rhs.targetPlayerIndex &&
     lhs.weapon == rhs.weapon;
 }

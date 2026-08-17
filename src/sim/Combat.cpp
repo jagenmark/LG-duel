@@ -29,15 +29,20 @@ constexpr float kHeadHitboxRadiusScale = 0.96F;
   Vec3 right,
   Vec3 up,
   float spreadRadians,
-  std::uint8_t pelletIndex
+  std::uint8_t pelletIndex,
+  std::uint8_t pelletCount
 ) {
   if (pelletIndex == 0 || spreadRadians <= 0.0F) {
     return forward;
   }
 
   constexpr float kGoldenAngle = 2.39996323F;
+  const std::uint32_t denominator = std::max<std::uint32_t>(
+    1U,
+    static_cast<std::uint32_t>(pelletCount) - 1U
+  );
   const float normalizedRadius =
-    std::sqrt(static_cast<float>(pelletIndex) / static_cast<float>(kShotgunPelletCount - 1U));
+    std::sqrt(static_cast<float>(pelletIndex) / static_cast<float>(denominator));
   const float angle = static_cast<float>(pelletIndex) * kGoldenAngle;
   const float spread = std::tan(spreadRadians) * normalizedRadius;
   return normalize(
@@ -639,9 +644,17 @@ Vec3 shotgunPelletDirection(
   Vec3 right,
   Vec3 up,
   float spreadRadians,
-  std::uint8_t pelletIndex
+  std::uint8_t pelletIndex,
+  std::uint8_t pelletCount
 ) {
-  return pelletDirection(forward, right, up, spreadRadians, pelletIndex);
+  return pelletDirection(
+    forward,
+    right,
+    up,
+    spreadRadians,
+    pelletIndex,
+    pelletCount
+  );
 }
 
 bool tracePlayerCylinder(
@@ -1024,18 +1037,19 @@ WeaponFireResult simulateMachineGun(
   return result;
 }
 
-WeaponFireResult simulateShotgun(
+ShotgunResolution resolveShotgunMultiTarget(
   const PlayerState& attacker,
-  PlayerState& target,
   const UserCommand& command,
   const Arena& arena,
-  const ShotgunTuning& tuning
+  const ShotgunTuning& tuning,
+  const std::array<ShotgunTargetCandidate, kMaxPlayers>& candidates
 ) {
-  WeaponFireResult result;
-  result.weapon = Weapon::Shotgun;
-  result.visualSeed = command.sequence;
-  result.pelletCount = tuning.pelletCount;
-  result.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
+  ShotgunResolution resolution;
+  WeaponFireResult& fire = resolution.fire;
+  fire.weapon = Weapon::Shotgun;
+  fire.visualSeed = command.sequence;
+  fire.pelletCount = tuning.pelletCount;
+  fire.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
 
   const Vec3 forward = cameraForward(command.viewYawRadians, command.viewPitchRadians);
   Vec3 right = normalize(cross(forward, Vec3{0.0F, 0.0F, 1.0F}));
@@ -1043,85 +1057,182 @@ WeaponFireResult simulateShotgun(
     right = Vec3{1.0F, 0.0F, 0.0F};
   }
   const Vec3 up = normalize(cross(right, forward));
-  const WorldTrace centerTrace = traceWorld(arena, result.start, forward, tuning.range);
-  result.end = centerTrace.end;
-  result.fired = command.attack && attacker.health > 0;
-  if (!result.fired || target.health <= 0) {
-    return result;
+  const WorldTrace centerTrace = traceWorld(arena, fire.start, forward, tuning.range);
+  // The center ray is the stable visual aggregate endpoint. Per-pellet hit
+  // positions stay in the local result rows and never enter the snapshot.
+  fire.end = centerTrace.end;
+  fire.fired = command.attack && attacker.health > 0;
+  if (!fire.fired || tuning.pelletCount == 0U) {
+    return resolution;
   }
 
-  Vec3 accumulatedKnockbackDirection = {};
-  float nearestHitDistance = centerTrace.distance;
-  int totalDamage = 0;
-  float centerHeadHitDistance = 0.0F;
-  const bool centerHeadshot = intersectPlayerHeadHitbox(
-    result.start,
-    forward,
-    target,
-    centerTrace.distance,
-    centerHeadHitDistance
-  );
-  for (std::uint8_t pelletIndex = 0; pelletIndex < tuning.pelletCount; ++pelletIndex) {
+  std::array<bool, kMaxPlayers> centerHeadshots = {};
+  for (const ShotgunTargetCandidate& candidate : candidates) {
+    if (
+      !candidate.valid ||
+      candidate.playerIndex >= kMaxPlayers ||
+      candidate.player.health <= 0
+    ) {
+      continue;
+    }
+    float centerHeadHitDistance = 0.0F;
+    centerHeadshots[candidate.playerIndex] = intersectPlayerHeadHitbox(
+      fire.start,
+      forward,
+      candidate.player,
+      centerTrace.distance,
+      centerHeadHitDistance
+    );
+  }
+
+  std::array<Vec3, kMaxPlayers> accumulatedDirections = {};
+  std::array<float, kMaxPlayers> nearestHitDistances = {};
+  nearestHitDistances.fill(std::numeric_limits<float>::max());
+  for (std::uint16_t pelletIndex = 0;
+       pelletIndex < static_cast<std::uint16_t>(tuning.pelletCount);
+       ++pelletIndex) {
+    const std::uint8_t pellet = static_cast<std::uint8_t>(pelletIndex);
     const Vec3 direction = pelletDirection(
       forward,
       right,
       up,
       tuning.spreadRadians,
-      pelletIndex
+      pellet,
+      tuning.pelletCount
     );
-    const WorldTrace pelletTrace = traceWorld(arena, result.start, direction, tuning.range);
-    float hitDistance = 0.0F;
-    if (!intersectPlayerCylinder(
-      result.start,
-      direction,
-      target,
-      pelletTrace.distance,
-      hitDistance
-    )) {
+    const WorldTrace pelletTrace = traceWorld(arena, fire.start, direction, tuning.range);
+    std::uint8_t bestPlayerIndex = kShotgunNoPlayer;
+    float bestHitDistance = pelletTrace.distance;
+    const PlayerState* bestPlayer = nullptr;
+    for (const ShotgunTargetCandidate& candidate : candidates) {
+      if (
+        !candidate.valid ||
+        candidate.playerIndex >= kMaxPlayers ||
+        candidate.player.health <= 0
+      ) {
+        continue;
+      }
+      float hitDistance = 0.0F;
+      if (!tracePlayerCylinder(
+        fire.start,
+        direction,
+        candidate.player,
+        pelletTrace.distance,
+        hitDistance
+      )) {
+        continue;
+      }
+      if (
+        bestPlayer == nullptr ||
+        hitDistance < bestHitDistance ||
+        (
+          hitDistance == bestHitDistance &&
+          candidate.playerIndex < bestPlayerIndex
+        )
+      ) {
+        bestPlayerIndex = candidate.playerIndex;
+        bestHitDistance = hitDistance;
+        bestPlayer = &candidate.player;
+      }
+    }
+    if (bestPlayer == nullptr) {
       continue;
     }
 
-    ++result.pelletHitCount;
-    float headHitDistance = 0.0F;
+    ShotgunTargetResult& target = resolution.targets[bestPlayerIndex];
+    target.playerIndex = bestPlayerIndex;
     const bool pelletHeadshot =
-      // Require the center aim ray to be on the head before spread pellets may
-      // receive headshot credit, preventing random edge pellets from granting it.
-      centerHeadshot &&
-      intersectPlayerHeadHitbox(
-        result.start,
-        direction,
-        target,
-        pelletTrace.distance,
-        headHitDistance
-      );
+      // Require the center aim ray to be on this chosen target before spread
+      // pellets may receive headshot credit, matching the single-target rules.
+      centerHeadshots[bestPlayerIndex] &&
+      [&] {
+        float headHitDistance = 0.0F;
+        return intersectPlayerHeadHitbox(
+          fire.start,
+          direction,
+          *bestPlayer,
+          pelletTrace.distance,
+          headHitDistance
+        );
+      }();
     if (pelletHeadshot) {
-      ++result.pelletHeadshotCount;
+      ++target.headPelletCount;
+      ++fire.pelletHeadshotCount;
+    } else {
+      ++target.bodyPelletCount;
     }
-    totalDamage += applyHeadshotDamage(
+    ++fire.pelletHitCount;
+    target.requestedDamage += applyHeadshotDamage(
       tuning.damagePerPellet,
       pelletHeadshot,
       tuning.headshotMultiplier
     );
-    nearestHitDistance = std::min(nearestHitDistance, hitDistance);
-    accumulatedKnockbackDirection += direction;
+    accumulatedDirections[bestPlayerIndex] += direction;
+    if (bestHitDistance < nearestHitDistances[bestPlayerIndex]) {
+      nearestHitDistances[bestPlayerIndex] = bestHitDistance;
+      target.hitPosition = fire.start + (direction * bestHitDistance);
+    }
   }
 
-  if (result.pelletHitCount == 0) {
+  fire.hit = fire.pelletHitCount > 0;
+  fire.headshot = fire.pelletHeadshotCount > 0;
+  for (ShotgunTargetResult& target : resolution.targets) {
+    if (target.playerIndex >= kMaxPlayers) {
+      continue;
+    }
+    const std::uint16_t hitCount =
+      static_cast<std::uint16_t>(target.bodyPelletCount) +
+      static_cast<std::uint16_t>(target.headPelletCount);
+    const float hitFraction =
+      static_cast<float>(hitCount) /
+      static_cast<float>(std::max<std::uint16_t>(1U, tuning.pelletCount));
+    target.knockbackImpulse =
+      // Scale impulse by pellet coverage and use the average hit direction so
+      // a grazing partial blast cannot deliver full centered-shot knockback.
+      normalize(accumulatedDirections[target.playerIndex]) *
+      tuning.knockback * hitFraction;
+    fire.damageApplied += target.requestedDamage;
+    fire.knockbackImpulse += target.knockbackImpulse;
+  }
+  return resolution;
+}
+
+ShotgunResolution simulateShotgunMultiTarget(
+  const PlayerState& attacker,
+  const UserCommand& command,
+  const Arena& arena,
+  const ShotgunTuning& tuning,
+  const std::array<ShotgunTargetCandidate, kMaxPlayers>& candidates
+) {
+  return resolveShotgunMultiTarget(attacker, command, arena, tuning, candidates);
+}
+
+WeaponFireResult simulateShotgun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const ShotgunTuning& tuning
+) {
+  std::array<ShotgunTargetCandidate, kMaxPlayers> candidates = {};
+  candidates[0].playerIndex = 0U;
+  candidates[0].player = target;
+  candidates[0].valid = true;
+  ShotgunResolution resolution = resolveShotgunMultiTarget(
+    attacker,
+    command,
+    arena,
+    tuning,
+    candidates
+  );
+  WeaponFireResult result = resolution.fire;
+  const ShotgunTargetResult& targetResult = resolution.targets[0];
+  if (targetResult.playerIndex >= kMaxPlayers) {
     return result;
   }
-
-  result.hit = true;
-  result.headshot = result.pelletHeadshotCount > 0;
-  result.end = result.start + (forward * nearestHitDistance);
-  result.damageApplied = std::min(totalDamage, target.health);
+  result.damageApplied = std::min(targetResult.requestedDamage, target.health);
   target.health -= result.damageApplied;
-  const float hitFraction =
-    static_cast<float>(result.pelletHitCount) /
-    static_cast<float>(std::max<std::uint8_t>(1, tuning.pelletCount));
-  result.knockbackImpulse =
-    // Scale impulse by pellet coverage and use the average hit direction so a
-    // grazing partial blast cannot deliver full centered-shot knockback.
-    normalize(accumulatedKnockbackDirection) * tuning.knockback * hitFraction;
+  result.knockbackImpulse = targetResult.knockbackImpulse;
   return result;
 }
 

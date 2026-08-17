@@ -21,6 +21,10 @@ layout, pointer size, and enum size must not affect a file.
 Version 5 stores each player score as a signed 16-bit value. This keeps negative
 Free For All scores and their exact two-byte form across checkpoints.
 
+Version 5 also stores the global sequence and next-slot cursor for each frag,
+projectile-explosion, and grenade-bounce stream. A restored server can emit the
+next record in the same slot and sequence order, including across sequence wrap.
+
 An old file need not play on a newer build. The current reader does not decode
 versions 1 through 4. It fails before restoring any state and says why.
 
