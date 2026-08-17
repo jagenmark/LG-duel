@@ -113,9 +113,11 @@ types. Its records carry:
 
 Every application datagram, including headers, stays at or below 1,200 bytes.
 The transfer caps a segment at 512 KiB and 512 chunks; each chunk carries at
-most 1,165 bytes. These limits stay separate from the 512 MiB saved-demo and
-recorder limits. It handles duplicate and out-of-order chunks, retries missing
-chunks, supports cancellation, times out safely, and rate-limits sends. A
+most 1,165 bytes. The default sends two packets per 125 Hz server tick, so two
+maximum-size transfers finish within the five-second timeout when packets are
+acknowledged at once. These limits stay separate from the 512 MiB saved-demo
+and recorder limits. It handles duplicate and out-of-order chunks, retries
+missing chunks, supports cancellation, times out safely, and rate-limits sends. A
 receiver expires on idle or overall timeout when a cancel packet is lost, so
 stale transfer state cannot remain pinned. The server sends at a per-tick
 packet budget, and a failed transfer only skips the killcam.

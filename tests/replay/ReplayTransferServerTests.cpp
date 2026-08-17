@@ -1,6 +1,8 @@
 #include "replay/ReplayTransferServer.hpp"
+#include "replay/KillcamServerCoordinator.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
@@ -184,9 +186,69 @@ int main() {
   const auto secondFairPacket = fairServer.poll(1U, 1U);
   failures += expect(
       firstFairPacket.size() == 1U && secondFairPacket.size() == 1U &&
-          firstFairPacket.front().clientIndex == 0U &&
-          secondFairPacket.front().clientIndex == 1U,
+      firstFairPacket.front().clientIndex == 0U &&
+      secondFairPacket.front().clientIndex == 1U,
       "packet budget polling should rotate across active clients");
+
+  lg::replay::ReplayTransferServerConfig concurrentConfig;
+  concurrentConfig.maximumSegmentBytes =
+      lg::replay::kReplayTransferMaxSegmentBytes;
+  concurrentConfig.transfer.retryMilliseconds = 100U;
+  concurrentConfig.transfer.timeoutMilliseconds = 5000U;
+  concurrentConfig.transfer.minimumPacketIntervalMilliseconds = 2U;
+  lg::replay::ReplayTransferServer concurrentServer(concurrentConfig);
+  const std::vector<std::uint8_t> maximumSegment(
+      concurrentConfig.maximumSegmentBytes, 0x6bU);
+  std::array<lg::replay::ReplayTransferReceiver, 2U> concurrentReceivers;
+  failures += expect(
+      concurrentServer.start(0U, 70U, 20U, maximumSegment, 0U, &error) &&
+          concurrentServer.start(1U, 71U, 20U, maximumSegment, 0U, &error),
+      "default packet budget should start two maximum-size transfers");
+  bool concurrentTimeout = false;
+  for (std::uint64_t now = 0U;
+       now <= concurrentConfig.transfer.timeoutMilliseconds &&
+       concurrentServer.activeCount() != 0U;
+       now += 8U) {
+    const auto packets = concurrentServer.poll(
+        now, lg::replay::kDefaultKillcamPacketsPerTick);
+    failures += expect(
+        packets.size() <= lg::replay::kDefaultKillcamPacketsPerTick,
+        "default killcam packet budget should bound each server tick");
+    for (const auto& packet : packets) {
+      std::optional<lg::replay::ReplayTransferAck> acknowledgement;
+      if (const auto* beginMessage = std::get_if<lg::replay::ReplayTransferBegin>(
+              &packet.message);
+          beginMessage != nullptr) {
+        acknowledgement = concurrentReceivers[packet.clientIndex].receiveBegin(
+            *beginMessage, now);
+      } else if (const auto* chunkMessage =
+                     std::get_if<lg::replay::ReplayTransferChunk>(
+                         &packet.message);
+                 chunkMessage != nullptr) {
+        acknowledgement = concurrentReceivers[packet.clientIndex].receiveChunk(
+            *chunkMessage, now);
+      } else if (const auto* cancelMessage =
+                     std::get_if<lg::replay::ReplayTransferCancel>(
+                         &packet.message);
+                 cancelMessage != nullptr &&
+                 cancelMessage->reason ==
+                     lg::replay::ReplayTransferCancelReason::Timeout) {
+        concurrentTimeout = true;
+      }
+      if (acknowledgement.has_value()) {
+        concurrentServer.receive(
+            packet.clientIndex,
+            packet.clientIndex == 0U ? 70U : 71U,
+            *acknowledgement);
+      }
+    }
+  }
+  failures += expect(
+      !concurrentTimeout && !concurrentServer.active(0U) &&
+          !concurrentServer.active(1U) &&
+          concurrentReceivers[0U].takeCompleted().has_value() &&
+          concurrentReceivers[1U].takeCompleted().has_value(),
+      "default budget should finish two maximum-size killcams before timeout");
 
   failures += expect(fairServer.start(2U, 52U, 11U, {3U}, 2U, &error),
                      "server should accept a transfer before clear cancellation");

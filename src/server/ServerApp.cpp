@@ -433,7 +433,14 @@ int ServerApp::run() const {
   console.registerCvar({"sv_killcam_after_seconds", "Remote killcam seconds after the lethal tick.", 0.0F, CvarFlag::None, 0.0F, 10.0F});
   console.registerCvar({"sv_killcam_transfer_timeout_ms", "Remote killcam transfer timeout.", 5000, CvarFlag::None, 100.0F, 30000.0F});
   console.registerCvar({"sv_killcam_max_segment_kb", "Remote killcam encoded segment cap.", 512, CvarFlag::None, 1.0F, 512.0F});
-  console.registerCvar({"sv_killcam_packets_per_tick", "Remote killcam datagrams per server tick.", 1, CvarFlag::None, 1.0F, 64.0F});
+  console.registerCvar({
+    "sv_killcam_packets_per_tick",
+    "Remote killcam datagrams per server tick.",
+    static_cast<int>(replay::kDefaultKillcamPacketsPerTick),
+    CvarFlag::None,
+    1.0F,
+    64.0F
+  });
   console.registerCvar({"sv_replay_rolling_seconds", "Rolling replay retention window.", 12.0F, CvarFlag::None, 3.0F, 80.0F});
   console.registerCvar({"sv_replay_rolling_max_mb", "Rolling replay resident memory cap.", 16, CvarFlag::None, 1.0F, 64.0F});
   console.registerCvar({"sv_mcg_scorelimit", "McGuffin points required to win a round.", 100, CvarFlag::None, 1.0F, 1000.0F});

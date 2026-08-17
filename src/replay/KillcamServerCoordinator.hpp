@@ -13,13 +13,17 @@
 
 namespace lg::replay {
 
+// Two 512 KiB transfers need 452 packets each. At 125 Hz, two packets per
+// tick let both complete inside the five-second default timeout.
+inline constexpr std::size_t kDefaultKillcamPacketsPerTick = 2U;
+
 struct KillcamServerCoordinatorConfig {
   bool enabled = true;
   std::uint32_t beforeTicks = 375U;
   std::uint32_t afterTicks = 0U;
   std::uint32_t transferTimeoutMilliseconds = 5000U;
   std::size_t maximumSegmentBytes = kReplayTransferMaxSegmentBytes;
-  std::size_t packetsPerTick = 1U;
+  std::size_t packetsPerTick = kDefaultKillcamPacketsPerTick;
   ReplayRollingBufferConfig rolling = {};
 };
 
