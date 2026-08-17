@@ -113,6 +113,25 @@ int main() {
       !server.active(1U),
       "server cancel should emit once and release the slot");
 
+  lg::replay::ReplayTransferServer timeoutServer(config);
+  failures += expect(timeoutServer.start(0U, 44U, 10U, {1U}, 1U, &error),
+                     "timeout fixture should start a server transfer");
+  const auto timeoutBegin = timeoutServer.poll(1U, 1U);
+  const auto timeoutCancel = timeoutServer.poll(22U, 1U);
+  failures += expect(
+      timeoutBegin.size() == 1U &&
+          std::holds_alternative<lg::replay::ReplayTransferBegin>(
+              timeoutBegin.front().message) &&
+          timeoutCancel.size() == 1U &&
+          std::holds_alternative<lg::replay::ReplayTransferCancel>(
+              timeoutCancel.front().message) &&
+          std::get<lg::replay::ReplayTransferCancel>(
+              timeoutCancel.front().message
+          ).reason == lg::replay::ReplayTransferCancelReason::Timeout &&
+          !timeoutServer.active(0U),
+      "server should send a timeout cancellation at the configured time"
+  );
+
   lg::replay::ReplayTransferServerConfig immediateResetConfig = config;
   immediateResetConfig.transfer.minimumPacketIntervalMilliseconds = 2U;
   lg::replay::ReplayTransferServer immediateResetServer(immediateResetConfig);

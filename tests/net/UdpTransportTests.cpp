@@ -21,6 +21,7 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -376,20 +377,128 @@ int main() {
       "UDP killcam fixture should encode a replay with a lethal event"
     );
     if (!fixtureBytes.empty()) {
-      lg::ClientNetworkSimulationConfig simulation;
-      simulation.latencyMs = 2;
-      simulation.jitterMs = 1;
-      simulation.lossPercent = 15;
-      simulation.reorderPercent = 45;
-      simulation.seed = 0xC01DCA5U;
-      firstTransport.setNetworkSimulationConfig(simulation);
-
       lg::replay::ReplayTransferServerConfig transferConfig;
       transferConfig.maximumSegmentBytes =
         lg::replay::kReplayTransferMaxSegmentBytes;
       transferConfig.transfer.retryMilliseconds = 5U;
       transferConfig.transfer.timeoutMilliseconds = 4000U;
       transferConfig.transfer.minimumPacketIntervalMilliseconds = 1U;
+      constexpr std::size_t kPacketsPerTick = 1U;
+
+      {
+        struct ScheduledMessage {
+          std::uint64_t dueMilliseconds = 0U;
+          lg::replay::ReplayTransferMessage message;
+        };
+
+        constexpr std::uint8_t kClientIndex = 3U;
+        constexpr std::uint32_t kSessionId = 0x51DECA5EU;
+        lg::replay::ReplayTransferServer deterministicServer(transferConfig);
+        lg::replay::KillcamClientReceiver deterministicReceiver({1000U, 5000U});
+        deterministicReceiver.bindSession(kSessionId);
+        const lg::replay::ReplayLethalEvent& lethal = fixture.lethalEvents.front();
+        failures += expect(
+          deterministicServer.start(
+            kClientIndex, kSessionId, lethal.replayGeneration, fixtureBytes,
+            0U, &error, lethal.sequence
+          ),
+          "deterministic killcam transfer should start"
+        );
+
+        std::vector<ScheduledMessage> clientInbox;
+        std::vector<ScheduledMessage> serverInbox;
+        std::optional<std::vector<std::uint8_t>> deterministicBytes;
+        bool droppedChunkOne = false;
+        bool delayedChunkZero = false;
+        std::size_t deterministicOutboundPackets = 0U;
+
+        for (std::uint64_t nowMilliseconds = 0U;
+             nowMilliseconds < 1000U && !deterministicBytes.has_value() &&
+               !deterministicReceiver.failed();
+             ++nowMilliseconds) {
+          const auto clientMessage = std::find_if(
+            clientInbox.begin(), clientInbox.end(),
+            [nowMilliseconds](const ScheduledMessage& scheduled) {
+              return scheduled.dueMilliseconds <= nowMilliseconds;
+            }
+          );
+          if (clientMessage != clientInbox.end()) {
+            const auto response = deterministicReceiver.receive(
+              clientMessage->message, nowMilliseconds
+            );
+            clientInbox.erase(clientMessage);
+            if (response.has_value()) {
+              serverInbox.push_back({nowMilliseconds + 1U, *response});
+            }
+          }
+
+          const auto serverMessage = std::find_if(
+            serverInbox.begin(), serverInbox.end(),
+            [nowMilliseconds](const ScheduledMessage& scheduled) {
+              return scheduled.dueMilliseconds <= nowMilliseconds;
+            }
+          );
+          if (serverMessage != serverInbox.end()) {
+            deterministicServer.receive(kClientIndex, kSessionId,
+                                        serverMessage->message);
+            serverInbox.erase(serverMessage);
+          }
+
+          const auto outbound = deterministicServer.poll(
+            nowMilliseconds, kPacketsPerTick
+          );
+          failures += expect(
+            outbound.size() <= kPacketsPerTick,
+            "deterministic transfer should respect its send budget"
+          );
+          for (const auto& packet : outbound) {
+            ++deterministicOutboundPackets;
+            if (const auto* chunk = std::get_if<lg::replay::ReplayTransferChunk>(
+                  &packet.message
+                );
+                chunk != nullptr && chunk->index == 1U && !droppedChunkOne) {
+              droppedChunkOne = true;
+              continue;
+            }
+            std::uint64_t delayMilliseconds = 1U;
+            if (const auto* chunk = std::get_if<lg::replay::ReplayTransferChunk>(
+                  &packet.message
+                );
+                chunk != nullptr && chunk->index == 0U && !delayedChunkZero) {
+              delayedChunkZero = true;
+              delayMilliseconds = 4U;
+            }
+            clientInbox.push_back({
+              nowMilliseconds + delayMilliseconds, packet.message
+            });
+          }
+
+          if (const auto timeout = deterministicReceiver.update(nowMilliseconds);
+              timeout.has_value()) {
+            serverInbox.push_back({nowMilliseconds + 1U, *timeout});
+          }
+          if (!deterministicReceiver.active() && !deterministicReceiver.failed()) {
+            deterministicBytes = deterministicReceiver.takeCompleted();
+          }
+        }
+
+        failures += expect(
+          droppedChunkOne && delayedChunkZero && deterministicOutboundPackets > 2U &&
+            deterministicBytes.has_value() && *deterministicBytes == fixtureBytes,
+          "deterministic loss and reorder should reassemble the exact killcam"
+        );
+        lg::replay::ReplayDemo deterministicDecoded;
+        failures += expect(
+          deterministicBytes.has_value() &&
+            lg::replay::decodeDemo(*deterministicBytes, deterministicDecoded, &error) &&
+            deterministicDecoded.lethalEvents.size() == 1U &&
+            deterministicDecoded.lethalEvents.front().victim == 0U &&
+            deterministicDecoded.lethalEvents.front().killer == 1U &&
+            deterministicDecoded.lethalEvents.front().sequence == 19U,
+          "deterministic loss and reorder killcam should decode the lethal event"
+        );
+      }
+
       lg::replay::ReplayTransferServer transferServer(transferConfig);
       lg::replay::KillcamClientReceiver receiver({1000U, 5000U});
       receiver.bindSession(firstTransport.sessionId());
@@ -411,25 +520,20 @@ int main() {
       );
 
       std::optional<std::vector<std::uint8_t>> receivedBytes;
-      std::size_t outboundPacketCount = 0U;
-      const auto transferStart = std::chrono::steady_clock::now();
+      std::uint64_t nowMilliseconds = 0U;
       for (std::size_t iteration = 0U;
-           iteration < 6000U && !receivedBytes.has_value();
+           iteration < 1000U && !receivedBytes.has_value() && !receiver.failed();
            ++iteration) {
-        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now() - transferStart
-        ).count();
-        const std::uint64_t nowMilliseconds =
-          static_cast<std::uint64_t>(std::max<std::int64_t>(0, elapsed));
         firstTransport.update();
         secondTransport.update();
         serverTransport.update();
 
         std::uint8_t clientIndex = 0U;
         lg::replay::ReplayTransferMessage serverMessage;
-        while (serverTransport.receiveReplayTransferMessage(
-                 clientIndex, serverMessage
-               )) {
+        for (std::size_t received = 0U;
+             received < kPacketsPerTick &&
+               serverTransport.receiveReplayTransferMessage(clientIndex, serverMessage);
+             ++received) {
           transferServer.receive(
             clientIndex,
             serverTransport.clientSession(clientIndex),
@@ -438,7 +542,10 @@ int main() {
         }
 
         lg::replay::ReplayTransferMessage clientMessage;
-        while (firstTransport.receiveReplayTransferMessage(clientMessage)) {
+        for (std::size_t received = 0U;
+             received < kPacketsPerTick &&
+               firstTransport.receiveReplayTransferMessage(clientMessage);
+             ++received) {
           const std::optional<lg::replay::ReplayTransferMessage> response =
             receiver.receive(clientMessage, nowMilliseconds);
           if (response.has_value()) {
@@ -455,7 +562,7 @@ int main() {
         }
 
         const std::vector<lg::replay::ReplayTransferOutbound> outbound =
-          transferServer.poll(nowMilliseconds, 1U);
+          transferServer.poll(nowMilliseconds, kPacketsPerTick);
         for (const lg::replay::ReplayTransferOutbound& packet : outbound) {
           lg::WirePacket wire;
           failures += expect(
@@ -463,7 +570,6 @@ int main() {
               wire.size() <= lg::replay::kReplayTransferMaxDatagramBytes,
             "UDP killcam packets should stay within the datagram bound"
           );
-          ++outboundPacketCount;
           failures += expect(
             serverTransport.sendReplayTransferMessage(
               packet.clientIndex, packet.message
@@ -477,22 +583,13 @@ int main() {
         if (receivedBytes.has_value()) {
           break;
         }
+        ++nowMilliseconds;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
 
       failures += expect(
         receivedBytes.has_value() && *receivedBytes == fixtureBytes,
-        "UDP loss and reorder should still reassemble the exact killcam"
-      );
-      const lg::ClientNetworkSimulationStats transferStats =
-        firstTransport.networkSimulationStats();
-      failures += expect(
-        outboundPacketCount > 2U &&
-          (transferStats.droppedIncomingPackets > 0U ||
-           transferStats.droppedOutgoingPackets > 0U ||
-           transferStats.reorderedIncomingPackets > 0U ||
-           transferStats.reorderedOutgoingPackets > 0U),
-        "UDP killcam test should exercise loss or reorder"
+        "UDP killcam should relay the exact replay bytes"
       );
       lg::replay::ReplayDemo decoded;
       failures += expect(

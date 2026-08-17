@@ -108,6 +108,15 @@ int main() {
   }
   failures += expect(storage.ensureDirectory(&error), "storage should create its directory");
 
+  const std::string firstAutomaticStem = storage.automaticStem("dev_cuboids", "duel");
+  const std::string secondAutomaticStem = storage.automaticStem("dev_cuboids", "duel");
+  failures += expect(
+    firstAutomaticStem != secondAutomaticStem &&
+      lg::replay::ReplayStorage::sanitizeStem(firstAutomaticStem, &error).has_value() &&
+      lg::replay::ReplayStorage::sanitizeStem(secondAutomaticStem, &error).has_value(),
+    "automatic demo names should remain unique within one clock tick"
+  );
+
   failures += expect(lg::replay::saveDemoFile(
     storage.directory() / "alpha.lgdemo", sampleDemo(), &error
   ), "fixture demo should save");

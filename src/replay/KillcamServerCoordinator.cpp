@@ -300,7 +300,7 @@ void KillcamServerCoordinator::shutdown() {
 KillcamServerCoordinatorStats KillcamServerCoordinator::stats() const {
   KillcamServerCoordinatorStats result = stats_;
   result.pendingEvents = pendingEvents_.size();
-  result.pendingEncodes = pendingEncodes_.size() + io_.pendingJobs();
+  result.pendingEncodes = pendingEncodes_.size();
   result.activeTransfers = transfers_.activeCount();
   return result;
 }

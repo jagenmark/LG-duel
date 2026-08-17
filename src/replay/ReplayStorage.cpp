@@ -215,16 +215,28 @@ std::vector<ReplayFileInfo> ReplayStorage::list(std::string* error) const {
 }
 
 std::string ReplayStorage::automaticStem(std::string_view mapName, std::string_view modeName) const {
-    const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    auto now = std::chrono::time_point_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now()
+    );
+    if (now <= lastAutomaticStemTime_) {
+        now = lastAutomaticStemTime_ + std::chrono::milliseconds(1);
+    }
+    lastAutomaticStemTime_ = now;
+
+    const auto seconds = std::chrono::system_clock::to_time_t(now);
+    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()
+    ).count() % 1000;
     std::tm utc{};
 #if defined(_WIN32)
-    gmtime_s(&utc, &now);
+    gmtime_s(&utc, &seconds);
 #else
-    gmtime_r(&now, &utc);
+    gmtime_r(&seconds, &utc);
 #endif
 
     std::ostringstream timestamp;
-    timestamp << std::put_time(&utc, "%Y%m%dT%H%M%SZ");
+    timestamp << std::put_time(&utc, "%Y%m%dT%H%M%S")
+              << std::setfill('0') << std::setw(3) << milliseconds << 'Z';
     std::string value = timestamp.str() + "-" + safeToken(mapName) + "-" + safeToken(modeName);
     if (value.size() > kMaxReplayStemBytes) {
         value.resize(kMaxReplayStemBytes);
