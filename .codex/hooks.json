@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 scripts/codex_check_hook.py",
+            "async": true,
+            "timeout": 1200,
+            "additionalContextLimit": 600
+          }
+        ]
+      }
+    ]
+  }
+}

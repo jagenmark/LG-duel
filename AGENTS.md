@@ -24,6 +24,10 @@ See `docs/VISUAL-EVIDENCE.md` for the record format, review flow, setup, and com
 - Give shared default clients and state-changing MCP resources one named owner.
 - If a task needs uncommitted work from another task, wait for a checkpoint commit and base its worktree on that commit.
 
+## Background checks
+
+- When you would run tests now and can keep doing independent work, request one opt-in background check. Follow `docs/CODEX-BACKGROUND-CHECKS.md` for scopes, results, and completion rules.
+
 ## Automatic Task Integration
 
 Task workers should end a reviewed, committed worktree task with this line:
