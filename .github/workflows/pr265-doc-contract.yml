@@ -1,0 +1,75 @@
+name: Finalize PR 265 replay contract docs
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - synchronize
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pr265-doc-contract
+  cancel-in-progress: true
+
+jobs:
+  update-contract-docs:
+    if: github.head_ref == 'integration/replay-killcam-20260816'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: integration/replay-killcam-20260816
+          fetch-depth: 0
+
+      - name: Create isolated worktree
+        id: worktree
+        shell: bash
+        run: |
+          set -euo pipefail
+          worktree="$RUNNER_TEMP/pr265-doc-worktree"
+          manifest="$RUNNER_TEMP/pr265-doc-files.txt"
+          git worktree add --detach "$worktree" HEAD
+          echo "path=$worktree" >> "$GITHUB_OUTPUT"
+          echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
+
+      - name: Update and verify replay contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          worktree="${{ steps.worktree.outputs.path }}"
+          manifest="${{ steps.worktree.outputs.manifest }}"
+          python "$worktree/.github/pr265/followup.py" "$worktree" "$manifest"
+          rm -- "$worktree/.github/pr265/followup.py"
+          rm -- "$worktree/.github/workflows/pr265-doc-contract.yml"
+          printf '%s\n' \
+            '.github/pr265/followup.py' \
+            '.github/workflows/pr265-doc-contract.yml' >> "$manifest"
+          sort -u -o "$manifest" "$manifest"
+          git -C "$worktree" diff --check
+          git -C "$worktree" status --short
+
+      - name: Commit only contract documentation and staging cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          worktree="${{ steps.worktree.outputs.path }}"
+          manifest="${{ steps.worktree.outputs.manifest }}"
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            git -C "$worktree" add -- "$path"
+          done < "$manifest"
+          git -C "$worktree" diff --cached --check
+          if [ -n "$(git -C "$worktree" diff --name-only)" ]; then
+            echo "Unstaged tracked changes remain:" >&2
+            git -C "$worktree" diff --name-only >&2
+            exit 1
+          fi
+          git -C "$worktree" config user.name "github-actions[bot]"
+          git -C "$worktree" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$worktree" commit -m "Update replay v6 and protocol 62 documentation"
+          git -C "$worktree" push origin HEAD:integration/replay-killcam-20260816
