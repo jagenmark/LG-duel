@@ -129,8 +129,8 @@ int main() {
   failures += expect(
       enclosedFirst.minimumVisibility < openGrid.minimumVisibility &&
           enclosedFirst.minimumVisibility >= 140U &&
-          enclosedFirst.maximumVisibility <= 255U,
-      "ceiling lowers probe visibility without exceeding the read floor");
+          enclosedFirst.maximumVisibility >= enclosedFirst.minimumVisibility,
+      "ceiling lowers probe visibility while keeping a valid visibility range");
 
   lg::Arena visualEnclosed = enclosed;
   visualEnclosed.visualWalls[0] = visualEnclosed.walls[0];
