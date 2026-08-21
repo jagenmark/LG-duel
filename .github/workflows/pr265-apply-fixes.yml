@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           worktree="$RUNNER_TEMP/pr265-worktree"
           manifest="$RUNNER_TEMP/pr265-files.txt"
-          git worktree add --detach "$worktree" "$GITHUB_SHA"
+          git worktree add --detach "$worktree" HEAD
           echo "path=$worktree" >> "$GITHUB_OUTPUT"
           echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
 
