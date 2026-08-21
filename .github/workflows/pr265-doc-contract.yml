@@ -93,6 +93,18 @@ jobs:
               '    replace_all(format_doc, "versions 1 through 4", '
               '"versions 1 through 5")\n',
           )
+          old_guard = (
+              '        if path != operations and any(token in text for token in '
+              '(" v5 ", "`v5", "V5 ", "version 5", "Version 5")):\n'
+          )
+          new_guard = (
+              '        if path != operations and any(token in text for token in '
+              '("bot-free v5", "`.lgdemo` v5", "format v5", "V5 ", '
+              '"version 5", "Version 5")):\n'
+          )
+          if text.count(old_guard) != 1:
+              raise RuntimeError("stale-version guard marker changed")
+          text = text.replace(old_guard, new_guard)
           path.write_text(text, encoding="utf-8")
           PY
           python "$script" "$worktree" "$manifest"
