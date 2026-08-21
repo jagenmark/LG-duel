@@ -1,20 +1,22 @@
 name: Apply PR 265 blocker fixes
 
 on:
-  push:
+  pull_request:
     branches:
-      - integration/replay-killcam-20260816
+      - main
+    types:
+      - synchronize
 
 permissions:
   contents: write
 
 concurrency:
   group: pr265-blocker-fixes
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   implement-and-validate:
-    if: contains(github.event.head_commit.message, '[pr265-fix]')
+    if: github.head_ref == 'integration/replay-killcam-20260816'
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
