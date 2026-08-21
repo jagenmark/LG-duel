@@ -82,15 +82,16 @@ command and the data used with it:
 - slot/body connection changes, human-or-bot marker, name, team, ready state,
   spectator state, phase, rules, map, and configuration changes.
 
-The current v5 `ReplayTickInput` records only present slots. It keeps each
+The current v6 `ReplayTickInput` records only present slots. It keeps each
 present slot’s resolved command, `viewedServerTick`, consumed action edges,
 accepted jump/dash/attack/throw edges, and original attack edge command. An
-absent slot has no replay payload and must have default input state. V5 carries
+absent slot has no replay payload and must have default input state. V6 carries
 dynamic roster, name, team, ready, mode, rule, reset, and configuration changes
 in explicit authority-boundary records.
 
-The replay decoder accepts only format v5. It rejects v1 through v4 before
-restoring any state.
+The replay decoder accepts only format v6. It rejects v1 through v5 before
+restoring any state and charges native decoded allocations against a fixed
+resident-memory budget before growing replay containers.
 
 During replay, both human and bot slots inject those recorded commands through
 the normal authoritative input path. Bot generation stays off. A bot marker may
@@ -161,7 +162,9 @@ killcam-only state format.
 presentation session, and a null transport. `GameApp` owns a single
 presentation-source adapter that selects either the live `ClientGame` source or
 the replay frame source at a frame boundary. Replay commands never enter the
-live command send path. The replay source supplies the arena, snapshot, player
+live command send path; normal transport Ping/Pong traffic keeps the authenticated
+connection alive while replay presentation owns input. The replay source supplies
+the arena, snapshot, player
 poses, camera subject, projectiles, and event arrays used by the normal
 renderer, HUD, and effects code. It does not write to the live `ClientGame`.
 
@@ -179,8 +182,9 @@ promise the exact pixels from the killer's locally predicted original frame.
 
 Map changes, map revisions, hard reset, and replay-generation changes clear the
 rolling record and end a matching replay or killcam. The archive rejects a
-segment that spans a generation or lacks a valid earlier checkpoint. The
-coordinator marks pending and active transfers for an explicit Cancel packet;
-the receiver still has an idle/overall timeout if that packet is lost. The
-coordinator and client receiver invoke the same cleanup path and leave live
-play intact when they reject data.
+segment that spans a generation or lacks a valid earlier checkpoint. The coordinator marks pending and active transfers for an explicit Cancel packet;
+the receiver still has an idle/overall timeout if that packet is lost. After a
+receiver assembles a transfer it retains a short completion tombstone, allowing
+a duplicate terminal chunk to recover a lost final ACK without pinning the
+server slot until timeout. The coordinator and client receiver invoke the same
+cleanup path and leave live play intact when they reject data.

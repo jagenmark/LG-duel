@@ -35,10 +35,13 @@ predictable partial file owned by another writer. `ReplayStorage` applies the
 name and directory policy before a job starts. `ReplayIoService` reports a
 disk or codec error without stopping the match.
 
-The worker queue is bounded. A full queue rejects the request with a console
-error. The worker has no callback into `GameApp`, `ServerGame`, or the renderer;
-the owner polls `ReplayIoService::Result` and applies the result on its own
-thread.
+The worker queue is bounded. Ordinary new work receives a clear queue-full
+error, but temporary backpressure does not destroy already completed data: the
+server retains a finished recording until save admission succeeds, and the
+killcam coordinator leaves a ready lethal event pending until its encode job is
+accepted or becomes terminally stale. The worker has no callback into `GameApp`,
+`ServerGame`, or the renderer; the owner polls movable
+`ReplayIoService::Result` values and applies them on its own thread.
 
 ## Rolling buffer and killcam flow
 
@@ -70,7 +73,9 @@ authoritative lethal event
 ```
 
 A segment that has no valid checkpoint, crosses a map/reset generation, exceeds
-its cap, crosses a dropped authority boundary, or has missing data is rejected.
+its cap, crosses a genuinely missing authority boundary, or has missing data is
+rejected. Pruning an obsolete boundary behind the retained anchor does not mark
+later killcams incomplete.
 The archive returns a self-contained `ReplayDemo` for the post-tick coordinator.
 The coordinator encodes it on its bounded worker and sends it through the
 authenticated transfer path. The client decodes it on `ReplayIoService` and
@@ -90,7 +95,9 @@ rewinds or writes the live `ClientGame`.
 
 The remote killcam must never pause or rewind the server, change respawn rules,
 delay a round or match, inject replay commands into the live player, or replace
-live client state. It must abort on control return, skip, respawn, round/match
+live client state. During playback, connection liveness comes from transport
+Ping/Pong; no default gameplay command is accepted as a keepalive. It must abort
+on control return, skip, respawn, round/match
 transition, map change, disconnect, generation mismatch, incomplete data, or
 transfer failure.
 
@@ -119,12 +126,15 @@ acknowledged at once. These limits stay separate from the 512 MiB saved-demo
 and recorder limits. It handles duplicate and out-of-order chunks, retries
 missing chunks, supports cancellation, times out safely, and rate-limits sends. A
 receiver expires on idle or overall timeout when a cancel packet is lost, so
-stale transfer state cannot remain pinned. The server sends at a per-tick
-packet budget, and a failed transfer only skips the killcam.
+stale transfer state cannot remain pinned. A short completion tombstone ACKs a
+retransmitted terminal chunk, recovering a lost final ACK without waiting for
+the server timeout. The server sends at a per-tick packet budget, and a failed
+transfer only skips the killcam.
 
 `ConnectAccept` gives each UDP connection a session ID. The server accepts only
-ACK/Cancel messages from the authenticated endpoint that owns that session. The
-client binds Begin/Chunk messages to its current session and active transfer.
+ACK/Cancel messages from the authenticated endpoint that owns that session. The client binds Begin/Chunk messages to its current session and active transfer.
+It binds the live victim state only after observing the matching authoritative
+death/respawn snapshot, so a reordered Begin cannot snapshot the player as alive.
 Replay or map generation changes drop pending work and mark active work for an
 explicit Cancel on the next coordinator packet poll; a lost Cancel is covered
 by the receiver timeout. It rejects missing clients,
