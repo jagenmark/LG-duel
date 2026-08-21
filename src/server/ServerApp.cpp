@@ -408,6 +408,11 @@ int ServerApp::run() const {
   replay::ReplayStorage replayStorage;
   replay::ReplayIoService replayIo;
   std::optional<replay::ReplayIoService::JobId> replaySaveJob;
+  struct PendingReplaySave {
+    std::filesystem::path path;
+    replay::ReplayDemo demo;
+  };
+  std::optional<PendingReplaySave> pendingReplaySave;
   std::optional<replay::ReplayIoService::JobId> replayListJob;
   std::optional<replay::ReplayIoService::JobId> replayDeleteJob;
   std::optional<std::string> recordingStem;
@@ -518,7 +523,8 @@ int ServerApp::run() const {
   };
 
   const auto beginReplayRecording = [&](std::string requestedStem, bool automatic) {
-    if (server.replayRecordingActive() || recordingStem.has_value()) {
+    if (server.replayRecordingActive() || recordingStem.has_value() ||
+        pendingReplaySave.has_value()) {
       return std::string("demo recording is already active");
     }
     if (requestedStem.empty()) {
@@ -544,26 +550,43 @@ int ServerApp::run() const {
   };
 
   const auto queueReplaySave = [&] {
-    const std::optional<replay::ReplayDemo> demo = server.finishReplayRecording();
-    if (!demo.has_value()) {
-      return std::string("no completed demo to save");
+    if (!pendingReplaySave.has_value()) {
+      std::string error;
+      const std::string stem = recordingStem.value_or(
+        replayStorage.automaticStem(
+          server.snapshot().map.mapName,
+          std::to_string(static_cast<int>(server.snapshot().gameMode))
+        )
+      );
+      std::filesystem::path path;
+      if (!replayStorage.resolveDemoPath(stem, path, &error)) {
+        return "demo save rejected: " + error;
+      }
+      std::optional<replay::ReplayDemo> demo =
+        server.finishReplayRecording();
+      if (!demo.has_value()) {
+        return std::string("no completed demo to save");
+      }
+      pendingReplaySave = PendingReplaySave{path, std::move(*demo)};
+      recordingStem.reset();
     }
-    std::string error;
-    const std::string stem = recordingStem.value_or(replayStorage.automaticStem(
-      server.snapshot().map.mapName,
-      std::to_string(static_cast<int>(server.snapshot().gameMode))
-    ));
-    recordingStem.reset();
-    std::filesystem::path path;
-    if (!replayStorage.resolveDemoPath(stem, path, &error)) {
-      return "demo save rejected: " + error;
+    if (replaySaveJob.has_value()) {
+      return std::string("demo save deferred: replay I/O job is active");
     }
     replay::ReplayIoService::JobId job = 0;
-    if (!replayIo.enqueueSave(path, *demo, job, &error)) {
-      return "demo save rejected: " + error;
+    std::string error;
+    if (!replayIo.enqueueSave(
+          pendingReplaySave->path,
+          pendingReplaySave->demo,
+          job,
+          &error
+        )) {
+      return "demo save deferred: " + error;
     }
+    const std::filesystem::path queuedPath = pendingReplaySave->path;
+    pendingReplaySave.reset();
     replaySaveJob = job;
-    return "demo save queued: " + path.filename().string();
+    return "demo save queued: " + queuedPath.filename().string();
   };
 
   bool resetRequested = false;
@@ -586,12 +609,14 @@ int ServerApp::run() const {
   console.registerCommand(
     "demo_status",
     "Show local demo recording and I/O state.",
-    [&server, &recordingStem, &replaySaveJob, &lastReplayResult](const std::vector<std::string>&) {
+    [&server, &recordingStem, &replaySaveJob, &pendingReplaySave,
+     &lastReplayResult](const std::vector<std::string>&) {
       const replay::ReplayRecorderStats stats = server.replayRecorderStats();
       std::string result = server.replayRecordingActive() ? "recording" : "idle";
       if (recordingStem.has_value()) result += " name=" + *recordingStem;
       result += " ticks=" + std::to_string(stats.inputTicks);
       if (replaySaveJob.has_value()) result += " save=pending";
+      else if (pendingReplaySave.has_value()) result += " save=deferred";
       if (!lastReplayResult.empty()) result += " last=" + lastReplayResult;
       return result;
     }
@@ -1058,7 +1083,7 @@ int ServerApp::run() const {
   while (true) {
     nextTick += tickDuration;
 
-    while (const std::optional<replay::ReplayIoService::Result> result = replayIo.poll()) {
+    while (std::optional<replay::ReplayIoService::Result> result = replayIo.poll()) {
       if (result->id == replaySaveJob.value_or(0)) {
         replaySaveJob.reset();
       }
@@ -1148,7 +1173,7 @@ int ServerApp::run() const {
 
     const bool autoRecordEnabled = console.getBool("sv_demo_autorecord");
     if (autoRecordEnabled && !autoRecording && !server.replayRecordingActive() &&
-        !recordingStem.has_value() &&
+        !recordingStem.has_value() && !pendingReplaySave.has_value() &&
         server.snapshot().matchPhase == MatchPhase::Live) {
       const std::string result = beginReplayRecording({}, true);
       if (result.rfind("demo recording ", 0) != 0) {
@@ -1171,10 +1196,12 @@ int ServerApp::run() const {
     ));
     // A map change can finish a recorder inside ServerGame. Drain that demo
     // here, after the tick, and keep all encoding and disk work off the tick.
-    if (!server.replayRecordingActive() && recordingStem.has_value() &&
+    if (((!server.replayRecordingActive() && recordingStem.has_value()) ||
+         pendingReplaySave.has_value()) &&
         !replaySaveJob.has_value()) {
       const std::string result = queueReplaySave();
-      if (result.rfind("demo save queued", 0) != 0) {
+      if (result.rfind("demo save queued", 0) != 0 &&
+          result.rfind("demo save deferred:", 0) != 0) {
         std::cerr << result << '\n';
       }
     }

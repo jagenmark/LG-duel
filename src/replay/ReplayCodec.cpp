@@ -8,6 +8,8 @@
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <new>
+#include <stdexcept>
 #include <string_view>
 
 namespace lg::replay {
@@ -176,6 +178,33 @@ private:
   const std::vector<std::uint8_t>& bytes_;
   std::size_t cursor_ = 0;
   bool ok_ = true;
+};
+
+class DecodeBudget {
+public:
+  explicit DecodeBudget(std::size_t limit)
+      : limit_(std::min(limit, kMaxReplayDecodedResidentBytes)),
+        used_(sizeof(ReplayDemo)) {}
+
+  [[nodiscard]] bool valid() const { return used_ <= limit_; }
+
+  [[nodiscard]] bool claim(std::size_t bytes) {
+    if (bytes > limit_ || used_ > limit_ - bytes) return false;
+    used_ += bytes;
+    return true;
+  }
+
+  template <typename T>
+  [[nodiscard]] bool claimVectorElement() {
+    // std::vector capacity may temporarily approach twice its logical size.
+    constexpr std::size_t kCapacityGrowthAllowance = 2U;
+    if (sizeof(T) > limit_ / kCapacityGrowthAllowance) return false;
+    return claim(sizeof(T) * kCapacityGrowthAllowance);
+  }
+
+private:
+  std::size_t limit_ = 0U;
+  std::size_t used_ = 0U;
 };
 
 [[nodiscard]] bool validWeapon(Weapon value) {
@@ -1037,7 +1066,11 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
   return true;
 }
 
-bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
+bool readCheckpoint(
+  Reader& reader,
+  ReplayCheckpoint& checkpoint,
+  DecodeBudget* budget = nullptr
+) {
   if (!reader.u32(checkpoint.serverTick) || !reader.u32(checkpoint.mapRevision) ||
       !reader.u32(checkpoint.projectileRevision) || !reader.u64(checkpoint.gameplayConfigHash) || checkpoint.mapRevision == 0U ||
       checkpoint.projectileRevision == 0U) return false;
@@ -1145,6 +1178,10 @@ bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
       checkpoint.nextDeathmatchSpawnIndex >= Arena::kSpawnCount || !reader.boolean(checkpoint.playersColliding) ||
       !reader.u32(historyCount) || historyCount == 0U || historyCount > kMaxReplayHistoryFrames) return false;
   checkpoint.history.clear();
+  if (budget != nullptr &&
+      !budget->claim(
+        static_cast<std::size_t>(historyCount) * sizeof(ReplayHistoryFrame)
+      )) return false;
   checkpoint.history.reserve(historyCount);
   std::uint32_t previousTick = 0;
   for (std::uint32_t index = 0; index < historyCount; ++index) {
@@ -1191,7 +1228,11 @@ bool writeAuthorityBoundary(Writer& writer, const ReplayAuthorityBoundary& bound
     writeCheckpoint(writer, boundary.checkpoint);
 }
 
-bool readAuthorityBoundary(Reader& reader, ReplayAuthorityBoundary& boundary) {
+bool readAuthorityBoundary(
+  Reader& reader,
+  ReplayAuthorityBoundary& boundary,
+  DecodeBudget* budget = nullptr
+) {
   std::uint8_t mode = 0;
   if (!reader.u32(boundary.tick) || !reader.u32(boundary.configurationRevision) ||
       !reader.u8(mode) || !readMatchRules(reader, boundary.matchRules)) return false;
@@ -1202,7 +1243,7 @@ bool readAuthorityBoundary(Reader& reader, ReplayAuthorityBoundary& boundary) {
     if (!readPlayerMetadata(reader, boundary.players[index], index)) return false;
   }
   if (!readGameplayConfig(reader, boundary.gameplayConfig) ||
-      !readCheckpoint(reader, boundary.checkpoint)) return false;
+      !readCheckpoint(reader, boundary.checkpoint, budget)) return false;
   return boundary.tick == boundary.checkpoint.serverTick &&
     sameMatchRules(boundary.gameplayConfig.matchRules, boundary.matchRules) &&
     canonicalGameplayConfigHash(boundary.gameplayConfig) == boundary.checkpoint.gameplayConfigHash &&
@@ -1423,7 +1464,12 @@ bool encodeDemo(const ReplayDemo& demo, std::vector<std::uint8_t>& bytes, std::s
   return true;
 }
 
-bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::string* error) {
+bool decodeDemo(
+  const std::vector<std::uint8_t>& bytes,
+  ReplayDemo& demo,
+  std::string* error,
+  std::size_t maximumResidentBytes
+) try {
   if (bytes.size() < kFilePreambleBytes || bytes.size() > kMaxReplayBytes) return fail(error, "replay size is invalid");
   Reader reader(bytes);
   for (const std::uint8_t expected : kMagic) {
@@ -1443,6 +1489,10 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
     return fail(error, "replay metadata length is invalid");
   }
   ReplayDemo decoded;
+  DecodeBudget budget(maximumResidentBytes);
+  if (!budget.valid()) {
+    return fail(error, "replay decoded resident-memory limit is too small");
+  }
   std::vector<std::uint8_t> metadataBytes;
   if (!reader.take(metadataSize, metadataBytes)) return fail(error, "replay metadata is truncated");
   Reader metadataReader(metadataBytes);
@@ -1479,6 +1529,9 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
     switch (type) {
     case ReplayChunkType::TickInputs: {
       if (decoded.ticks.size() >= kMaxReplayTicks) return fail(error, "replay has too many input ticks");
+      if (!budget.claimVectorElement<ReplayTickInput>()) {
+        return fail(error, "replay decoded data exceeds resident-memory limit");
+      }
       ReplayTickInput input;
       if (!readTickInput(payloadReader, input) || !payloadReader.done() ||
           input.tick < decoded.metadata.initialServerTick || (hasTick && input.tick <= previousTick)) {
@@ -1491,8 +1544,11 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
     }
     case ReplayChunkType::Checkpoint: {
       if (decoded.checkpoints.size() >= kMaxReplayCheckpoints) return fail(error, "replay has too many checkpoints");
+      if (!budget.claimVectorElement<ReplayCheckpoint>()) {
+        return fail(error, "replay decoded data exceeds resident-memory limit");
+      }
       ReplayCheckpoint checkpoint;
-      if (!readCheckpoint(payloadReader, checkpoint) || !payloadReader.done() ||
+      if (!readCheckpoint(payloadReader, checkpoint, &budget) || !payloadReader.done() ||
           checkpoint.serverTick < decoded.metadata.initialServerTick ||
           (hasCheckpoint && checkpoint.serverTick <= previousCheckpoint)) {
         return fail(error, "replay checkpoint is invalid or out of order");
@@ -1504,6 +1560,9 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
     }
     case ReplayChunkType::StateHash: {
       if (decoded.hashes.size() >= kMaxReplayTicks) return fail(error, "replay has too many hashes");
+      if (!budget.claimVectorElement<ReplayStateHash>()) {
+        return fail(error, "replay decoded data exceeds resident-memory limit");
+      }
       ReplayStateHash hash;
       if (!readHash(payloadReader, hash) || !payloadReader.done() ||
           hash.tick < decoded.metadata.initialServerTick || (hasHash && hash.tick <= previousHash)) {
@@ -1516,6 +1575,9 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
     }
     case ReplayChunkType::LethalEvent: {
       if (decoded.lethalEvents.size() >= kMaxReplayLethalEvents) return fail(error, "replay has too many lethal events");
+      if (!budget.claimVectorElement<ReplayLethalEvent>()) {
+        return fail(error, "replay decoded data exceeds resident-memory limit");
+      }
       ReplayLethalEvent event;
       if (!readLethal(payloadReader, event) || !payloadReader.done() ||
           event.tick < decoded.metadata.initialServerTick ||
@@ -1533,8 +1595,11 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
       if (decoded.authorityBoundaries.size() >= kMaxReplayAuthorityBoundaries) {
         return fail(error, "replay has too many authority boundaries");
       }
+      if (!budget.claimVectorElement<ReplayAuthorityBoundary>()) {
+        return fail(error, "replay decoded data exceeds resident-memory limit");
+      }
       ReplayAuthorityBoundary boundary;
-      if (!readAuthorityBoundary(payloadReader, boundary) || !payloadReader.done() ||
+      if (!readAuthorityBoundary(payloadReader, boundary, &budget) || !payloadReader.done() ||
           boundary.tick < decoded.metadata.initialServerTick ||
           (hasBoundary && boundary.tick <= previousBoundary)) {
         return fail(error, "replay authority boundary is invalid or out of order");
@@ -1552,6 +1617,10 @@ bool decodeDemo(const std::vector<std::uint8_t>& bytes, ReplayDemo& demo, std::s
   demo = std::move(decoded);
   if (error != nullptr) error->clear();
   return true;
+} catch (const std::bad_alloc&) {
+  return fail(error, "replay decoded allocation failed");
+} catch (const std::length_error&) {
+  return fail(error, "replay decoded allocation is invalid");
 }
 
 } // namespace lg::replay

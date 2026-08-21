@@ -100,7 +100,7 @@ replayTransferSha256(const std::vector<std::uint8_t>& bytes);
 struct ReplayTransferConfig {
   std::uint32_t sessionId = 1U;
   std::uint32_t retryMilliseconds = 100U;
-  std::uint32_t timeoutMilliseconds = 3000U;
+  std::uint32_t timeoutMilliseconds = 5000U;
   std::uint32_t minimumPacketIntervalMilliseconds = 2U;
 };
 struct ReplayTransferStats {
@@ -112,7 +112,10 @@ struct ReplayTransferStats {
 
 struct ReplayTransferReceiverConfig {
   std::uint32_t idleTimeoutMilliseconds = 500U;
-  std::uint32_t overallTimeoutMilliseconds = 3000U;
+  std::uint32_t overallTimeoutMilliseconds = 5000U;
+  // Keep only transfer identity after successful assembly so a retransmitted
+  // final chunk can recover a lost terminal ACK without retaining the demo.
+  std::uint32_t completionAckLingerMilliseconds = 1000U;
 };
 
 class ReplayTransferSender {
@@ -171,12 +174,14 @@ public:
 
 private:
   ReplayTransferBegin begin_ = {};
+  ReplayTransferBegin completedBegin_ = {};
   std::vector<std::vector<std::uint8_t>> chunks_;
   std::vector<bool> received_;
   std::size_t bytes_ = 0;
   ReplayTransferReceiverConfig config_ = {};
   std::uint64_t started_ = 0;
   std::uint64_t lastActivity_ = 0;
+  std::uint64_t completedAt_ = 0;
   bool active_ = false;
   bool failed_ = false;
 };

@@ -193,6 +193,13 @@ int main() {
   lg::replay::ReplayIoService::JobId stoppedJob = 0;
   failures += expect(!service.enqueueLoad(asyncPath, stoppedJob, &error),
     "stopped worker should reject new jobs");
+  lg::replay::ReplayDemo retainedDemo = sampleDemo(10U);
+  failures += expect(
+    !service.enqueueSave(asyncPath, retainedDemo, stoppedJob, &error) &&
+      retainedDemo.ticks.size() == 1U &&
+      retainedDemo.metadata.initialServerTick == 10U,
+    "rejected save admission must retain the caller-owned completed demo"
+  );
 
   std::error_code cleanupError;
   std::filesystem::remove_all(directory, cleanupError);

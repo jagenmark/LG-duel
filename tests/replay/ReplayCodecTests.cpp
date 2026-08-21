@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -29,6 +30,40 @@ void writeLittleEndian(
   for (std::size_t index = 0U; index < width; ++index) {
     bytes[offset + index] = static_cast<std::uint8_t>(value >> (index * 8U));
   }
+}
+
+void appendU32(std::vector<std::uint8_t>& bytes, std::uint32_t value) {
+  for (unsigned shift = 0U; shift < 32U; shift += 8U) {
+    bytes.push_back(static_cast<std::uint8_t>(value >> shift));
+  }
+}
+
+std::uint32_t replayCrc32(const std::vector<std::uint8_t>& bytes) {
+  std::uint32_t crc = 0xffffffffU;
+  for (const std::uint8_t byte : bytes) {
+    crc ^= byte;
+    for (unsigned bit = 0U; bit < 8U; ++bit) {
+      const std::uint32_t mask = 0U - (crc & 1U);
+      crc = (crc >> 1U) ^ (0xedb88320U & mask);
+    }
+  }
+  return ~crc;
+}
+
+void appendTickChunk(
+  std::vector<std::uint8_t>& bytes,
+  std::uint32_t tick
+) {
+  std::vector<std::uint8_t> payload;
+  appendU32(payload, tick);
+  payload.push_back(0U);
+  payload.push_back(0U);
+  bytes.push_back(static_cast<std::uint8_t>(
+    lg::replay::ReplayChunkType::TickInputs
+  ));
+  appendU32(bytes, static_cast<std::uint32_t>(payload.size()));
+  appendU32(bytes, replayCrc32(payload));
+  bytes.insert(bytes.end(), payload.begin(), payload.end());
 }
 
 lg::replay::ReplayDemo validDemo() {
@@ -248,10 +283,15 @@ int main() {
   }
   {
     std::vector<std::uint8_t> oldVersion = validWire;
-    oldVersion[4] = 4U;
+    oldVersion[4] = static_cast<std::uint8_t>(
+      lg::replay::kReplayFormatVersion - 1U
+    );
     oldVersion[5] = 0U;
-    failures += expect(!lg::replay::decodeDemo(oldVersion, decoded, &error),
-      "v4 replay bytes must be rejected instead of reinterpreted as v5");
+    failures += expect(
+      !lg::replay::decodeDemo(oldVersion, decoded, &error) &&
+        error == "replay version is incompatible",
+      "the previous replay layout must be rejected as unsupported"
+    );
   }
   {
     std::vector<std::uint8_t> unsupportedSimulation = validWire;
@@ -443,6 +483,34 @@ int main() {
     lg::replay::ReplayDemo invalid = source;
     invalid.ticks.push_back(invalid.ticks.front());
     failures += expect(!lg::replay::encodeDemo(invalid, wire, &error), "out-of-order ticks should not encode");
+  }
+  {
+    const std::uint32_t metadataBytes =
+      static_cast<std::uint32_t>(validWire[8]) |
+      (static_cast<std::uint32_t>(validWire[9]) << 8U) |
+      (static_cast<std::uint32_t>(validWire[10]) << 16U) |
+      (static_cast<std::uint32_t>(validWire[11]) << 24U);
+    std::vector<std::uint8_t> compactExpansion(
+      validWire.begin(),
+      validWire.begin() + static_cast<std::ptrdiff_t>(16U + metadataBytes)
+    );
+    for (std::uint32_t index = 0U; index < 12U; ++index) {
+      appendTickChunk(compactExpansion, source.metadata.initialServerTick + index);
+    }
+    const std::size_t smallResidentLimit =
+      sizeof(lg::replay::ReplayDemo) +
+      8U * sizeof(lg::replay::ReplayTickInput);
+    lg::replay::ReplayDemo unchanged = source;
+    failures += expect(
+      !lg::replay::decodeDemo(
+        compactExpansion,
+        unchanged,
+        &error,
+        smallResidentLimit
+      ) && error == "replay decoded data exceeds resident-memory limit" &&
+        unchanged.metadata.mapName == source.metadata.mapName,
+      "compact replay records must be rejected before native expansion exceeds its budget"
+    );
   }
   {
     std::vector<std::uint8_t> trailing = validWire;

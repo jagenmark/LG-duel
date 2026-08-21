@@ -178,12 +178,8 @@ int main() {
     client.sendKeepalive(2U);
     lg::CommandPacket keepalive;
     failures += expect(
-      transport.receiveCommand(keepalive) &&
-        keepalive.command.sequence == 2U &&
-        keepalive.command.forwardMove == 0.0F &&
-        !keepalive.command.attack && keepalive.actionEdges.jump == 0U &&
-        keepalive.actionEdges.dash == 0U && keepalive.actionEdges.attack == 0U,
-      "keepalive should send only a neutral command packet"
+      !transport.receiveCommand(keepalive),
+      "replay keepalive must not enter the authoritative command stream"
     );
     const lg::PlayerState afterKeepalive = client.predictedPlayer();
     failures += expect(

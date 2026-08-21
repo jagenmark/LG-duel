@@ -212,15 +212,12 @@ void ClientGame::sendKeepalive(
   std::uint32_t sequence,
   bool usePresentedServerTick
 ) {
-  CommandPacket packet;
-  packet.playerIndex = spectator_
-    ? kNoAssignedPlayer
-    : static_cast<std::uint8_t>(localPlayerIndex_);
-  packet.command.sequence = sequence;
-  packet.viewedServerTick = usePresentedServerTick
-    ? interpolation_.presentationServerTick()
-    : snapshot_.serverTick;
-  transport_.sendCommand(packet);
+  // UdpClientTransport already maintains the authenticated connection with
+  // Ping/Pong while replay presentation suppresses fixed gameplay ticks.
+  // Sending a default UserCommand here would overwrite live aim, weapon, and
+  // movement state on the authoritative server.
+  (void)sequence;
+  (void)usePresentedServerTick;
 }
 
 void ClientGame::receiveSnapshots() {

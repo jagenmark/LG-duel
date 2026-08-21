@@ -141,8 +141,8 @@ int main() {
       lg::replay::LethalKind::Direct, 1U,
     };
     failures += expect(
-      !boundaryGapBuffer.extractSegment(boundaryGapLethal, 2U, 2U, &error),
-      "segment extraction must reject a range after an authority boundary was dropped"
+      boundaryGapBuffer.extractSegment(boundaryGapLethal, 2U, 2U, &error).has_value(),
+      "pruning an obsolete authority boundary must not disable later killcams"
     );
   }
 

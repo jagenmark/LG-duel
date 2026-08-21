@@ -106,6 +106,12 @@ int main() {
     source[index] = static_cast<std::uint8_t>(index & 0xffU);
   }
 
+  failures += expect(
+      lg::replay::ReplayTransferConfig{}.timeoutMilliseconds >= 5000U &&
+          lg::replay::ReplayTransferReceiverConfig{}
+              .overallTimeoutMilliseconds >= 5000U,
+      "default transfer timeouts must cover the documented maximum duel transfer");
+
   lg::replay::ReplayTransferConfig config;
   config.retryMilliseconds = 10U;
   config.timeoutMilliseconds = 100U;
@@ -322,6 +328,49 @@ int main() {
   unboundedRate.minimumPacketIntervalMilliseconds = 0U;
   failures += expect(!sender.begin(10U, 6U, {1U}, 1U, unboundedRate),
                      "transfer start should reject an unbounded send rate");
+
+  {
+    lg::replay::ReplayTransferSender finalAckSender;
+    const std::vector<std::uint8_t> finalAckBytes = {4U, 5U, 6U};
+    failures += expect(
+      finalAckSender.begin(44U, 12U, finalAckBytes, 1U, config),
+      "final-ack recovery fixture should start"
+    );
+    const auto finalBeginMessage = finalAckSender.nextMessage(1U);
+    const auto* finalBegin = finalBeginMessage.has_value()
+      ? std::get_if<lg::replay::ReplayTransferBegin>(&*finalBeginMessage)
+      : nullptr;
+    lg::replay::ReplayTransferReceiver finalAckReceiver;
+    const auto finalBeginAck = finalBegin != nullptr
+      ? finalAckReceiver.receiveBegin(*finalBegin, 1U)
+      : std::nullopt;
+    if (finalBeginAck.has_value()) finalAckSender.acknowledge(*finalBeginAck);
+    const auto finalChunkMessage = finalAckSender.nextMessage(2U);
+    const auto* finalChunk = finalChunkMessage.has_value()
+      ? std::get_if<lg::replay::ReplayTransferChunk>(&*finalChunkMessage)
+      : nullptr;
+    const auto droppedFinalAck = finalChunk != nullptr
+      ? finalAckReceiver.receiveChunk(*finalChunk, 2U)
+      : std::nullopt;
+    const auto finalCompleted = finalAckReceiver.takeCompleted();
+    const auto retriedFinalMessage = finalAckSender.nextMessage(12U);
+    const auto* retriedFinalChunk = retriedFinalMessage.has_value()
+      ? std::get_if<lg::replay::ReplayTransferChunk>(&*retriedFinalMessage)
+      : nullptr;
+    const auto recoveredFinalAck = retriedFinalChunk != nullptr
+      ? finalAckReceiver.receiveChunk(*retriedFinalChunk, 12U)
+      : std::nullopt;
+    if (recoveredFinalAck.has_value()) {
+      finalAckSender.acknowledge(*recoveredFinalAck);
+    }
+    failures += expect(
+      droppedFinalAck.has_value() && finalCompleted.has_value() &&
+        *finalCompleted == finalAckBytes &&
+        retriedFinalChunk != nullptr && recoveredFinalAck.has_value() &&
+        finalAckSender.complete(),
+      "a duplicate final chunk should recover a lost terminal ACK promptly"
+    );
+  }
 
   lg::replay::ReplayMetadata metadata;
   metadata.gameMode = lg::GameMode::Duel;

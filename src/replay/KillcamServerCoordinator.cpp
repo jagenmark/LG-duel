@@ -28,7 +28,9 @@ KillcamServerCoordinator::KillcamServerCoordinator(
     UdpServerTransport& transport)
     : server_(server),
       transport_(transport),
-      io_(ReplayIoService::Config{1U}),
+      // One running encode plus one queued encode covers both duel deaths on
+      // the same authoritative tick without adding worker concurrency.
+      io_(ReplayIoService::Config{2U}),
       transfers_(ReplayTransferServerConfig{}) {}
 
 KillcamServerCoordinator::~KillcamServerCoordinator() { shutdown(); }
@@ -142,7 +144,7 @@ void KillcamServerCoordinator::invalidateStaleReplayState() {
 
 void KillcamServerCoordinator::drainCompletedEncodes(
     std::uint64_t nowMilliseconds) {
-  while (const auto result = io_.poll()) {
+  while (auto result = io_.poll()) {
     if (result->kind != ReplayIoService::JobKind::Encode) continue;
     const auto pending = pendingEncodes_.find(result->id);
     if (pending == pendingEncodes_.end()) continue;
@@ -161,7 +163,7 @@ void KillcamServerCoordinator::drainCompletedEncodes(
     }
     std::string error;
     if (transfers_.start(request.clientIndex, request.sessionId,
-                         request.event.replayGeneration, result->bytes,
+                         request.event.replayGeneration, std::move(result->bytes),
                          nowMilliseconds, &error, request.event.sequence)) {
       ++stats_.encodedSegments;
     } else {
@@ -207,9 +209,9 @@ void KillcamServerCoordinator::startReadyEncodes() {
       ++iterator;
       continue;
     }
-    PendingEvent pending = *iterator;
-    iterator = pendingEvents_.erase(iterator);
+    const PendingEvent pending = *iterator;
     if (!currentClientMatches(pending)) {
+      iterator = pendingEvents_.erase(iterator);
       ++stats_.skippedEvents;
       continue;
     }
@@ -218,19 +220,22 @@ void KillcamServerCoordinator::startReadyEncodes() {
         pending.event, config_.beforeTicks, config_.afterTicks, &error);
     if (!segment.has_value() ||
         !permitsRemoteKillcam(segment->metadata, false)) {
+      iterator = pendingEvents_.erase(iterator);
       ++stats_.skippedEvents;
       continue;
     }
     ReplayIoService::JobId job = 0;
-    if (!io_.enqueueEncode(std::move(*segment), config_.maximumSegmentBytes,
+    if (!io_.enqueueEncode(*segment, config_.maximumSegmentBytes,
                            job, &error)) {
-      ++stats_.rejectedSegments;
-      continue;
+      // The bounded worker is temporarily full. Keep this event in order
+      // and retry it after a completed encode is drained.
+      break;
     }
     pendingEncodes_.emplace(job, PendingEncode{pending.clientIndex,
                                                 pending.sessionId,
                                                 pending.mapRevision,
                                                 pending.event});
+    iterator = pendingEvents_.erase(iterator);
   }
 }
 

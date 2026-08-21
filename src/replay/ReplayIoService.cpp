@@ -33,10 +33,22 @@ ReplayIoService::~ReplayIoService() {
 }
 
 bool ReplayIoService::enqueueSave(const std::filesystem::path& path,
-                                  ReplayDemo demo,
+                                  ReplayDemo& demo,
                                   JobId& id,
                                   std::string* error) {
-    return enqueue(JobKind::Save, SaveJob{path, std::move(demo)}, id, error);
+    std::lock_guard lock(mutex_);
+    if (stopping_ || stopped_) {
+        setError(error, "replay I/O service is stopped");
+        return false;
+    }
+    if (jobs_.size() + runningJobs_ >= config_.maxPendingJobs) {
+        setError(error, "replay I/O queue is full");
+        return false;
+    }
+    id = nextId_++;
+    jobs_.push_back(Job{id, JobKind::Save, SaveJob{path, std::move(demo)}});
+    condition_.notify_one();
+    return true;
 }
 
 bool ReplayIoService::enqueueLoad(const std::filesystem::path& path,
@@ -45,17 +57,29 @@ bool ReplayIoService::enqueueLoad(const std::filesystem::path& path,
     return enqueue(JobKind::Load, LoadJob{path}, id, error);
 }
 
-bool ReplayIoService::enqueueDecode(std::vector<std::uint8_t> bytes,
+bool ReplayIoService::enqueueDecode(std::vector<std::uint8_t>& bytes,
                                     JobId& id,
                                     std::string* error) {
     if (bytes.size() > kMaxReplayBytes) {
         setError(error, "replay bytes exceed the size limit");
         return false;
     }
-    return enqueue(JobKind::Decode, DecodeJob{std::move(bytes)}, id, error);
+    std::lock_guard lock(mutex_);
+    if (stopping_ || stopped_) {
+        setError(error, "replay I/O service is stopped");
+        return false;
+    }
+    if (jobs_.size() + runningJobs_ >= config_.maxPendingJobs) {
+        setError(error, "replay I/O queue is full");
+        return false;
+    }
+    id = nextId_++;
+    jobs_.push_back(Job{id, JobKind::Decode, DecodeJob{std::move(bytes)}});
+    condition_.notify_one();
+    return true;
 }
 
-bool ReplayIoService::enqueueEncode(ReplayDemo demo,
+bool ReplayIoService::enqueueEncode(ReplayDemo& demo,
                                     std::size_t maximumBytes,
                                     JobId& id,
                                     std::string* error) {
@@ -63,8 +87,20 @@ bool ReplayIoService::enqueueEncode(ReplayDemo demo,
         setError(error, "replay encode size limit is zero");
         return false;
     }
-    return enqueue(JobKind::Encode,
-                   EncodeJob{std::move(demo), maximumBytes}, id, error);
+    std::lock_guard lock(mutex_);
+    if (stopping_ || stopped_) {
+        setError(error, "replay I/O service is stopped");
+        return false;
+    }
+    if (jobs_.size() + runningJobs_ >= config_.maxPendingJobs) {
+        setError(error, "replay I/O queue is full");
+        return false;
+    }
+    id = nextId_++;
+    jobs_.push_back(Job{id, JobKind::Encode,
+                        EncodeJob{std::move(demo), maximumBytes}});
+    condition_.notify_one();
+    return true;
 }
 
 bool ReplayIoService::enqueueList(const std::filesystem::path& directory,
@@ -145,7 +181,7 @@ void ReplayIoService::workerLoop() {
 
         Result result;
         try {
-            result = runJob(job);
+            result = runJob(std::move(job));
         } catch (const std::exception& exception) {
             result.id = job.id;
             result.kind = job.kind;
@@ -170,11 +206,11 @@ void ReplayIoService::workerLoop() {
     }
 }
 
-ReplayIoService::Result ReplayIoService::runJob(const Job& job) const {
+ReplayIoService::Result ReplayIoService::runJob(Job job) const {
     Result result;
     result.id = job.id;
     result.kind = job.kind;
-    std::visit([&result](const auto& payload) {
+    std::visit([&result](auto& payload) {
         using Payload = std::decay_t<decltype(payload)>;
         if constexpr (std::is_same_v<Payload, SaveJob>) {
             result.path = payload.path;

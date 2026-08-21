@@ -535,6 +535,9 @@ ReplayTransferReceiver::ReplayTransferReceiver(ReplayTransferReceiverConfig conf
   if (config_.overallTimeoutMilliseconds < config_.idleTimeoutMilliseconds) {
     config_.overallTimeoutMilliseconds = config_.idleTimeoutMilliseconds;
   }
+  if (config_.completionAckLingerMilliseconds == 0U) {
+    config_.completionAckLingerMilliseconds = 1U;
+  }
 }
 
 std::optional<ReplayTransferAck>
@@ -547,6 +550,24 @@ ReplayTransferReceiver::receiveBegin(const ReplayTransferBegin& begin,
       failed_ = true;
     }
     return std::nullopt;
+  }
+  if (!active_ && completedBegin_.transferId != 0U) {
+    const bool withinLinger = now >= completedAt_ &&
+      now - completedAt_ <= config_.completionAckLingerMilliseconds;
+    const bool sameCompleted =
+      begin.transferId == completedBegin_.transferId &&
+      begin.generation == completedBegin_.generation &&
+      begin.sessionId == completedBegin_.sessionId &&
+      begin.chunkCount == completedBegin_.chunkCount &&
+      begin.byteCount == completedBegin_.byteCount &&
+      begin.lethalSequence == completedBegin_.lethalSequence &&
+      begin.sha256 == completedBegin_.sha256;
+    if (withinLinger && sameCompleted) {
+      return ReplayTransferAck{begin.transferId, begin.generation,
+                               kReplayTransferBeginAck, begin.sessionId};
+    }
+    completedBegin_ = {};
+    completedAt_ = 0U;
   }
   if (active_ && (begin.transferId != begin_.transferId ||
                   begin.generation != begin_.generation ||
@@ -566,6 +587,8 @@ ReplayTransferReceiver::receiveBegin(const ReplayTransferBegin& begin,
     return ReplayTransferAck{begin_.transferId, begin_.generation,
                              kReplayTransferBeginAck, begin_.sessionId};
   }
+  completedBegin_ = {};
+  completedAt_ = 0U;
   begin_ = begin;
   chunks_.assign(begin.chunkCount, {});
   received_.assign(begin.chunkCount, false);
@@ -581,7 +604,21 @@ ReplayTransferReceiver::receiveBegin(const ReplayTransferBegin& begin,
 std::optional<ReplayTransferAck>
 ReplayTransferReceiver::receiveChunk(const ReplayTransferChunk& chunk,
                                       std::uint64_t now) {
-  if (!active_ || failed_ || chunk.transferId != begin_.transferId ||
+  if (!active_) {
+    const bool withinLinger = completedBegin_.transferId != 0U &&
+      now >= completedAt_ &&
+      now - completedAt_ <= config_.completionAckLingerMilliseconds;
+    if (withinLinger && validChunk(chunk) &&
+        chunk.transferId == completedBegin_.transferId &&
+        chunk.generation == completedBegin_.generation &&
+        chunk.sessionId == completedBegin_.sessionId &&
+        chunk.count == completedBegin_.chunkCount) {
+      return ReplayTransferAck{chunk.transferId, chunk.generation,
+                               chunk.index, chunk.sessionId};
+    }
+    return std::nullopt;
+  }
+  if (failed_ || chunk.transferId != begin_.transferId ||
       chunk.generation != begin_.generation ||
       chunk.sessionId != begin_.sessionId) {
     return std::nullopt;
@@ -648,6 +685,8 @@ ReplayTransferReceiver::takeCompleted() {
     failed_ = true;
     return std::nullopt;
   }
+  completedBegin_ = begin_;
+  completedAt_ = lastActivity_;
   active_ = false;
   chunks_.clear();
   received_.clear();

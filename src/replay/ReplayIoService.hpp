@@ -52,20 +52,39 @@ public:
     ReplayIoService(const ReplayIoService&) = delete;
     ReplayIoService& operator=(const ReplayIoService&) = delete;
 
+    // Lvalue payloads are moved only after admission succeeds. Queue-full or
+    // stopped-service rejection therefore leaves the caller's data intact.
     [[nodiscard]] bool enqueueSave(const std::filesystem::path& path,
-                                   ReplayDemo demo,
+                                   ReplayDemo& demo,
                                    JobId& id,
                                    std::string* error = nullptr);
+    [[nodiscard]] bool enqueueSave(const std::filesystem::path& path,
+                                   ReplayDemo&& demo,
+                                   JobId& id,
+                                   std::string* error = nullptr) {
+        return enqueueSave(path, demo, id, error);
+    }
     [[nodiscard]] bool enqueueLoad(const std::filesystem::path& path,
                                    JobId& id,
                                    std::string* error = nullptr);
-    [[nodiscard]] bool enqueueDecode(std::vector<std::uint8_t> bytes,
+    [[nodiscard]] bool enqueueDecode(std::vector<std::uint8_t>& bytes,
                                      JobId& id,
                                      std::string* error = nullptr);
-    [[nodiscard]] bool enqueueEncode(ReplayDemo demo,
+    [[nodiscard]] bool enqueueDecode(std::vector<std::uint8_t>&& bytes,
+                                     JobId& id,
+                                     std::string* error = nullptr) {
+        return enqueueDecode(bytes, id, error);
+    }
+    [[nodiscard]] bool enqueueEncode(ReplayDemo& demo,
                                      std::size_t maximumBytes,
                                      JobId& id,
                                      std::string* error = nullptr);
+    [[nodiscard]] bool enqueueEncode(ReplayDemo&& demo,
+                                     std::size_t maximumBytes,
+                                     JobId& id,
+                                     std::string* error = nullptr) {
+        return enqueueEncode(demo, maximumBytes, id, error);
+    }
     [[nodiscard]] bool enqueueList(const std::filesystem::path& directory,
                                    JobId& id,
                                    std::string* error = nullptr);
@@ -128,7 +147,7 @@ private:
                                JobId& id,
                                std::string* error);
     void workerLoop();
-    [[nodiscard]] Result runJob(const Job& job) const;
+    [[nodiscard]] Result runJob(Job job) const;
 
     Config config_;
     mutable std::mutex mutex_;

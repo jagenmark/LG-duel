@@ -192,10 +192,6 @@ std::optional<ReplayDemo> ReplayRollingBuffer::extractSegment(
   const std::uint32_t end = event.tick > std::numeric_limits<std::uint32_t>::max() - afterTicks
     ? std::numeric_limits<std::uint32_t>::max()
     : event.tick + afterTicks;
-  if (authorityBoundaryGapTick_.has_value() && end >= *authorityBoundaryGapTick_) {
-    fail(error, "rolling replay authority boundary history is incomplete");
-    return std::nullopt;
-  }
   const auto checkpoint = std::upper_bound(
     checkpoints_.begin(), checkpoints_.end(), start,
     [](std::uint32_t tick, const ReplayCheckpoint& candidate) {
@@ -207,6 +203,12 @@ std::optional<ReplayDemo> ReplayRollingBuffer::extractSegment(
     return std::nullopt;
   }
   const ReplayCheckpoint& anchor = *std::prev(checkpoint);
+  if (authorityBoundaryGapTick_.has_value() &&
+      anchor.serverTick <= *authorityBoundaryGapTick_ &&
+      end >= *authorityBoundaryGapTick_) {
+    fail(error, "rolling replay authority boundary history is incomplete");
+    return std::nullopt;
+  }
   if (inputs_.empty() || inputs_.front().tick > anchor.serverTick || inputs_.back().tick < end) {
     fail(error, "rolling replay segment is incomplete");
     return std::nullopt;
@@ -282,6 +284,10 @@ void ReplayRollingBuffer::trim() {
     ++droppedRecords_;
   }
   const std::uint32_t anchorTick = checkpoints_.empty() ? floor : checkpoints_.front().serverTick;
+  if (authorityBoundaryGapTick_.has_value() &&
+      *authorityBoundaryGapTick_ < anchorTick) {
+    authorityBoundaryGapTick_.reset();
+  }
   while (!inputs_.empty() && inputs_.front().tick < anchorTick) {
     inputs_.pop_front();
     estimatedBytes_ -= sizeof(ReplayTickInput);
@@ -299,7 +305,6 @@ void ReplayRollingBuffer::trim() {
   }
   while (authorityBoundaries_.size() > 1U &&
       authorityBoundaries_[1].tick < anchorTick) {
-    markAuthorityBoundaryGap(authorityBoundaries_.front().tick);
     estimatedBytes_ -= checkpointResidentBytes(authorityBoundaries_.front().checkpoint) + 2048U;
     authorityBoundaries_.pop_front();
     ++droppedRecords_;
@@ -322,7 +327,6 @@ void ReplayRollingBuffer::trim() {
     }
     while (authorityBoundaries_.size() > 1U &&
         authorityBoundaries_[1].tick < nextAnchor) {
-      markAuthorityBoundaryGap(authorityBoundaries_.front().tick);
       estimatedBytes_ -= checkpointResidentBytes(authorityBoundaries_.front().checkpoint) + 2048U;
       authorityBoundaries_.pop_front();
     }

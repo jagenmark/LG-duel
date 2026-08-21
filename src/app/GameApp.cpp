@@ -5212,6 +5212,7 @@ int GameApp::run() const {
     Team matchWinningTeam = Team::None;
     bool localWasDead = false;
     bool localWasRespawning = false;
+    bool deathSnapshotBound = false;
   };
   std::optional<RemoteKillcamContext> pendingKillcamContext;
   std::optional<replay::ReplayIoService::JobId> pendingReplayList;
@@ -6916,22 +6917,26 @@ int GameApp::run() const {
         const ClientGame* liveGame = session.game();
         if (liveGame != nullptr && liveGame->hasSnapshot()) {
           const ServerSnapshot& liveSnapshot = liveGame->snapshot();
+          const std::size_t localPlayer = session.playerIndex();
+          const bool localDead = localPlayer < kDuelPlayerCount &&
+            liveSnapshot.players[localPlayer].health <= 0;
+          const bool localRespawning = localPlayer < kDuelPlayerCount &&
+            liveSnapshot.respawnTicksRemaining[localPlayer] > 0U;
           pendingKillcamContext = RemoteKillcamContext{
             transferStatus.sessionId,
             liveSnapshot.mapRevision,
             liveSnapshot.map.contentHash,
             transferStatus.generation,
             transferStatus.lethalSequence,
-            static_cast<std::uint8_t>(session.playerIndex()),
+            static_cast<std::uint8_t>(localPlayer),
             liveSnapshot.matchPhase,
             liveSnapshot.roundWinner,
             liveSnapshot.matchWinner,
             liveSnapshot.roundWinningTeam,
             liveSnapshot.matchWinningTeam,
-            session.playerIndex() < kDuelPlayerCount &&
-              liveSnapshot.players[session.playerIndex()].health <= 0,
-            session.playerIndex() < kDuelPlayerCount &&
-              liveSnapshot.respawnTicksRemaining[session.playerIndex()] > 0U,
+            localDead,
+            localRespawning,
+            localDead || localRespawning,
           };
         }
       }
@@ -6956,6 +6961,7 @@ int GameApp::run() const {
             255U,
             Team::None,
             Team::None,
+            false,
             false,
             false,
           };
@@ -8970,11 +8976,40 @@ int GameApp::run() const {
     );
     session.update();
     pumpKillcamTransfer();
-    while (const std::optional<replay::ReplayIoService::Result> result = replayIo.poll()) {
+    while (std::optional<replay::ReplayIoService::Result> result = replayIo.poll()) {
       if (result->id == pendingKillcamDecode.value_or(0)) {
         pendingKillcamDecode.reset();
         const ClientGame* liveGame = session.game();
         const std::size_t localPlayer = session.playerIndex();
+        if (pendingKillcamContext.has_value() &&
+            !pendingKillcamContext->deathSnapshotBound &&
+            liveGame != nullptr && liveGame->hasSnapshot() &&
+            localPlayer < kDuelPlayerCount &&
+            session.sessionId() == pendingKillcamContext->sessionId &&
+            liveGame->snapshot().hasLocalClientState &&
+            !liveGame->snapshot().localSpectator &&
+            liveGame->snapshot().localPlayerIndex == localPlayer &&
+            pendingKillcamContext->localPlayerIndex == localPlayer) {
+          const ServerSnapshot& deathSnapshot = liveGame->snapshot();
+          const bool localDead =
+            deathSnapshot.players[localPlayer].health <= 0;
+          const bool localRespawning =
+            deathSnapshot.respawnTicksRemaining[localPlayer] > 0U;
+          if (localDead || localRespawning) {
+            pendingKillcamContext->mapRevision = deathSnapshot.mapRevision;
+            pendingKillcamContext->mapContentHash = deathSnapshot.map.contentHash;
+            pendingKillcamContext->matchPhase = deathSnapshot.matchPhase;
+            pendingKillcamContext->roundWinner = deathSnapshot.roundWinner;
+            pendingKillcamContext->matchWinner = deathSnapshot.matchWinner;
+            pendingKillcamContext->roundWinningTeam =
+              deathSnapshot.roundWinningTeam;
+            pendingKillcamContext->matchWinningTeam =
+              deathSnapshot.matchWinningTeam;
+            pendingKillcamContext->localWasDead = localDead;
+            pendingKillcamContext->localWasRespawning = localRespawning;
+            pendingKillcamContext->deathSnapshotBound = true;
+          }
+        }
         std::optional<replay::ReplayLethalEvent> localLethal;
         if (result->demo.has_value() && pendingKillcamContext.has_value() &&
             localPlayer < kDuelPlayerCount) {
@@ -9014,6 +9049,7 @@ int GameApp::run() const {
           !session.spectator() && localPlayer < kDuelPlayerCount &&
           currentBodyMatches &&
           pendingKillcamContext.has_value() &&
+          pendingKillcamContext->deathSnapshotBound &&
           session.sessionId() == pendingKillcamContext->sessionId &&
           liveGame->snapshot().gameMode == GameMode::Duel &&
           result->demo.has_value() &&
@@ -9390,6 +9426,7 @@ int GameApp::run() const {
       const ClientGame* liveGame = session.game();
       const bool liveStateMatches =
         session.connected() && liveGame != nullptr && liveGame->hasSnapshot() &&
+        pendingKillcamContext->deathSnapshotBound &&
         session.sessionId() == pendingKillcamContext->sessionId &&
         !session.spectator() && session.playerIndex() < kDuelPlayerCount &&
         liveGame->snapshot().hasLocalClientState &&
