@@ -67,13 +67,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode "${{ steps.worktree.outputs.path }}/.github/pr265/apply_fixes.py.gz.b64" | \
-            gzip --decompress > "$RUNNER_TEMP/apply-pr265-fixes.py"
-          python "$RUNNER_TEMP/apply-pr265-fixes.py" \
-            "${{ steps.worktree.outputs.path }}" \
-            "${{ steps.worktree.outputs.manifest }}"
-          git -C "${{ steps.worktree.outputs.path }}" diff --check
-          git -C "${{ steps.worktree.outputs.path }}" status --short
+          worktree="${{ steps.worktree.outputs.path }}"
+          manifest="${{ steps.worktree.outputs.manifest }}"
+          payload="$RUNNER_TEMP/apply-pr265-fixes.py.gz.b64"
+          cat "$worktree"/.github/pr265/payload.part-* > "$payload"
+          echo "ad5db2fc3f77378556cff9f8d08a0f7588e8297839209210028a66e6ea4fba2d  $payload" | sha256sum --check --status
+          base64 --decode "$payload" | gzip --decompress > "$RUNNER_TEMP/apply-pr265-fixes.py"
+          echo "a7a40bdd9b0ff1b0de34aee598e39f5e0a9043f39d1e1fcd87cb10895e36f3e9  $RUNNER_TEMP/apply-pr265-fixes.py" | sha256sum --check --status
+          python "$RUNNER_TEMP/apply-pr265-fixes.py" "$worktree" "$manifest"
+          for part in "$worktree"/.github/pr265/payload.part-*; do
+            rel=".github/pr265/$(basename "$part")"
+            rm -- "$part"
+            printf '%s\n' "$rel" >> "$manifest"
+          done
+          sort -u -o "$manifest" "$manifest"
+          git -C "$worktree" diff --check
+          git -C "$worktree" status --short
 
       - name: Configure
         working-directory: ${{ steps.worktree.outputs.path }}
