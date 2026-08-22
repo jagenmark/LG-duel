@@ -10,6 +10,18 @@ def replace_once(path: str, old: str, new: str) -> None:
     file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
+def replace_region(path: str, start_marker: str, end_marker: str, replacement: str) -> None:
+    file_path = Path(path)
+    text = file_path.read_text(encoding="utf-8")
+    start = text.find(start_marker)
+    if start < 0:
+        raise SystemExit(f"{path}: start marker not found: {start_marker!r}")
+    end = text.find(end_marker, start)
+    if end < 0:
+        raise SystemExit(f"{path}: end marker not found: {end_marker!r}")
+    file_path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+
+
 payload_path = Path(".github/pr265/followup_payload.yml")
 source = payload_path.read_text(encoding="utf-8")
 lines = source.splitlines()
@@ -33,6 +45,137 @@ for line in lines[start + 1 : end]:
         in_triple = True
 
 payload_script = "\n".join(script_lines) + "\n"
+
+old_replace_guard = """    if count != 1:
+        raise SystemExit(f'{path}: expected one replacement, found {count}')
+    write(path, text.replace(old, new, 1))
+"""
+new_replace_guard = """    if count == 0 and text.count(new) == 1:
+        return
+    if count != 1:
+        raise SystemExit(
+            f'{path}: expected one replacement, found {count}: {old[:120]!r}'
+        )
+    write(path, text.replace(old, new, 1))
+"""
+if payload_script.count(old_replace_guard) != 1:
+    raise SystemExit("payload replace_once guard changed unexpectedly")
+payload_script = payload_script.replace(old_replace_guard, new_replace_guard, 1)
+
+# Apply ReplayIoService.cpp by structural boundaries. The retained payload's
+# exact marker predates formatting already present on this PR.
+replace_region(
+    "src/replay/ReplayIoService.cpp",
+    "ReplayIoService::ReplayIoService(Config config)\n",
+    "bool ReplayIoService::enqueueSave(",
+    """ReplayIoService::ReplayIoService(Config config)
+    : config_(config) {
+    if (config_.maxPendingJobs == 0) {
+        config_.maxPendingJobs = 1;
+    }
+    if (config_.startWorker) {
+        start();
+    }
+}
+
+ReplayIoService::~ReplayIoService() {
+    shutdown();
+}
+
+void ReplayIoService::start() {
+    std::lock_guard lock(mutex_);
+    if (workerStarted_ || stopping_ || stopped_) {
+        return;
+    }
+    worker_ = std::thread(&ReplayIoService::workerLoop, this);
+    workerStarted_ = true;
+}
+
+""",
+)
+replace_region(
+    "src/replay/ReplayIoService.cpp",
+    "bool ReplayIoService::enqueueDecode(",
+    "bool ReplayIoService::enqueueEncode(",
+    """bool ReplayIoService::enqueueDecode(
+                                    std::vector<std::uint8_t>& bytes,
+                                    JobId& id,
+                                    std::string* error,
+                                    std::size_t maximumResidentBytes,
+                                    std::size_t maximumTicks) {
+    if (bytes.size() > kMaxReplayBytes) {
+        setError(error, "replay bytes exceed the size limit");
+        return false;
+    }
+    if (maximumResidentBytes == 0U ||
+        maximumResidentBytes > kMaxReplayDecodedResidentBytes ||
+        maximumTicks == 0U || maximumTicks > kMaxReplayTicks) {
+        setError(error, "replay decode limits are invalid");
+        return false;
+    }
+    std::lock_guard lock(mutex_);
+    if (stopping_ || stopped_) {
+        setError(error, "replay I/O service is stopped");
+        return false;
+    }
+    if (jobs_.size() + runningJobs_ >= config_.maxPendingJobs) {
+        setError(error, "replay I/O queue is full");
+        return false;
+    }
+    id = nextId_++;
+    jobs_.push_back(Job{
+        id,
+        JobKind::Decode,
+        DecodeJob{std::move(bytes), maximumResidentBytes, maximumTicks}
+    });
+    condition_.notify_one();
+    return true;
+}
+
+""",
+)
+replace_region(
+    "src/replay/ReplayIoService.cpp",
+    "void ReplayIoService::shutdown()",
+    "void ReplayIoService::workerLoop()",
+    """void ReplayIoService::shutdown() {
+    {
+        std::lock_guard lock(mutex_);
+        if (stopped_) {
+            return;
+        }
+        if (!workerStarted_ && !jobs_.empty()) {
+            worker_ = std::thread(&ReplayIoService::workerLoop, this);
+            workerStarted_ = true;
+        }
+        stopping_ = true;
+    }
+    condition_.notify_one();
+    if (worker_.joinable()) {
+        worker_.join();
+    }
+    std::lock_guard lock(mutex_);
+    stopped_ = true;
+}
+
+""",
+)
+replace_once(
+    "src/replay/ReplayIoService.cpp",
+    """        } else if constexpr (std::is_same_v<Payload, DecodeJob>) {
+            ReplayDemo demo;
+            result.ok = decodeDemo(payload.bytes, demo, &result.error);""",
+    """        } else if constexpr (std::is_same_v<Payload, DecodeJob>) {
+            ReplayDemo demo;
+            result.ok = decodeDemo(
+                payload.bytes,
+                demo,
+                &result.error,
+                payload.maximumResidentBytes,
+                payload.maximumTicks
+            );""",
+)
+
 exec(compile(payload_script, "pr265-followup-apply.py", "exec"), {"__name__": "__main__"})
 
 # Repair the transfer-loop closure produced by the retained payload.
