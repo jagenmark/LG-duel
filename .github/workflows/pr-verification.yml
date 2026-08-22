@@ -29,14 +29,29 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import textwrap
 
           source = Path('.github/workflows/pr265-followup-review-fixes.yml').read_text(encoding='utf-8')
           lines = source.splitlines()
           start = next(i for i, line in enumerate(lines) if line.strip() == "python - <<'PY'")
           end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
-          script = textwrap.dedent('\n'.join(lines[start + 1:end])) + '\n'
 
+          script_lines = []
+          in_triple = False
+          prefix = ' ' * 10
+          for line in lines[start + 1:end]:
+              if in_triple:
+                  if "'''" in line:
+                      script_lines.append(line[len(prefix):] if line.startswith(prefix) else line)
+                      in_triple = False
+                  else:
+                      script_lines.append(line)
+                  continue
+              stripped = line[len(prefix):] if line.startswith(prefix) else line
+              script_lines.append(stripped)
+              if stripped.count("'''") % 2 == 1:
+                  in_triple = True
+
+          script = '\n'.join(script_lines) + '\n'
           bad = "      }\n  };\n\n'''\n          game = game[:completed_start] + completed_block + game[completed_end:]"
           good = "      }\n'''\n          game = game[:completed_start] + completed_block + game[completed_end:]"
           if script.count(bad) != 1:
@@ -47,7 +62,7 @@ jobs:
 
       - name: Restore permanent PR workflow
         shell: bash
-        run: git show HEAD^:.github/workflows/pr-verification.yml > .github/workflows/pr-verification.yml
+        run: git show HEAD^^:.github/workflows/pr-verification.yml > .github/workflows/pr-verification.yml
 
       - name: Set up Python
         uses: actions/setup-python@v5
