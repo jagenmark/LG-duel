@@ -24,6 +24,13 @@ jobs:
           ref: integration/replay-killcam-20260816
           fetch-depth: 0
 
+      - name: Preserve permanent verification workflow
+        shell: bash
+        run: |
+          mkdir -p verification/permanent-workflow
+          git show 5cdd9f476ae01afeda27a160f0b0e227d7296b76:.github/workflows/pr-verification.yml \
+            > verification/permanent-workflow/pr-verification.yml
+
       - name: Apply replay and killcam patch
         shell: bash
         run: |
@@ -52,17 +59,21 @@ jobs:
                   in_triple = True
 
           script = '\n'.join(script_lines) + '\n'
-          bad = "      }\n  };\n\n'''\n          game = game[:completed_start] + completed_block + game[completed_end:]"
-          good = "      }\n'''\n          game = game[:completed_start] + completed_block + game[completed_end:]"
-          if script.count(bad) != 1:
-              raise SystemExit('could not repair completed-transfer replacement block')
-          script = script.replace(bad, good, 1)
           exec(compile(script, 'pr265-followup-apply.py', 'exec'), {'__name__': '__main__'})
-          PY
 
-      - name: Restore permanent PR workflow
-        shell: bash
-        run: git show HEAD^^:.github/workflows/pr-verification.yml > .github/workflows/pr-verification.yml
+          game_path = Path('src/app/GameApp.cpp')
+          game = game_path.read_text(encoding='utf-8')
+          bad = '''      }
+  };
+
+    if (const std::optional<replay::ReplayTransferMessage> timeout ='''
+          good = '''      }
+    }
+    if (const std::optional<replay::ReplayTransferMessage> timeout ='''
+          if game.count(bad) != 1:
+              raise SystemExit('generated transfer-loop closure did not match exactly once')
+          game_path.write_text(game.replace(bad, good, 1), encoding='utf-8')
+          PY
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -104,11 +115,34 @@ jobs:
           ctest --test-dir build/default --output-on-failure
           -R "lg_duel_(replay_codec|replay_rolling|replay_storage_io|replay_presentation|killcam_client_receiver|killcam_server_coordinator)_tests"
 
-      - name: Verify and commit fixes
+      - name: Upload permanent workflow copy
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr265-permanent-workflow-${{ github.run_attempt }}
+          path: verification/permanent-workflow/pr-verification.yml
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Verify and commit source fixes
         shell: bash
         run: |
-          rm -f .github/workflows/pr265-followup-review-fixes.yml
-          git add -A
+          git add \
+            src/app/GameApp.cpp \
+            src/replay/RemoteKillcamPending.hpp \
+            src/replay/ReplayCodec.cpp \
+            src/replay/ReplayCodec.hpp \
+            src/replay/ReplayIoService.cpp \
+            src/replay/ReplayIoService.hpp \
+            src/replay/ReplayPresentationSession.cpp \
+            src/replay/ReplayRollingBuffer.cpp \
+            src/replay/ReplayTransfer.hpp \
+            tests/replay/KillcamClientReceiverTests.cpp \
+            tests/replay/ReplayCodecTests.cpp \
+            tests/replay/ReplayPresentationSessionTests.cpp \
+            tests/replay/ReplayRollingBufferTests.cpp \
+            tests/replay/ReplayStorageIoTests.cpp \
+            docs/architecture/networking.md
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
