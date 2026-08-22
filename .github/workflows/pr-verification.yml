@@ -24,10 +24,11 @@ jobs:
           ref: agent/test-ci-audit-slice-2
           fetch-depth: 0
 
-      - name: Apply final workflow and documentation fixes
+      - name: Generate final workflow and documentation
         shell: bash
         run: |
-          git show HEAD^^:.github/workflows/pr-verification.yml > .github/workflows/pr-verification.yml
+          git show 1e48c92edcac717e842b8695de27eb850766d819:.github/workflows/pr-verification.yml \
+            > .github/workflows/pr-verification.yml
           python - <<'PY'
           from pathlib import Path
 
@@ -56,14 +57,15 @@ jobs:
           exec(compile(script, 'pr267-review-apply.py', 'exec'), {'__name__': '__main__'})
           PY
 
-      - name: Validate generated workflow
+      - name: Validate final workflow
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check "PyYAML==6.0.2"
           python - <<'PY'
           import yaml
           from pathlib import Path
-          with Path('.github/workflows/pr-verification.yml').open(encoding='utf-8') as handle:
+          path = Path('.github/workflows/pr-verification.yml')
+          with path.open(encoding='utf-8') as handle:
               loaded = yaml.safe_load(handle)
           jobs = loaded.get('jobs', {}) if isinstance(loaded, dict) else {}
           required = {
@@ -76,16 +78,32 @@ jobs:
           missing = required.difference(jobs)
           if missing:
               raise SystemExit('missing jobs: ' + ', '.join(sorted(missing)))
+          linux_steps = jobs['linux-build-and-tests'].get('steps', [])
+          ids = {step.get('id') for step in linux_steps}
+          if not {'ctest', 'determinism', 'protocol'}.issubset(ids):
+              raise SystemExit('Linux workflow lacks isolated result steps')
           PY
           git diff --check
+          mkdir -p verification/generated-workflow
+          cp .github/workflows/pr-verification.yml \
+            verification/generated-workflow/pr-verification.yml
 
-      - name: Commit fixes to PR branch
+      - name: Upload validated workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr267-final-workflow-${{ github.run_attempt }}
+          path: verification/generated-workflow/pr-verification.yml
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Commit documentation update
         shell: bash
         run: |
-          rm -f .github/workflows/pr267-review-fixes.yml
-          git add .github/workflows/pr-verification.yml docs/CI-VERIFICATION.md .github/workflows/pr267-review-fixes.yml
+          git add docs/CI-VERIFICATION.md
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Fix consolidated CI result isolation and evidence"
-          git push origin HEAD:agent/test-ci-audit-slice-2
+          if ! git diff --cached --quiet; then
+            git commit -m "Document consolidated required CI checks"
+            git push origin HEAD:agent/test-ci-audit-slice-2
+          fi
