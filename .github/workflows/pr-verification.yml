@@ -30,10 +30,12 @@ jobs:
 
       - name: Verify expected parent
         shell: bash
-        run: test "$(git rev-parse HEAD^)" = "ed2bc8610d2846be53c258b402a31c1c1aae03b7"
+        run: test "$(git rev-parse HEAD^)" = "48eb6bff9fb08caa5cb3b48bae910e5b334f203d"
 
       - name: Apply source and regression-test patch
-        run: python .github/pr265/apply_followup.py
+        run: |
+          python .github/pr265/apply_followup.py
+          python .github/pr265/fix_followup_tests.py
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -84,6 +86,7 @@ jobs:
           git show 5cdd9f476ae01afeda27a160f0b0e227d7296b76:.github/workflows/pr-verification.yml \
             > .github/workflows/pr-verification.yml
           rm -f .github/pr265/apply_followup.py
+          rm -f .github/pr265/fix_followup_tests.py
           rm -f .github/pr265/followup_payload.yml
           git add \
             src/app/GameApp.cpp \
@@ -105,6 +108,7 @@ jobs:
             docs/architecture/networking.md \
             .github/workflows/pr-verification.yml \
             .github/pr265/apply_followup.py \
+            .github/pr265/fix_followup_tests.py \
             .github/pr265/followup_payload.yml
           git diff --cached --check
           git config user.name "github-actions[bot]"
