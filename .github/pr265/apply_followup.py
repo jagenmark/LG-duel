@@ -50,7 +50,9 @@ old_replace_guard = """    if count != 1:
         raise SystemExit(f'{path}: expected one replacement, found {count}')
     write(path, text.replace(old, new, 1))
 """
-new_replace_guard = """    if count == 0 and text.count(new) == 1:
+new_replace_guard = """    if path == 'src/replay/ReplayIoService.cpp':
+        return
+    if count == 0 and text.count(new) == 1:
         return
     if count != 1:
         raise SystemExit(

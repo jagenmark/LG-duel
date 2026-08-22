@@ -30,7 +30,7 @@ jobs:
 
       - name: Verify expected parent
         shell: bash
-        run: test "$(git rev-parse HEAD^)" = "2ef5d4d357261b4d2c2bd150e858af1e1de8a6da"
+        run: test "$(git rev-parse HEAD^)" = "ed2bc8610d2846be53c258b402a31c1c1aae03b7"
 
       - name: Apply source and regression-test patch
         run: python .github/pr265/apply_followup.py
