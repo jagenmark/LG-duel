@@ -30,7 +30,7 @@ KillcamServerCoordinator::KillcamServerCoordinator(
       transport_(transport),
       // One running encode plus one queued encode covers both duel deaths on
       // the same authoritative tick without adding worker concurrency.
-      io_(ReplayIoService::Config{2U}),
+      io_(ReplayIoService::Config{kKillcamEncodeQueueCapacity}),
       transfers_(ReplayTransferServerConfig{}) {}
 
 KillcamServerCoordinator::~KillcamServerCoordinator() { shutdown(); }

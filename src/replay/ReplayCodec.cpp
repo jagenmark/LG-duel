@@ -1468,9 +1468,13 @@ bool decodeDemo(
   const std::vector<std::uint8_t>& bytes,
   ReplayDemo& demo,
   std::string* error,
-  std::size_t maximumResidentBytes
+  std::size_t maximumResidentBytes,
+  std::size_t maximumTicks
 ) try {
   if (bytes.size() < kFilePreambleBytes || bytes.size() > kMaxReplayBytes) return fail(error, "replay size is invalid");
+  if (maximumTicks == 0U || maximumTicks > kMaxReplayTicks) {
+    return fail(error, "replay input-tick decode limit is invalid");
+  }
   Reader reader(bytes);
   for (const std::uint8_t expected : kMagic) {
     std::uint8_t actual = 0;
@@ -1528,7 +1532,7 @@ bool decodeDemo(
     const ReplayChunkType type = static_cast<ReplayChunkType>(typeValue);
     switch (type) {
     case ReplayChunkType::TickInputs: {
-      if (decoded.ticks.size() >= kMaxReplayTicks) return fail(error, "replay has too many input ticks");
+      if (decoded.ticks.size() >= maximumTicks) return fail(error, "replay has too many input ticks for decode limit");
       if (!budget.claimVectorElement<ReplayTickInput>()) {
         return fail(error, "replay decoded data exceeds resident-memory limit");
       }

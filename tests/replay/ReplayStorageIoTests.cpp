@@ -2,6 +2,7 @@
 #include "replay/ReplayCodec.hpp"
 #include "replay/ReplayFile.hpp"
 #include "replay/ReplayIoService.hpp"
+#include "replay/KillcamServerCoordinator.hpp"
 #include "replay/ReplayStorage.hpp"
 
 #include <algorithm>
@@ -75,6 +76,22 @@ std::optional<lg::replay::ReplayIoService::Result> waitFor(
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   return std::nullopt;
+}
+
+std::vector<lg::replay::ReplayIoService::Result> waitForResults(
+  lg::replay::ReplayIoService& service,
+  std::size_t count
+) {
+  std::vector<lg::replay::ReplayIoService::Result> results;
+  for (int attempt = 0; attempt < 3000 && results.size() < count; ++attempt) {
+    while (auto result = service.poll()) {
+      results.push_back(std::move(*result));
+    }
+    if (results.size() < count) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+  return results;
 }
 
 } // namespace
@@ -200,6 +217,79 @@ int main() {
       retainedDemo.metadata.initialServerTick == 10U,
     "rejected save admission must retain the caller-owned completed demo"
   );
+
+  {
+    lg::replay::ReplayIoService queued(
+      lg::replay::ReplayIoService::Config{1U, false}
+    );
+    const std::filesystem::path firstQueuedPath =
+      storage.directory() / "queue_pressure_first.lgdemo";
+    const std::filesystem::path retryQueuedPath =
+      storage.directory() / "queue_pressure_retry.lgdemo";
+    lg::replay::ReplayDemo first = sampleDemo(10U);
+    lg::replay::ReplayDemo retained = sampleDemo(11U);
+    lg::replay::ReplayIoService::JobId firstJob = 0U;
+    lg::replay::ReplayIoService::JobId rejectedJob = 0U;
+    failures += expect(
+      queued.enqueueSave(firstQueuedPath, first, firstJob, &error),
+      "a paused worker should admit its first save"
+    );
+    failures += expect(
+      !queued.enqueueSave(retryQueuedPath, retained, rejectedJob, &error) &&
+        error == "replay I/O queue is full" &&
+        retained.metadata.initialServerTick == 11U &&
+        retained.ticks.size() == 1U,
+      "queue-pressure rejection must retain the completed demo for retry"
+    );
+    queued.start();
+    const auto firstResult = waitFor(queued, [firstJob](const auto& result) {
+      return result.id == firstJob;
+    });
+    failures += expect(firstResult.has_value() && firstResult->ok,
+      "the first queued save should run after the worker starts");
+    lg::replay::ReplayIoService::JobId retryJob = 0U;
+    failures += expect(
+      queued.enqueueSave(retryQueuedPath, retained, retryJob, &error),
+      "the completed demo rejected under queue pressure should be retryable"
+    );
+    const auto retryResult = waitFor(queued, [retryJob](const auto& result) {
+      return result.id == retryJob;
+    });
+    failures += expect(
+      retryResult.has_value() && retryResult->ok,
+      "the retried completed demo should eventually save"
+    );
+    queued.shutdown();
+  }
+
+  {
+    lg::replay::ReplayIoService sameTick(
+      lg::replay::ReplayIoService::Config{
+        lg::replay::kKillcamEncodeQueueCapacity, false
+      }
+    );
+    lg::replay::ReplayDemo first = sampleDemo(12U);
+    lg::replay::ReplayDemo second = sampleDemo(12U);
+    lg::replay::ReplayIoService::JobId firstJob = 0U;
+    lg::replay::ReplayIoService::JobId secondJob = 0U;
+    failures += expect(
+      sameTick.enqueueEncode(first, 256U * 1024U, firstJob, &error) &&
+        sameTick.enqueueEncode(second, 256U * 1024U, secondJob, &error),
+      "the bounded worker must admit both duel deaths ready on the same tick"
+    );
+    sameTick.start();
+    const auto results = waitForResults(sameTick, 2U);
+    failures += expect(
+      results.size() == 2U &&
+        std::all_of(results.begin(), results.end(), [](const auto& result) {
+          return result.ok &&
+            result.kind == lg::replay::ReplayIoService::JobKind::Encode &&
+            !result.bytes.empty();
+        }),
+      "both same-tick killcam encodes should complete independently"
+    );
+    sameTick.shutdown();
+  }
 
   std::error_code cleanupError;
   std::filesystem::remove_all(directory, cleanupError);

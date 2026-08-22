@@ -41,6 +41,13 @@ int main() {
                          session.state().stopReason ==
                            lg::replay::ReplayPresentationStopReason::InvalidDemo,
                      "presentation should reject an invalid follow slot");
+  lg::replay::ReplayDemo sparseFollowDemo = demo;
+  sparseFollowDemo.metadata.players[0].occupied = false;
+  failures += expect(
+      session.begin(sparseFollowDemo, 0U, &error) &&
+        session.state().followSlot == 1U,
+      "local playback should fall back to the first occupied recorded player"
+  );
   failures += expect(session.begin(demo, 0U, &error),
                      "presentation should start with a recorded follow slot");
   failures += expect(session.state().active && session.state().paused &&

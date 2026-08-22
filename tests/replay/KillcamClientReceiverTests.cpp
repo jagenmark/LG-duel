@@ -1,8 +1,10 @@
 #include "replay/KillcamClientReceiver.hpp"
+#include "replay/RemoteKillcamPending.hpp"
 
 #include <cstdint>
 #include <iostream>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -254,6 +256,38 @@ int main() {
               !sessionBound.active(),
           "a delayed begin from the previous connection session must be ignored");
     }
+  }
+
+  {
+    const lg::replay::RemoteKillcamIdentity identity{77U, 9U, 4U, 1U};
+    lg::replay::PendingRemoteKillcamPlayback pending;
+    pending.begin(identity);
+    lg::replay::ReplayDemo decoded;
+    decoded.metadata.mapName = "decode_before_death";
+    failures += expect(
+      pending.storeDecoded(identity, std::move(decoded), 0U, 10U),
+      "a bounded decoded killcam should be retained for its transfer identity"
+    );
+    failures += expect(
+      !pending.takeReady(identity, false, 11U).has_value() &&
+        pending.hasDecoded(),
+      "decode-before-death order must wait without discarding the replay"
+    );
+    const auto ready = pending.takeReady(identity, true, 12U);
+    failures += expect(
+      ready.has_value() && ready->demo.metadata.mapName == "decode_before_death",
+      "the later matching death snapshot should release the retained replay"
+    );
+
+    pending.begin(identity);
+    lg::replay::ReplayDemo expiringDemo;
+    failures += expect(
+      pending.storeDecoded(identity, std::move(expiringDemo), 0U, 20U) &&
+        pending.discardIfExpired(
+          20U + lg::replay::kRemoteKillcamDeathBindingWaitMilliseconds
+        ) && !pending.hasDecoded(),
+      "a missing death snapshot must expire the retained remote replay"
+    );
   }
 
   return failures == 0 ? 0 : 1;

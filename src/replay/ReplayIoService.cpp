@@ -25,11 +25,22 @@ ReplayIoService::ReplayIoService(Config config)
     if (config_.maxPendingJobs == 0) {
         config_.maxPendingJobs = 1;
     }
-    worker_ = std::thread(&ReplayIoService::workerLoop, this);
+    if (config_.startWorker) {
+        start();
+    }
 }
 
 ReplayIoService::~ReplayIoService() {
     shutdown();
+}
+
+void ReplayIoService::start() {
+    std::lock_guard lock(mutex_);
+    if (workerStarted_ || stopping_ || stopped_) {
+        return;
+    }
+    worker_ = std::thread(&ReplayIoService::workerLoop, this);
+    workerStarted_ = true;
 }
 
 bool ReplayIoService::enqueueSave(const std::filesystem::path& path,
@@ -57,11 +68,20 @@ bool ReplayIoService::enqueueLoad(const std::filesystem::path& path,
     return enqueue(JobKind::Load, LoadJob{path}, id, error);
 }
 
-bool ReplayIoService::enqueueDecode(std::vector<std::uint8_t>& bytes,
+bool ReplayIoService::enqueueDecode(
+                                    std::vector<std::uint8_t>& bytes,
                                     JobId& id,
-                                    std::string* error) {
+                                    std::string* error,
+                                    std::size_t maximumResidentBytes,
+                                    std::size_t maximumTicks) {
     if (bytes.size() > kMaxReplayBytes) {
         setError(error, "replay bytes exceed the size limit");
+        return false;
+    }
+    if (maximumResidentBytes == 0U ||
+        maximumResidentBytes > kMaxReplayDecodedResidentBytes ||
+        maximumTicks == 0U || maximumTicks > kMaxReplayTicks) {
+        setError(error, "replay decode limits are invalid");
         return false;
     }
     std::lock_guard lock(mutex_);
@@ -74,7 +94,11 @@ bool ReplayIoService::enqueueDecode(std::vector<std::uint8_t>& bytes,
         return false;
     }
     id = nextId_++;
-    jobs_.push_back(Job{id, JobKind::Decode, DecodeJob{std::move(bytes)}});
+    jobs_.push_back(Job{
+        id,
+        JobKind::Decode,
+        DecodeJob{std::move(bytes), maximumResidentBytes, maximumTicks}
+    });
     condition_.notify_one();
     return true;
 }
@@ -155,6 +179,10 @@ void ReplayIoService::shutdown() {
         if (stopped_) {
             return;
         }
+        if (!workerStarted_ && !jobs_.empty()) {
+            worker_ = std::thread(&ReplayIoService::workerLoop, this);
+            workerStarted_ = true;
+        }
         stopping_ = true;
     }
     condition_.notify_one();
@@ -224,7 +252,13 @@ ReplayIoService::Result ReplayIoService::runJob(Job job) const {
             }
         } else if constexpr (std::is_same_v<Payload, DecodeJob>) {
             ReplayDemo demo;
-            result.ok = decodeDemo(payload.bytes, demo, &result.error);
+            result.ok = decodeDemo(
+                payload.bytes,
+                demo,
+                &result.error,
+                payload.maximumResidentBytes,
+                payload.maximumTicks
+            );
             if (result.ok) {
                 result.demo = std::move(demo);
             }

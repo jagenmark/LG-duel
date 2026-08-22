@@ -13,6 +13,12 @@ namespace lg::replay {
 
 inline constexpr std::size_t kReplayTransferMaxDatagramBytes = 1200U;
 inline constexpr std::size_t kReplayTransferMaxSegmentBytes = 512U * 1024U;
+// Remote input is untrusted and has a much narrower native expansion envelope
+// than a local saved demo. The maximum configured killcam window is 5,000
+// ticks; 8,192 leaves checkpoint-anchor slack without admitting long demos.
+inline constexpr std::size_t kRemoteKillcamMaxDecodedResidentBytes =
+    64U * 1024U * 1024U;
+inline constexpr std::size_t kRemoteKillcamMaxDecodedTicks = 8192U;
 inline constexpr std::uint16_t kReplayTransferMaxChunks = 512U;
 // NetCodec owns a 12-byte normal packet header and the replay chunk payload
 // has 23 bytes of fixed fields, including subtype and CRC.

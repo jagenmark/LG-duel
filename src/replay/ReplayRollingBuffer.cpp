@@ -81,11 +81,8 @@ void ReplayRollingBuffer::recordResolvedInput(const ReplayTickInput& input) {
     ++droppedRecords_;
     return;
   }
-  if (estimatedBytes_ > config_.maximumBytes ||
-      sizeof(ReplayTickInput) > config_.maximumBytes - estimatedBytes_) {
-    ++droppedRecords_;
-    return;
-  }
+  // Admit the newest tick before trimming. Rejecting it at the cap would make
+  // the next tick fail the adjacency check and permanently stop recording.
   inputs_.push_back(input);
   estimatedBytes_ += sizeof(ReplayTickInput);
   trim();
@@ -165,11 +162,6 @@ void ReplayRollingBuffer::recordLethal(const ReplayLethalEvent& event) {
         (event.tick < lethals_.back().tick ||
           (event.tick == lethals_.back().tick &&
             event.sequence <= lethals_.back().sequence)))) {
-    ++droppedRecords_;
-    return;
-  }
-  if (estimatedBytes_ > config_.maximumBytes ||
-      sizeof(ReplayLethalEvent) > config_.maximumBytes - estimatedBytes_) {
     ++droppedRecords_;
     return;
   }
@@ -334,12 +326,12 @@ void ReplayRollingBuffer::trim() {
   }
   // A single oversized current interval cannot be made segment-safe. Drop its
   // oldest frames while retaining its anchor rather than allow memory growth.
-  while (estimatedBytes_ > config_.maximumBytes && inputs_.size() > 1U) {
+  while (estimatedBytes_ > config_.maximumBytes && !inputs_.empty()) {
     inputs_.pop_front();
     estimatedBytes_ -= sizeof(ReplayTickInput);
     ++droppedRecords_;
   }
-  while (estimatedBytes_ > config_.maximumBytes && lethals_.size() > 1U) {
+  while (estimatedBytes_ > config_.maximumBytes && !lethals_.empty()) {
     lethals_.pop_front();
     estimatedBytes_ -= sizeof(ReplayLethalEvent);
     ++droppedRecords_;

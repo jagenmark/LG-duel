@@ -24,6 +24,7 @@
 #include "input/MouseAim.hpp"
 #include "net/NetCodec.hpp"
 #include "replay/KillcamClientReceiver.hpp"
+#include "replay/RemoteKillcamPending.hpp"
 #include "replay/ReplayIoService.hpp"
 #include "replay/ReplayRuntime.hpp"
 #include "replay/ReplayStorage.hpp"
@@ -5198,6 +5199,8 @@ int GameApp::run() const {
   bool remoteKillcamActive = false;
   std::optional<replay::ReplayIoService::JobId> pendingReplayLoad;
   std::optional<replay::ReplayIoService::JobId> pendingKillcamDecode;
+  std::optional<replay::RemoteKillcamIdentity> pendingKillcamDecodeIdentity;
+  replay::PendingRemoteKillcamPlayback pendingKillcamPlayback;
   struct RemoteKillcamContext {
     std::uint32_t sessionId = 0U;
     std::uint32_t mapRevision = 0U;
@@ -5215,6 +5218,14 @@ int GameApp::run() const {
     bool deathSnapshotBound = false;
   };
   std::optional<RemoteKillcamContext> pendingKillcamContext;
+  const auto remoteKillcamIdentity = [](const RemoteKillcamContext& context) {
+    return replay::RemoteKillcamIdentity{
+      context.sessionId,
+      context.generation,
+      context.lethalSequence,
+      context.localPlayerIndex,
+    };
+  };
   std::optional<replay::ReplayIoService::JobId> pendingReplayList;
   std::optional<replay::ReplayIoService::JobId> pendingReplayDelete;
   std::deque<std::string> pendingReplayConsoleOutput;
@@ -5426,7 +5437,8 @@ int GameApp::run() const {
     "killcam_skip",
     "Cancel the active remote killcam transfer or playback.",
     [&killcamReceiver, &session, &replayRuntime, &remoteKillcamActive,
-     &pendingKillcamDecode, &pendingKillcamContext,
+     &pendingKillcamDecode, &pendingKillcamDecodeIdentity,
+     &pendingKillcamPlayback, &pendingKillcamContext,
      &replayPresentationResetRequested](
       const std::vector<std::string>&) {
       const bool hadRemoteKillcam =
@@ -5438,6 +5450,8 @@ int GameApp::run() const {
         (void)session.sendReplayTransferMessage(*response);
       }
       pendingKillcamDecode.reset();
+      pendingKillcamDecodeIdentity.reset();
+      pendingKillcamPlayback.reset();
       pendingKillcamContext.reset();
       if (remoteKillcamActive && replayRuntime != nullptr &&
           replayRuntime->started()) {
@@ -6890,6 +6904,8 @@ int GameApp::run() const {
     if (!session.connected()) {
       killcamReceiver.reset();
       pendingKillcamDecode.reset();
+      pendingKillcamDecodeIdentity.reset();
+      pendingKillcamPlayback.reset();
       pendingKillcamContext.reset();
       if (remoteKillcamActive) {
         if (replayRuntime != nullptr && replayRuntime->started()) {
@@ -6914,31 +6930,34 @@ int GameApp::run() const {
           killcamReceiver.active()) {
         const replay::KillcamClientReceiverStatus transferStatus =
           killcamReceiver.status();
+        const std::size_t localPlayer = session.playerIndex();
+        RemoteKillcamContext context;
+        context.sessionId = transferStatus.sessionId;
+        context.generation = transferStatus.generation;
+        context.lethalSequence = transferStatus.lethalSequence;
+        context.localPlayerIndex = static_cast<std::uint8_t>(localPlayer);
         const ClientGame* liveGame = session.game();
         if (liveGame != nullptr && liveGame->hasSnapshot()) {
           const ServerSnapshot& liveSnapshot = liveGame->snapshot();
-          const std::size_t localPlayer = session.playerIndex();
           const bool localDead = localPlayer < kDuelPlayerCount &&
             liveSnapshot.players[localPlayer].health <= 0;
           const bool localRespawning = localPlayer < kDuelPlayerCount &&
             liveSnapshot.respawnTicksRemaining[localPlayer] > 0U;
-          pendingKillcamContext = RemoteKillcamContext{
-            transferStatus.sessionId,
-            liveSnapshot.mapRevision,
-            liveSnapshot.map.contentHash,
-            transferStatus.generation,
-            transferStatus.lethalSequence,
-            static_cast<std::uint8_t>(localPlayer),
-            liveSnapshot.matchPhase,
-            liveSnapshot.roundWinner,
-            liveSnapshot.matchWinner,
-            liveSnapshot.roundWinningTeam,
-            liveSnapshot.matchWinningTeam,
-            localDead,
-            localRespawning,
-            localDead || localRespawning,
-          };
+          context.mapRevision = liveSnapshot.mapRevision;
+          context.mapContentHash = liveSnapshot.map.contentHash;
+          context.matchPhase = liveSnapshot.matchPhase;
+          context.roundWinner = liveSnapshot.roundWinner;
+          context.matchWinner = liveSnapshot.matchWinner;
+          context.roundWinningTeam = liveSnapshot.roundWinningTeam;
+          context.matchWinningTeam = liveSnapshot.matchWinningTeam;
+          context.localWasDead = localDead;
+          context.localWasRespawning = localRespawning;
+          context.deathSnapshotBound = localDead || localRespawning;
         }
+        pendingKillcamContext = std::move(context);
+        pendingKillcamPlayback.begin(
+          remoteKillcamIdentity(*pendingKillcamContext)
+        );
       }
       if (response.has_value()) {
         (void)session.sendReplayTransferMessage(*response);
@@ -6966,19 +6985,33 @@ int GameApp::run() const {
             false,
           };
         }
-        if (pendingKillcamDecode.has_value()) {
+        const replay::RemoteKillcamIdentity identity =
+          remoteKillcamIdentity(*pendingKillcamContext);
+        pendingKillcamPlayback.begin(identity);
+        if (!identity.valid()) {
+          pendingReplayConsoleOutput.push_back(
+            "killcam rejected: transfer identity is invalid"
+          );
+        } else if (pendingKillcamDecode.has_value()) {
           pendingReplayConsoleOutput.push_back(
             "killcam skipped: replay decode is already pending"
           );
         } else {
           replay::ReplayIoService::JobId job = 0;
           std::string error;
-          if (!replayIo.enqueueDecode(std::move(*bytes), job, &error)) {
+          if (!replayIo.enqueueDecode(
+                std::move(*bytes),
+                job,
+                &error,
+                replay::kRemoteKillcamMaxDecodedResidentBytes,
+                replay::kRemoteKillcamMaxDecodedTicks
+              )) {
             pendingReplayConsoleOutput.push_back(
               "killcam decode rejected: " + error
             );
           } else {
             pendingKillcamDecode = job;
+            pendingKillcamDecodeIdentity = identity;
           }
         }
       }
@@ -6988,6 +7021,146 @@ int GameApp::run() const {
         timeout.has_value()) {
       (void)session.sendReplayTransferMessage(*timeout);
     }
+  };
+
+  const auto currentSteadyMilliseconds = []() -> std::uint64_t {
+    return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+        Clock::now().time_since_epoch()
+      ).count()
+    );
+  };
+
+  const auto bindPendingKillcamDeathSnapshot = [&]() {
+    if (!pendingKillcamContext.has_value() ||
+        pendingKillcamContext->deathSnapshotBound) {
+      return;
+    }
+    const ClientGame* liveGame = session.game();
+    const std::size_t localPlayer = session.playerIndex();
+    if (liveGame == nullptr || !liveGame->hasSnapshot() ||
+        localPlayer >= kDuelPlayerCount ||
+        session.sessionId() != pendingKillcamContext->sessionId ||
+        !liveGame->snapshot().hasLocalClientState ||
+        liveGame->snapshot().localSpectator ||
+        liveGame->snapshot().localPlayerIndex != localPlayer ||
+        pendingKillcamContext->localPlayerIndex != localPlayer) {
+      return;
+    }
+    const ServerSnapshot& deathSnapshot = liveGame->snapshot();
+    const bool localDead = deathSnapshot.players[localPlayer].health <= 0;
+    const bool localRespawning =
+      deathSnapshot.respawnTicksRemaining[localPlayer] > 0U;
+    if (!localDead && !localRespawning) {
+      return;
+    }
+    pendingKillcamContext->mapRevision = deathSnapshot.mapRevision;
+    pendingKillcamContext->mapContentHash = deathSnapshot.map.contentHash;
+    pendingKillcamContext->matchPhase = deathSnapshot.matchPhase;
+    pendingKillcamContext->roundWinner = deathSnapshot.roundWinner;
+    pendingKillcamContext->matchWinner = deathSnapshot.matchWinner;
+    pendingKillcamContext->roundWinningTeam = deathSnapshot.roundWinningTeam;
+    pendingKillcamContext->matchWinningTeam = deathSnapshot.matchWinningTeam;
+    pendingKillcamContext->localWasDead = localDead;
+    pendingKillcamContext->localWasRespawning = localRespawning;
+    pendingKillcamContext->deathSnapshotBound = true;
+  };
+
+  const auto tryStartPendingKillcamPlayback = [&]() {
+    const std::uint64_t nowMilliseconds = currentSteadyMilliseconds();
+    if (pendingKillcamPlayback.discardIfExpired(nowMilliseconds)) {
+      pendingKillcamContext.reset();
+      pendingReplayConsoleOutput.push_back(
+        "killcam rejected: authoritative death snapshot did not arrive"
+      );
+      return;
+    }
+    if (!pendingKillcamContext.has_value()) {
+      return;
+    }
+    const replay::RemoteKillcamIdentity identity =
+      remoteKillcamIdentity(*pendingKillcamContext);
+    std::optional<replay::RemoteKillcamDecodedPlayback> decoded =
+      pendingKillcamPlayback.takeReady(
+        identity,
+        pendingKillcamContext->deathSnapshotBound,
+        nowMilliseconds
+      );
+    if (!decoded.has_value()) {
+      return;
+    }
+
+    const ClientGame* liveGame = session.game();
+    const std::size_t localPlayer = session.playerIndex();
+    std::optional<replay::ReplayLethalEvent> localLethal;
+    if (localPlayer < kDuelPlayerCount) {
+      for (const replay::ReplayLethalEvent& event : decoded->demo.lethalEvents) {
+        if (event.victim == localPlayer &&
+            event.replayGeneration == identity.generation &&
+            event.sequence == identity.lethalSequence) {
+          localLethal = event;
+          break;
+        }
+      }
+    }
+    const bool currentBodyMatches =
+      liveGame != nullptr && liveGame->hasSnapshot() &&
+      liveGame->snapshot().hasLocalClientState &&
+      !liveGame->snapshot().localSpectator &&
+      liveGame->snapshot().localPlayerIndex == localPlayer &&
+      pendingKillcamContext->localPlayerIndex == localPlayer;
+    const bool sameLiveDuel =
+      liveGame != nullptr && liveGame->hasSnapshot() &&
+      !session.spectator() && localPlayer < kDuelPlayerCount &&
+      currentBodyMatches && pendingKillcamContext->deathSnapshotBound &&
+      session.sessionId() == pendingKillcamContext->sessionId &&
+      liveGame->snapshot().gameMode == GameMode::Duel &&
+      localLethal.has_value() && pendingKillcamContext->mapRevision != 0U &&
+      decoded->demo.metadata.mapRevision == pendingKillcamContext->mapRevision &&
+      liveGame->snapshot().mapRevision == pendingKillcamContext->mapRevision &&
+      liveGame->snapshot().roundWinner == pendingKillcamContext->roundWinner &&
+      liveGame->snapshot().matchWinner == pendingKillcamContext->matchWinner &&
+      liveGame->snapshot().roundWinningTeam ==
+        pendingKillcamContext->roundWinningTeam &&
+      liveGame->snapshot().matchWinningTeam ==
+        pendingKillcamContext->matchWinningTeam &&
+      (liveGame->snapshot().players[localPlayer].health <= 0) ==
+        pendingKillcamContext->localWasDead &&
+      (liveGame->snapshot().respawnTicksRemaining[localPlayer] > 0U) ==
+        pendingKillcamContext->localWasRespawning &&
+      replay::permitsRemoteKillcam(decoded->demo.metadata, false) &&
+      decoded->demo.metadata.mapName == liveGame->snapshot().map.mapName &&
+      decoded->demo.metadata.mapContentHash ==
+        liveGame->snapshot().map.contentHash &&
+      decoded->demo.metadata.mapContentHash ==
+        pendingKillcamContext->mapContentHash;
+    if (!sameLiveDuel) {
+      pendingReplayConsoleOutput.push_back(
+        "killcam rejected: stale, cross-match, or unauthorized replay"
+      );
+      pendingKillcamContext.reset();
+      return;
+    }
+
+    replay::ReplayRuntimeConfig runtimeConfig;
+    runtimeConfig.mapDirectory = replayMapDirectory.string();
+    runtimeConfig.autoplay = true;
+    runtimeConfig.initialFollowSlot = decoded->followSlot;
+    auto candidate = std::make_unique<replay::ReplayRuntime>(
+      std::move(decoded->demo), std::move(runtimeConfig)
+    );
+    std::string error;
+    if (!candidate->start(&error)) {
+      pendingReplayConsoleOutput.push_back(
+        "killcam playback failed: " + error
+      );
+    } else {
+      replayRuntime = std::move(candidate);
+      remoteKillcamActive = true;
+      replayPresentationResetRequested = true;
+      pendingReplayConsoleOutput.push_back("killcam playback started");
+    }
+    pendingKillcamContext.reset();
   };
 
   const auto currentMapName = [&session]() -> std::string {
@@ -8976,133 +9149,56 @@ int GameApp::run() const {
     );
     session.update();
     pumpKillcamTransfer();
+    bindPendingKillcamDeathSnapshot();
     while (std::optional<replay::ReplayIoService::Result> result = replayIo.poll()) {
       if (result->id == pendingKillcamDecode.value_or(0)) {
+        const std::optional<replay::RemoteKillcamIdentity> decodeIdentity =
+          pendingKillcamDecodeIdentity;
         pendingKillcamDecode.reset();
-        const ClientGame* liveGame = session.game();
-        const std::size_t localPlayer = session.playerIndex();
-        if (pendingKillcamContext.has_value() &&
-            !pendingKillcamContext->deathSnapshotBound &&
-            liveGame != nullptr && liveGame->hasSnapshot() &&
-            localPlayer < kDuelPlayerCount &&
-            session.sessionId() == pendingKillcamContext->sessionId &&
-            liveGame->snapshot().hasLocalClientState &&
-            !liveGame->snapshot().localSpectator &&
-            liveGame->snapshot().localPlayerIndex == localPlayer &&
-            pendingKillcamContext->localPlayerIndex == localPlayer) {
-          const ServerSnapshot& deathSnapshot = liveGame->snapshot();
-          const bool localDead =
-            deathSnapshot.players[localPlayer].health <= 0;
-          const bool localRespawning =
-            deathSnapshot.respawnTicksRemaining[localPlayer] > 0U;
-          if (localDead || localRespawning) {
-            pendingKillcamContext->mapRevision = deathSnapshot.mapRevision;
-            pendingKillcamContext->mapContentHash = deathSnapshot.map.contentHash;
-            pendingKillcamContext->matchPhase = deathSnapshot.matchPhase;
-            pendingKillcamContext->roundWinner = deathSnapshot.roundWinner;
-            pendingKillcamContext->matchWinner = deathSnapshot.matchWinner;
-            pendingKillcamContext->roundWinningTeam =
-              deathSnapshot.roundWinningTeam;
-            pendingKillcamContext->matchWinningTeam =
-              deathSnapshot.matchWinningTeam;
-            pendingKillcamContext->localWasDead = localDead;
-            pendingKillcamContext->localWasRespawning = localRespawning;
-            pendingKillcamContext->deathSnapshotBound = true;
+        pendingKillcamDecodeIdentity.reset();
+        const auto clearMatchingPendingKillcam = [&]() {
+          if (decodeIdentity.has_value() && pendingKillcamContext.has_value() &&
+              remoteKillcamIdentity(*pendingKillcamContext) == *decodeIdentity) {
+            pendingKillcamPlayback.reset();
+            pendingKillcamContext.reset();
           }
-        }
-        std::optional<replay::ReplayLethalEvent> localLethal;
-        if (result->demo.has_value() && pendingKillcamContext.has_value() &&
-            localPlayer < kDuelPlayerCount) {
-          for (const replay::ReplayLethalEvent& event :
-               result->demo->lethalEvents) {
-            if (event.victim == localPlayer &&
-                event.replayGeneration == pendingKillcamContext->generation &&
-                event.sequence == pendingKillcamContext->lethalSequence) {
-              localLethal = event;
-              break;
-            }
-          }
-        }
-        std::uint8_t validatedKillcamFollowSlot = replay::kNoReplayPlayer;
-        bool validKillcamIdentity = false;
-        if (result->demo.has_value() && pendingKillcamContext.has_value() &&
-            localPlayer < kDuelPlayerCount) {
-          std::string identityError;
-          validKillcamIdentity = replay::validateRemoteKillcamPlayback(
-            *result->demo,
-            static_cast<std::uint8_t>(localPlayer),
-            pendingKillcamContext->generation,
-            pendingKillcamContext->lethalSequence,
-            validatedKillcamFollowSlot,
-            &identityError
-          );
-        }
-        const bool currentBodyMatches =
-          liveGame != nullptr && liveGame->hasSnapshot() &&
-          liveGame->snapshot().hasLocalClientState &&
-          !liveGame->snapshot().localSpectator &&
-          liveGame->snapshot().localPlayerIndex == localPlayer &&
-          pendingKillcamContext.has_value() &&
-          pendingKillcamContext->localPlayerIndex == localPlayer;
-        const bool sameLiveDuel =
-          liveGame != nullptr && liveGame->hasSnapshot() &&
-          !session.spectator() && localPlayer < kDuelPlayerCount &&
-          currentBodyMatches &&
-          pendingKillcamContext.has_value() &&
-          pendingKillcamContext->deathSnapshotBound &&
-          session.sessionId() == pendingKillcamContext->sessionId &&
-          liveGame->snapshot().gameMode == GameMode::Duel &&
-          result->demo.has_value() &&
-          localLethal.has_value() &&
-          pendingKillcamContext->mapRevision != 0U &&
-          result->demo->metadata.mapRevision ==
-            pendingKillcamContext->mapRevision &&
-          liveGame->snapshot().mapRevision ==
-            pendingKillcamContext->mapRevision &&
-          liveGame->snapshot().roundWinner ==
-            pendingKillcamContext->roundWinner &&
-          liveGame->snapshot().matchWinner ==
-            pendingKillcamContext->matchWinner &&
-          liveGame->snapshot().roundWinningTeam ==
-            pendingKillcamContext->roundWinningTeam &&
-          liveGame->snapshot().matchWinningTeam ==
-            pendingKillcamContext->matchWinningTeam &&
-          (liveGame->snapshot().players[localPlayer].health <= 0) ==
-            pendingKillcamContext->localWasDead &&
-          (liveGame->snapshot().respawnTicksRemaining[localPlayer] > 0U) ==
-            pendingKillcamContext->localWasRespawning &&
-          replay::permitsRemoteKillcam(result->demo->metadata, false) &&
-          result->demo->metadata.mapName == liveGame->snapshot().map.mapName &&
-          result->demo->metadata.mapContentHash ==
-            liveGame->snapshot().map.contentHash &&
-          result->demo->metadata.mapContentHash ==
-            pendingKillcamContext->mapContentHash;
+        };
         if (!result->ok || !result->demo.has_value()) {
           pendingReplayConsoleOutput.push_back(
             "killcam decode failed: " + result->error
           );
-        } else if (!sameLiveDuel || !validKillcamIdentity) {
+          clearMatchingPendingKillcam();
+        } else if (!decodeIdentity.has_value() || !decodeIdentity->valid()) {
           pendingReplayConsoleOutput.push_back(
-            "killcam rejected: stale, cross-match, or unauthorized replay"
+            "killcam rejected: missing transfer identity"
           );
+          clearMatchingPendingKillcam();
         } else {
-          replay::ReplayRuntimeConfig runtimeConfig;
-          runtimeConfig.mapDirectory = replayMapDirectory.string();
-          runtimeConfig.autoplay = true;
-          runtimeConfig.initialFollowSlot = validatedKillcamFollowSlot;
-          auto candidate = std::make_unique<replay::ReplayRuntime>(
-            std::move(*result->demo), std::move(runtimeConfig)
-          );
-          std::string error;
-          if (!candidate->start(&error)) {
-            pendingReplayConsoleOutput.push_back(
-              "killcam playback failed: " + error
+          std::uint8_t validatedKillcamFollowSlot = replay::kNoReplayPlayer;
+          std::string identityError;
+          const bool validKillcamIdentity =
+            replay::validateRemoteKillcamPlayback(
+              *result->demo,
+              decodeIdentity->victim,
+              decodeIdentity->generation,
+              decodeIdentity->lethalSequence,
+              validatedKillcamFollowSlot,
+              &identityError
             );
-          } else {
-            replayRuntime = std::move(candidate);
-            remoteKillcamActive = true;
-            replayPresentationResetRequested = true;
-            pendingReplayConsoleOutput.push_back("killcam playback started");
+          if (!validKillcamIdentity) {
+            pendingReplayConsoleOutput.push_back(
+              "killcam rejected: " + identityError
+            );
+            clearMatchingPendingKillcam();
+          } else if (!pendingKillcamPlayback.storeDecoded(
+                       *decodeIdentity,
+                       std::move(*result->demo),
+                       validatedKillcamFollowSlot,
+                       currentSteadyMilliseconds()
+                     )) {
+            pendingReplayConsoleOutput.push_back(
+              "killcam rejected: stale decoded transfer"
+            );
           }
         }
       } else if (result->id == pendingReplayLoad.value_or(0)) {
@@ -9153,6 +9249,7 @@ int GameApp::run() const {
         );
       }
     }
+    tryStartPendingKillcamPlayback();
     while (!pendingReplayConsoleOutput.empty()) {
       appendConsoleOutput(consoleState, pendingReplayConsoleOutput.front());
       pendingReplayConsoleOutput.pop_front();

@@ -17,7 +17,8 @@ namespace lg::replay {
   const std::vector<std::uint8_t>& bytes,
   ReplayDemo& demo,
   std::string* error = nullptr,
-  std::size_t maximumResidentBytes = kMaxReplayDecodedResidentBytes
+  std::size_t maximumResidentBytes = kMaxReplayDecodedResidentBytes,
+  std::size_t maximumTicks = kMaxReplayTicks
 );
 // Uses the same exhaustive bounded-field checks as checkpoint serialization.
 // Server restore calls this before it changes any live authoritative state.

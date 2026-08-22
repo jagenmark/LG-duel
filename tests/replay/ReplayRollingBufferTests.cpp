@@ -150,20 +150,58 @@ int main() {
     lg::replay::ReplayRollingBuffer cappedBuffer;
     lg::replay::ReplayRollingBufferConfig cappedConfig;
     cappedConfig.retainedTicks = 4096U;
-    cappedConfig.checkpointIntervalTicks = 4096U;
-    cappedConfig.hashIntervalTicks = 4096U;
-    cappedConfig.maximumBytes = 128U * 1024U;
+    cappedConfig.checkpointIntervalTicks = 16U;
+    cappedConfig.hashIntervalTicks = 16U;
+    cappedConfig.maximumBytes = 1024U * 1024U;
     failures += expect(cappedBuffer.begin(metadata(), checkpoint(0U), 8U, cappedConfig, &error),
-      "native rolling cap should retain its initial checkpoint");
-    for (std::uint32_t tick = 0U; tick < 256U; ++tick) {
+      "one-megabyte rolling cap should retain its initial checkpoint");
+    for (std::uint32_t tick = 0U; tick < 4096U; ++tick) {
       cappedBuffer.recordResolvedInput(input(tick));
+      cappedBuffer.recordCompletedTick(checkpoint(tick + 1U));
     }
+    const lg::replay::ReplayLethalEvent recentLethal = {
+      4090U, 8U, 1U, 0U, lg::Weapon::RocketLauncher, 1U,
+      lg::replay::LethalKind::Direct, 1U,
+    };
+    cappedBuffer.recordLethal(recentLethal);
     const lg::replay::ReplayRollingBufferStats cappedStats = cappedBuffer.stats();
-    failures += expect(cappedStats.inputCount > 0U && cappedStats.inputCount < 256U &&
+    const auto recentSegment =
+      cappedBuffer.extractSegment(recentLethal, 8U, 0U, &error);
+    failures += expect(
       cappedStats.residentBytes <= cappedConfig.maximumBytes &&
-      cappedStats.residentBytes >= cappedStats.inputCount * sizeof(lg::replay::ReplayTickInput) &&
-      cappedStats.droppedRecords > 0U,
-      "rolling storage should charge native frames and stop before its resident cap");
+        cappedStats.droppedRecords > 0U && recentSegment.has_value() &&
+        recentSegment->ticks.back().tick == recentLethal.tick,
+      "reaching the byte cap must evict old data while continuing to record recent ticks"
+    );
+  }
+
+  {
+    lg::replay::ReplayRollingBuffer sameTickBuffer;
+    failures += expect(sameTickBuffer.begin(metadata(), checkpoint(0U), 10U, config, &error),
+      "same-tick lethal test should begin a rolling replay");
+    for (std::uint32_t tick = 0U; tick <= 4U; ++tick) {
+      sameTickBuffer.recordResolvedInput(input(tick));
+      sameTickBuffer.recordCompletedTick(checkpoint(tick + 1U));
+    }
+    const lg::replay::ReplayLethalEvent first = {
+      2U, 10U, 0U, 1U, lg::Weapon::RocketLauncher, 10U,
+      lg::replay::LethalKind::Direct, 1U,
+    };
+    const lg::replay::ReplayLethalEvent second = {
+      2U, 10U, 1U, 0U, lg::Weapon::RocketLauncher, 11U,
+      lg::replay::LethalKind::Direct, 2U,
+    };
+    sameTickBuffer.recordLethal(first);
+    sameTickBuffer.recordLethal(second);
+    const auto sameTickSegment =
+      sameTickBuffer.extractSegment(second, 2U, 2U, &error);
+    failures += expect(
+      sameTickSegment.has_value() &&
+        sameTickSegment->lethalEvents.size() == 2U &&
+        sameTickSegment->lethalEvents[0].sequence == 1U &&
+        sameTickSegment->lethalEvents[1].sequence == 2U,
+      "two deaths on one authoritative tick must remain independently selectable"
+    );
   }
 
   buffer.reset(metadata(), checkpoint(20U), 6U);

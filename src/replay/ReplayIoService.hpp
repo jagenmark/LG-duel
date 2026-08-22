@@ -32,6 +32,9 @@ public:
     struct Config {
         // This count includes the job that the worker is running.
         std::size_t maxPendingJobs = 2;
+        // Delayed start is useful for deterministic admission tests and for
+        // embedders that need to populate work before starting the thread.
+        bool startWorker = true;
     };
 
     struct Result {
@@ -52,6 +55,8 @@ public:
     ReplayIoService(const ReplayIoService&) = delete;
     ReplayIoService& operator=(const ReplayIoService&) = delete;
 
+    void start();
+
     // Lvalue payloads are moved only after admission succeeds. Queue-full or
     // stopped-service rejection therefore leaves the caller's data intact.
     [[nodiscard]] bool enqueueSave(const std::filesystem::path& path,
@@ -67,13 +72,22 @@ public:
     [[nodiscard]] bool enqueueLoad(const std::filesystem::path& path,
                                    JobId& id,
                                    std::string* error = nullptr);
-    [[nodiscard]] bool enqueueDecode(std::vector<std::uint8_t>& bytes,
+    [[nodiscard]] bool enqueueDecode(
+                                     std::vector<std::uint8_t>& bytes,
                                      JobId& id,
-                                     std::string* error = nullptr);
-    [[nodiscard]] bool enqueueDecode(std::vector<std::uint8_t>&& bytes,
+                                     std::string* error = nullptr,
+                                     std::size_t maximumResidentBytes =
+                                         kMaxReplayDecodedResidentBytes,
+                                     std::size_t maximumTicks = kMaxReplayTicks);
+    [[nodiscard]] bool enqueueDecode(
+                                     std::vector<std::uint8_t>&& bytes,
                                      JobId& id,
-                                     std::string* error = nullptr) {
-        return enqueueDecode(bytes, id, error);
+                                     std::string* error = nullptr,
+                                     std::size_t maximumResidentBytes =
+                                         kMaxReplayDecodedResidentBytes,
+                                     std::size_t maximumTicks = kMaxReplayTicks) {
+        return enqueueDecode(
+            bytes, id, error, maximumResidentBytes, maximumTicks);
     }
     [[nodiscard]] bool enqueueEncode(ReplayDemo& demo,
                                      std::size_t maximumBytes,
@@ -123,6 +137,8 @@ private:
     };
     struct DecodeJob {
         std::vector<std::uint8_t> bytes;
+        std::size_t maximumResidentBytes = kMaxReplayDecodedResidentBytes;
+        std::size_t maximumTicks = kMaxReplayTicks;
     };
     struct EncodeJob {
         ReplayDemo demo;
@@ -158,6 +174,7 @@ private:
     JobId nextId_ = 1;
     bool stopping_ = false;
     bool stopped_ = false;
+    bool workerStarted_ = false;
     std::thread worker_;
 };
 

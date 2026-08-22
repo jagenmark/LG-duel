@@ -511,6 +511,18 @@ int main() {
         unchanged.metadata.mapName == source.metadata.mapName,
       "compact replay records must be rejected before native expansion exceeds its budget"
     );
+    unchanged = source;
+    failures += expect(
+      !lg::replay::decodeDemo(
+        compactExpansion,
+        unchanged,
+        &error,
+        lg::replay::kMaxReplayDecodedResidentBytes,
+        8U
+      ) && error == "replay has too many input ticks for decode limit" &&
+        unchanged.metadata.mapName == source.metadata.mapName,
+      "remote-style decode must reject a sparse replay at its explicit tick cap"
+    );
   }
   {
     std::vector<std::uint8_t> trailing = validWire;

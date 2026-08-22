@@ -4,7 +4,7 @@ Networking is UDP-oriented and snapshot based. Packet structures live in `src/ne
 
 ## Packets And Protocol
 
-`NetCodec.hpp` defines `kProtocolMagic`, `kProtocolVersion` (`61` at this writing), `kMaxPacketBytes`, the 1,200-byte UDP application-datagram ceiling, and `PacketType`. Every packet has a fixed header: magic, version, type, flags, payload byte count, and reserved field. The codec rejects wrong versions, invalid enum values, non-finite floats, out-of-range tuning values, invalid strings, malformed sparse masks, invalid compression back-references, inconsistent expansion lengths, and trailing bytes. Player scores use signed 16-bit values so Free For All self-kills can take a score below zero.
+`NetCodec.hpp` defines `kProtocolMagic`, `kProtocolVersion` (`62` at this writing), `kMaxPacketBytes`, the 1,200-byte UDP application-datagram ceiling, and `PacketType`. Every packet has a fixed header: magic, version, type, flags, payload byte count, and reserved field. The codec rejects wrong versions, invalid enum values, non-finite floats, out-of-range tuning values, invalid strings, malformed sparse masks, invalid compression back-references, inconsistent expansion lengths, and trailing bytes. Player scores use signed 16-bit values so Free For All self-kills can take a score below zero.
 
 Snapshot and combat-stat payloads use a deterministic, stateless 4 KiB-window compressor when it reduces their size. Compression is lossless: authoritative player state, command acknowledgements, ammo, and slot indices retain their exact wire values. Snapshot encoding, UDP receive, and the UDP send boundary enforce 1,200 bytes, so the application never depends on IP fragmentation. An event-heavy snapshot is retried in fixed priority order without rewind diagnostics, movement audio, recipient-irrelevant hit-feedback windows, recurring beam visuals, and finally lower-priority transient combat visuals. Player, objective, score, and match state are never discarded to make room. If that authoritative core still cannot fit, encoding fails closed and the transport reports an error instead of sending a partial or fragmented core.
 
@@ -20,7 +20,10 @@ a rare event burst may use more than one bounded packet.
 
 Supported packet types are connect request/accept, command, command bundle,
 snapshot, projectile updates, combat statistics, ping/pong, disconnect, chat
-history, and chat-history acknowledgement. `CommandBundle` carries up to 12
+history, chat-history acknowledgement, and the replay-transfer Begin, Chunk,
+Ack, and Cancel messages. Remote replay transfer is session- and
+generation-bound, caps one segment at 512 KiB, checks each chunk with CRC-32,
+and verifies the assembled stream with SHA-256 before bounded decoding. `CommandBundle` carries up to 12
 compact commands (about 96 ms at 125 Hz), shares client identity and cumulative
 action edges once, and is trimmed from the oldest command when a rare control
 payload would exceed the 1,200-byte datagram budget. Attack, jump, dash, reset,
