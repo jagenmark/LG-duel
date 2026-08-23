@@ -138,6 +138,14 @@ int main() {
       "authored render geometry should suppress the legacy z=0 floor"
     );
 
+    const lg::ArenaLoadResult raisedVisualWorld = lg::loadArenaFromMapText(
+      basicMap(cuboidBrush(16, -8, 16, 32, 8, 32, "stone"))
+    );
+    failures += expect(
+      raisedVisualWorld.ok && raisedVisualWorld.arena.renderDefaultFloor,
+      "raised authored geometry without ground should retain the fallback floor"
+    );
+
     const lg::ArenaLoadResult collisionOnlyWorld = lg::loadArenaFromMapText(
       basicMap(cuboidBrush(-80, -80, -8, 80, 80, 0, "common/playerclip"))
     );
@@ -1357,7 +1365,24 @@ int main() {
     if (!result.ok) {
       result = lg::loadArenaFromFile("../../maps/dev_cuboids.map");
     }
-    failures += expect(result.ok, "sample dev_cuboids.map should load");
+    failures += expect(
+      result.ok && result.arena.renderDefaultFloor,
+      "sample dev_cuboids.map should load with its fallback floor"
+    );
+  }
+
+  {
+    lg::ArenaLoadResult result = lg::loadArenaFromFile("maps/surface_impact_panels.map");
+    if (!result.ok) {
+      result = lg::loadArenaFromFile("../maps/surface_impact_panels.map");
+    }
+    if (!result.ok) {
+      result = lg::loadArenaFromFile("../../maps/surface_impact_panels.map");
+    }
+    failures += expect(
+      result.ok && result.arena.renderDefaultFloor,
+      "surface_impact_panels.map should load with its fallback floor"
+    );
   }
 
   {
