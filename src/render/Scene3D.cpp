@@ -3978,7 +3978,7 @@ SunShadowProjection buildSunShadowProjection(
       : Vec3{0.0F, 0.0F, 1.0F};
   projection.right = normalize(cross(referenceUp, projection.forward));
   projection.up = normalize(cross(projection.forward, projection.right));
-  projection.halfExtent = quality == 1 ? 32.0F : 40.0F;
+  projection.halfExtent = quality == 1 ? 32.0F : 48.0F;
   projection.nearPlane = 0.0F;
   projection.farPlane = 96.0F;
 
