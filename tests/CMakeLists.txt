@@ -428,6 +428,10 @@ add_test(NAME lg_duel_benchmark_tests COMMAND lg_duel_benchmark_tests)
 find_package(Python3 QUIET COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
   add_test(
+    NAME lg_duel_pr_workflow_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_pr_verification_workflow.py
+  )
+  add_test(
     NAME lg_duel_control_python_tests
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_tools.py
   )

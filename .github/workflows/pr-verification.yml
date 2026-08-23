@@ -1,4 +1,4 @@
-name: Apply PR 267 review fixes
+name: PR verification
 
 on:
   pull_request:
@@ -7,103 +7,507 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: pr267-review-fix-${{ github.event.pull_request.number || github.ref }}
+  group: pr-verification-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  CTEST_OUTPUT_ON_FAILURE: "1"
+  PYTHONUNBUFFERED: "1"
+
 jobs:
-  apply-and-verify:
+  linux-build-and-tests:
+    name: linux-build-and-tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
+    outputs:
+      determinism: ${{ steps.determinism.outcome }}
+      protocol: ${{ steps.protocol.outcome }}
     steps:
-      - name: Check out PR branch
+      - name: Check out source
+        id: checkout
         uses: actions/checkout@v4
         with:
-          ref: agent/test-ci-audit-slice-2
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Generate final workflow and documentation
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned image-validation dependency
+        id: pillow
+        continue-on-error: true
+        run: python -m pip install --disable-pip-version-check "Pillow==11.3.0"
+
+      - name: Install pinned Vulkan SDK for shader checks
+        id: vulkan
+        continue-on-error: true
+        uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa # v1.6.0
+        with:
+          vulkan_version: 1.4.357.0
+          cache: true
+          stripdown: true
+
+      - name: Install build and SDL window-system dependencies
+        id: dependencies
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build \
+            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxrandr-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev
+
+      - name: Configure
+        id: configure
+        if: always()
+        continue-on-error: true
+        run: cmake --preset default -DLG_DUEL_REQUIRE_PILLOW=ON -DPython3_EXECUTABLE="$(command -v python)"
+
+      - name: Build
+        id: build
+        if: always()
+        continue-on-error: true
+        run: cmake --build --preset default --parallel 2
+
+      - name: Run CTest
+        id: ctest
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p verification/linux
+          ctest --preset default --parallel 2 \
+            --output-junit verification/linux/ctest.xml
+
+      - name: Run smoke scenarios three times
+        id: determinism
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p verification/deterministic-scenarios
+          ./build/default/lg_duel_scenarios \
+            --suite smoke \
+            --repeat 3 \
+            --output verification/deterministic-scenarios
+
+      - name: Record deterministic-scenario evidence
+        if: always()
         shell: bash
         run: |
-          git show 1e48c92edcac717e842b8695de27eb850766d819:.github/workflows/pr-verification.yml \
-            > .github/workflows/pr-verification.yml
-          python - <<'PY'
-          from pathlib import Path
+          status="${{ steps.determinism.outcome }}"
+          python scripts/lg_verification.py collect-ci \
+            --evidence-root verification \
+            --platform linux \
+            --category determinism \
+            --status "$status"
 
-          source = Path('.github/workflows/pr267-review-fixes.yml').read_text(encoding='utf-8')
-          lines = source.splitlines()
-          start = next(i for i, line in enumerate(lines) if line.strip() == "python - <<'PY'")
-          end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
+      - name: Enforce protocol and packet budgets
+        id: protocol
+        if: always()
+        continue-on-error: true
+        run: python scripts/lg_verification.py protocol-budget --evidence-root verification
 
-          script_lines = []
-          in_triple = False
-          prefix = ' ' * 10
-          for line in lines[start + 1:end]:
-              if in_triple:
-                  if "'''" in line:
-                      script_lines.append(line[len(prefix):] if line.startswith(prefix) else line)
-                      in_triple = False
-                  else:
-                      script_lines.append(line)
-                  continue
-              stripped = line[len(prefix):] if line.startswith(prefix) else line
-              script_lines.append(stripped)
-              if stripped.count("'''") % 2 == 1:
-                  in_triple = True
-
-          script = '\n'.join(script_lines) + '\n'
-          exec(compile(script, 'pr267-review-apply.py', 'exec'), {'__name__': '__main__'})
-          PY
-
-      - name: Validate final workflow
+      - name: Collect Linux build evidence
+        if: always()
         shell: bash
         run: |
-          python -m pip install --disable-pip-version-check "PyYAML==6.0.2"
-          python - <<'PY'
-          import yaml
-          from pathlib import Path
-          path = Path('.github/workflows/pr-verification.yml')
-          with path.open(encoding='utf-8') as handle:
-              loaded = yaml.safe_load(handle)
-          jobs = loaded.get('jobs', {}) if isinstance(loaded, dict) else {}
-          required = {
-              'linux-build-and-tests',
-              'windows-build-and-tests',
-              'deterministic-scenarios',
-              'protocol-and-packet-budgets',
-              'linux-sanitizers',
-          }
-          missing = required.difference(jobs)
-          if missing:
-              raise SystemExit('missing jobs: ' + ', '.join(sorted(missing)))
-          linux_steps = jobs['linux-build-and-tests'].get('steps', [])
-          ids = {step.get('id') for step in linux_steps}
-          if not {'ctest', 'determinism', 'protocol'}.issubset(ids):
-              raise SystemExit('Linux workflow lacks isolated result steps')
-          PY
-          git diff --check
-          mkdir -p verification/generated-workflow
-          cp .github/workflows/pr-verification.yml \
-            verification/generated-workflow/pr-verification.yml
+          status=success
+          for outcome in \
+            "${{ steps.checkout.outcome }}" \
+            "${{ steps.python.outcome }}" \
+            "${{ steps.pillow.outcome }}" \
+            "${{ steps.vulkan.outcome }}" \
+            "${{ steps.dependencies.outcome }}" \
+            "${{ steps.configure.outcome }}" \
+            "${{ steps.build.outcome }}" \
+            "${{ steps.ctest.outcome }}"; do
+            if [[ "$outcome" != success ]]; then
+              status=failure
+            fi
+          done
+          python scripts/lg_verification.py collect-ci \
+            --evidence-root verification \
+            --platform linux \
+            --category build \
+            --status "$status"
 
-      - name: Upload validated workflow
+      - name: Upload Linux evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr267-final-workflow-${{ github.run_attempt }}
-          path: verification/generated-workflow/pr-verification.yml
+          name: linux-build-and-tests-${{ github.run_attempt }}
+          path: |
+            verification/**
+            build/default/Testing/Temporary/**
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Enforce Linux build and CTest result
+        if: always()
+        shell: bash
+        run: |
+          for outcome in \
+            "${{ steps.checkout.outcome }}" \
+            "${{ steps.python.outcome }}" \
+            "${{ steps.pillow.outcome }}" \
+            "${{ steps.vulkan.outcome }}" \
+            "${{ steps.dependencies.outcome }}" \
+            "${{ steps.configure.outcome }}" \
+            "${{ steps.build.outcome }}" \
+            "${{ steps.ctest.outcome }}"; do
+            if [[ "$outcome" != success ]]; then
+              exit 1
+            fi
+          done
+
+  deterministic-scenarios:
+    name: deterministic-scenarios
+    needs: linux-build-and-tests
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce reused deterministic result
+        shell: bash
+        run: test "${{ needs.linux-build-and-tests.outputs.determinism }}" = success
+
+  protocol-and-packet-budgets:
+    name: protocol-and-packet-budgets
+    needs: linux-build-and-tests
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce reused protocol-budget result
+        shell: bash
+        run: test "${{ needs.linux-build-and-tests.outputs.protocol }}" = success
+
+  linux-sanitizers:
+    name: linux-sanitizers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install build tools
+        id: dependencies
+        if: always()
+        continue-on-error: true
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+
+      - name: Configure focused sanitizers
+        id: configure
+        if: always()
+        continue-on-error: true
+        run: |
+          cmake -S . -B build/sanitize -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=ON \
+            -DLG_DUEL_REQUIRE_SDL3=OFF \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build focused sanitizer targets
+        id: build
+        if: always()
+        continue-on-error: true
+        run: >
+          cmake --build build/sanitize --parallel 2
+          --target lg_duel_scenario_tests lg_duel_protocol_tests
+
+      - name: Run focused address and undefined behavior checks
+        id: test
+        if: always()
+        continue-on-error: true
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >
+          ctest --test-dir build/sanitize --output-on-failure
+          -R "lg_duel_(scenario|protocol)_tests"
+
+      - name: Collect structured sanitizer evidence
+        if: always()
+        shell: bash
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          DEPENDENCIES_OUTCOME: ${{ steps.dependencies.outcome }}
+          CONFIGURE_OUTCOME: ${{ steps.configure.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+        run: |
+          mkdir -p verification/sanitizers
+          python3 - <<'PY_EVIDENCE'
+          import json
+          import os
+          from pathlib import Path
+
+          outcomes = {
+              "checkout": os.environ.get("CHECKOUT_OUTCOME", "skipped"),
+              "dependencies": os.environ.get("DEPENDENCIES_OUTCOME", "skipped"),
+              "configure": os.environ.get("CONFIGURE_OUTCOME", "skipped"),
+              "build": os.environ.get("BUILD_OUTCOME", "skipped"),
+              "test": os.environ.get("TEST_OUTCOME", "skipped"),
+          }
+          status = "PASS" if all(value == "success" for value in outcomes.values()) else "FAIL"
+          Path("verification/sanitizers/result.json").write_text(
+              json.dumps({"schema_version": 1, "status": status, "steps": outcomes}, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY_EVIDENCE
+          status=failure
+          if [[ "$CHECKOUT_OUTCOME" == success && \
+                "$DEPENDENCIES_OUTCOME" == success && \
+                "$CONFIGURE_OUTCOME" == success && \
+                "$BUILD_OUTCOME" == success && \
+                "$TEST_OUTCOME" == success ]]; then
+            status=success
+          fi
+          if [[ -f scripts/lg_verification.py ]]; then
+            python3 scripts/lg_verification.py collect-ci \
+              --evidence-root verification \
+              --platform linux \
+              --category unit \
+              --status "$status"
+          fi
+
+      - name: Upload sanitizer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-sanitizers-${{ github.run_attempt }}
+          path: |
+            verification/**
+            build/sanitize/Testing/Temporary/**
           if-no-files-found: error
           retention-days: 3
 
-      - name: Commit documentation update
+      - name: Enforce sanitizer result
+        if: always()
         shell: bash
         run: |
-          git add docs/CI-VERIFICATION.md
-          git diff --cached --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! git diff --cached --quiet; then
-            git commit -m "Document consolidated required CI checks"
-            git push origin HEAD:agent/test-ci-audit-slice-2
+          for outcome in \
+            "${{ steps.checkout.outcome }}" \
+            "${{ steps.dependencies.outcome }}" \
+            "${{ steps.configure.outcome }}" \
+            "${{ steps.build.outcome }}" \
+            "${{ steps.test.outcome }}"; do
+            if [[ "$outcome" != success ]]; then
+              exit 1
+            fi
+          done
+
+  windows-build-and-tests:
+    name: windows-build-and-tests
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned image-validation dependency
+        run: python -m pip install --disable-pip-version-check "Pillow==11.3.0"
+
+      - name: Install pinned Vulkan SDK for shader checks
+        uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa # v1.6.0
+        with:
+          vulkan_version: 1.4.357.0
+          cache: true
+          stripdown: true
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          cmake --preset msvc -DLG_DUEL_REQUIRE_PILLOW=ON "-DPython3_EXECUTABLE=$python"
+
+      - name: Build
+        run: cmake --build --preset msvc --parallel 2
+
+      - name: Run CTest
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force verification/windows | Out-Null
+          ctest --preset msvc --parallel 2 `
+            --output-junit verification/windows/ctest.xml
+
+      - name: Collect CI evidence
+        if: always()
+        run: >
+          python scripts/lg_verification.py collect-ci
+          --evidence-root verification
+          --platform windows
+          --category build
+          --status "${{ job.status }}"
+
+      - name: Upload Windows evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-and-tests-${{ github.run_attempt }}
+          path: |
+            verification/**
+            build/msvc/Testing/Temporary/**
+          if-no-files-found: warn
+          retention-days: 3
+
+  live-client-server-smoke:
+    name: live-client-server-smoke
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build live scenario targets
+        run: |
+          cmake -S . -B build/live -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_TESTING=ON `
+            -DLG_DUEL_REQUIRE_SDL3=ON `
+            -DLG_DUEL_FETCH_SDL3=ON `
+            -DCMAKE_DISABLE_FIND_PACKAGE_SDL3=TRUE
+          cmake --build build/live --config Release --parallel 2 --target lg_duel_client lg_duel_server lg_duel_scenarios
+
+      - name: Run fallback live smoke
+        shell: pwsh
+        run: |
+          $failed = $false
+          $scenarios = @(
+            "basic_forward.json",
+            "jump_and_attack_edge.json",
+            "movement_latency_40ms.json"
+          )
+          foreach ($scenario in $scenarios) {
+            python scripts/lg_live_scenario.py `
+              "scenarios/live/$scenario" `
+              --renderer fallback `
+              --allow-fallback `
+              --timeout 90 `
+              --build-dir build/live/Release `
+              --output-root verification/live-client-server
+            if ($LASTEXITCODE -ne 0) {
+              $failed = $true
+            }
+          }
+          if ($failed) {
+            throw "One or more live smoke scenarios failed."
+          }
+
+      - name: Collect CI evidence
+        if: always()
+        run: >
+          python scripts/lg_verification.py collect-ci
+          --evidence-root verification
+          --platform windows
+          --category live
+          --status "${{ job.status }}"
+
+      - name: Upload live smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-client-server-smoke-${{ github.run_attempt }}
+          path: verification/**
+          if-no-files-found: warn
+          retention-days: 3
+
+  # Run this optional evidence job only when a PR has the performance-smoke
+  # label, or when a maintainer starts the workflow by hand.
+  performance-smoke:
+    name: performance-smoke
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'performance-smoke')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+
+      - name: Run bounded hosted-runner performance check
+        env:
+          BASELINE: ${{ github.event.pull_request.base.sha || 'HEAD^' }}
+          CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >
+          python scripts/lg_compare_benchmarks.py
+          --baseline "$BASELINE"
+          --candidate "$CANDIDATE"
+          --suite pr_headless
+          --repetitions 5
+          --profile pr_headless
+          --not-comparable-exit-zero
+          --output verification/benchmarks
+
+      - name: Collect CI evidence
+        if: always()
+        shell: bash
+        run: |
+          status="${{ job.status }}"
+          comparison="verification/benchmarks/comparison.json"
+          if [[ -f "$comparison" ]]; then
+            status="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["status"].lower())' "$comparison")"
           fi
+          python scripts/lg_verification.py collect-ci \
+            --evidence-root verification \
+            --platform linux \
+            --category performance \
+            --status "$status"
+
+      - name: Add performance report to the run summary
+        if: always()
+        shell: bash
+        run: |
+          report="verification/benchmarks/report.md"
+          if [[ -f "$report" ]]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Performance smoke" >> "$GITHUB_STEP_SUMMARY"
+            echo "The report was not produced. See the uploaded evidence." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-smoke-${{ github.run_attempt }}
+          path: |
+            verification/**
+            !verification/benchmarks/temp/**
+          if-no-files-found: warn
+          retention-days: 3
