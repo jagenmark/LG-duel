@@ -17,8 +17,8 @@ test("server-renders the static gallery shell", async () => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
-  assert.match(html, /<title>LG Duel Visual Evidence<\/title>/i);
-  assert.match(html, /Reviewed captures, ready on any screen/);
-  assert.match(html, /Loading approved captures/);
+  assert.match(html, /<title>LG Duel Gallery<\/title>/i);
+  assert.match(html, /Project captures/);
+  assert.match(html, /Loading captures/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
