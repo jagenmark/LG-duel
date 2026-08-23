@@ -218,7 +218,12 @@ std::uint64_t AimTrainer::scenarioFingerprint(const AimScenario& scenario) {
     result = mix(result, group.count);
     result = mix(result, static_cast<std::uint64_t>(std::max(0, group.health)));
     result = mix(result, group.respawnDelayTicks);
-    result = mixFloat(result, group.radius);
+    result = mixFloat(
+      result,
+      group.visual == AimTargetVisual::Orb
+        ? group.radius
+        : CollisionBounds{}.radius
+    );
     result = mix(result, group.color.red);
     result = mix(result, group.color.green);
     result = mix(result, group.color.blue);
@@ -397,7 +402,9 @@ void AimTrainer::resetRun() {
       target.view.groupIndex = static_cast<std::uint32_t>(groupIndex);
       target.view.visual = scenario_.groups[groupIndex].visual;
       target.view.color = scenario_.groups[groupIndex].color;
-      target.view.radius = scenario_.groups[groupIndex].radius;
+      target.view.radius = target.view.visual == AimTargetVisual::Orb
+        ? scenario_.groups[groupIndex].radius
+        : CollisionBounds{}.radius;
       target.spawnOrdinal = index;
       respawnTarget(target);
       targets_.push_back(target);

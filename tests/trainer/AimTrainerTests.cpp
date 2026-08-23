@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <set>
 #include <string>
 #include <string_view>
@@ -138,6 +139,48 @@ bool replaceEditorText(
   while (!editor.textInput().empty()) editor.backspace();
   editor.insertText(value);
   return editor.commitText();
+}
+
+[[nodiscard]] float weaponEffectiveRange(
+  const lg::BalanceConfig& balance,
+  lg::Weapon weapon
+) {
+  switch (weapon) {
+  case lg::Weapon::LightningGun: return balance.lightningGun.range;
+  case lg::Weapon::FreezeGun: return balance.freezeGun.range;
+  case lg::Weapon::Railgun: return balance.railgun.range;
+  case lg::Weapon::Revolver: return balance.revolver.range;
+  case lg::Weapon::MachineGun: return balance.machineGun.range;
+  case lg::Weapon::Shotgun: return balance.shotgun.range;
+  case lg::Weapon::RocketLauncher:
+    return balance.rocketLauncher.speed * balance.rocketLauncher.maxLifetimeTicks *
+      lg::kFixedTickSeconds;
+  case lg::Weapon::GrenadeLauncher:
+    return balance.grenadeLauncher.speed * balance.grenadeLauncher.fuseTicks *
+      lg::kFixedTickSeconds;
+  case lg::Weapon::PlasmaGun:
+    return balance.plasmaGun.speed * balance.plasmaGun.maxLifetimeTicks *
+      lg::kFixedTickSeconds;
+  }
+  return 0.0F;
+}
+
+[[nodiscard]] float weaponEyeHeight(
+  const lg::BalanceConfig& balance,
+  lg::Weapon weapon
+) {
+  switch (weapon) {
+  case lg::Weapon::LightningGun: return balance.lightningGun.eyeHeight;
+  case lg::Weapon::FreezeGun: return balance.freezeGun.eyeHeight;
+  case lg::Weapon::Railgun: return balance.railgun.eyeHeight;
+  case lg::Weapon::Revolver: return balance.revolver.eyeHeight;
+  case lg::Weapon::MachineGun: return balance.machineGun.eyeHeight;
+  case lg::Weapon::Shotgun: return balance.shotgun.eyeHeight;
+  case lg::Weapon::RocketLauncher: return balance.rocketLauncher.eyeHeight;
+  case lg::Weapon::GrenadeLauncher: return balance.grenadeLauncher.eyeHeight;
+  case lg::Weapon::PlasmaGun: return balance.plasmaGun.eyeHeight;
+  }
+  return 0.65F;
 }
 
 } // namespace
@@ -307,6 +350,32 @@ int main() {
       "empty beam ammo should stop the beam");
   }
 
+  // Beam hit score uses the same fixed-pulse unit as displayed hits.
+  {
+    lg::AimScenario tracking = directOrbScenario();
+    tracking.forcedWeapon = lg::Weapon::LightningGun;
+    tracking.hitScore = 3U;
+    tracking.durationTicks = 40U;
+    lg::AimTrainer trainer(arena, balance);
+    failures += expect(trainer.arm(tracking).ok && trainer.start(),
+      "sustained beam scenario should start");
+    constexpr std::uint32_t kTrackingTicks = 20U;
+    for (std::uint32_t tick = 0U; tick < kTrackingTicks; ++tick) {
+      (void)trainer.tick(attackCommand(lg::Weapon::LightningGun, tick + 1U));
+    }
+    failures += expect(
+      trainer.view().stats.beamAttempts == kTrackingTicks &&
+      trainer.view().stats.beamHits == kTrackingTicks &&
+      trainer.view().stats.attempts == kTrackingTicks &&
+      trainer.view().stats.hits == kTrackingTicks &&
+      near(trainer.view().stats.accuracyPercent(), 100.0F) &&
+      trainer.view().stats.score ==
+        static_cast<std::uint64_t>(kTrackingTicks) * tracking.hitScore &&
+      trainer.view().stats.damage == 24U,
+      "beam hits, hit score, accuracy, and shot-credit damage should stay consistent"
+    );
+  }
+
   // Normal movement actions reach the local movement simulation.
   {
     lg::AimScenario scenario = directOrbScenario();
@@ -365,6 +434,90 @@ int main() {
       trainer.view().stats.score ==
         trainer.view().stats.projectileHits + trainer.view().stats.pelletHits,
       "projectile and pellet hits in one tick must accumulate independently"
+    );
+  }
+
+  // Projectile accuracy counts each damaging launch once, not each splash target.
+  {
+    lg::BalanceConfig splashBalance = balance;
+    splashBalance.rocketLauncher.speed = 100.0F;
+    splashBalance.rocketLauncherCooldownTicks = 20U;
+    lg::AimScenario splash = directOrbScenario();
+    splash.forcedWeapon = lg::Weapon::RocketLauncher;
+    splash.groups[0].count = 2U;
+    splash.groups[0].radius = 0.1F;
+    splash.groups[0].life = lg::AimTargetLife::OneHit;
+    splash.groups[0].respawnDelayTicks = 10U;
+    splash.groups[0].fixedSpawns = {
+      {1.65F, 0.0F, 1.55F},
+      {1.65F, 0.4F, 1.55F},
+    };
+    lg::AimTrainer trainer(arena, splashBalance);
+    failures += expect(trainer.arm(splash).ok && trainer.start(),
+      "multi-target splash scenario should start");
+    (void)trainer.tick(attackCommand(lg::Weapon::RocketLauncher, 1U));
+    lg::UserCommand coast;
+    coast.weapon = lg::Weapon::RocketLauncher;
+    (void)trainer.tick(coast);
+    failures += expect(
+      trainer.view().stats.projectileAttempts == 1U &&
+      trainer.view().stats.projectileHits == 1U &&
+      trainer.view().stats.attempts == 1U &&
+      trainer.view().stats.hits == 1U &&
+      near(trainer.view().stats.accuracyPercent(), 100.0F) &&
+      trainer.view().stats.score == 2U &&
+      trainer.view().stats.clears == 2U &&
+      trainer.view().stats.damage > static_cast<std::uint64_t>(
+        splashBalance.rocketLauncher.directDamage
+      ),
+      "one splash launch should be one accuracy hit but score, damage, and clear both targets"
+    );
+
+    lg::WeaponRuntimeConfig runtimeConfig{
+      splashBalance,
+      true,
+      lg::WeaponRuntimeSwitchingMode::Crazy,
+    };
+    runtimeConfig.balance.rocketLauncher.radius = 0.2F;
+    lg::WeaponRuntimeState state = lg::makeWeaponRuntimeState(
+      runtimeConfig,
+      lg::Weapon::RocketLauncher
+    );
+    for (std::uint32_t index = 0U; index < 2U; ++index) {
+      lg::RocketProjectile projectile;
+      projectile.active = true;
+      projectile.sequence = index + 1U;
+      projectile.weapon = lg::Weapon::RocketLauncher;
+      projectile.position = {0.5F, index == 0U ? -2.0F : 2.0F, 1.55F};
+      projectile.previousPosition = projectile.position;
+      projectile.velocity = {100.0F, 0.0F, 0.0F};
+      state.projectiles.push_back(projectile);
+    }
+    std::array<lg::WeaponRuntimeTarget, 2> targets = {};
+    for (std::size_t index = 0U; index < targets.size(); ++index) {
+      targets[index].id = static_cast<std::uint32_t>(index + 1U);
+      targets[index].shape = lg::WeaponRuntimeTargetShape::Sphere;
+      targets[index].center = {1.0F, index == 0U ? -2.0F : 2.0F, 1.55F};
+      targets[index].radius = 0.1F;
+      targets[index].active = true;
+    }
+    lg::PlayerState attacker;
+    attacker.position = {0.0F, 0.0F, 0.8F};
+    attacker.health = 100;
+    lg::UserCommand idle;
+    idle.weapon = lg::Weapon::RocketLauncher;
+    const lg::WeaponRuntimeTick twoHits = lg::tickWeaponRuntime(
+      state,
+      runtimeConfig,
+      attacker,
+      idle,
+      arena,
+      targets,
+      lg::kFixedTickSeconds
+    );
+    failures += expect(
+      twoHits.damagingProjectileHits == 2U && twoHits.hits.size() == 2U,
+      "two projectiles contacting on one tick should each count once"
     );
   }
 
@@ -568,6 +721,59 @@ int main() {
       ),
       "GUI must show every scenario, group, result, and leaderboard field"
     );
+    const std::size_t orbRadiusRow = editorRow(
+      editor,
+      lg::AimTrainerEditorField::Radius
+    );
+    failures += expect(
+      orbRadiusRow < editor.rows().size() && editor.rows()[orbRadiusRow].editable &&
+      replaceEditorText(editor, lg::AimTrainerEditorField::Radius, "1.75") &&
+      near(menu.draft().groups[0].radius, 1.75F),
+      "Orb radius should remain visible and editable"
+    );
+    const std::size_t visualRow = editorRow(editor, lg::AimTrainerEditorField::Visual);
+    editor.selectRow(visualRow);
+    failures += expect(
+      editor.adjustSelected(1) &&
+      menu.draft().groups[0].visual == lg::AimTargetVisual::Worker,
+      "GUI should switch the selected group to Worker"
+    );
+    const std::size_t workerRadiusRow = editorRow(
+      editor,
+      lg::AimTrainerEditorField::Radius
+    );
+    editor.selectRow(workerRadiusRow);
+    const float storedOrbRadius = menu.draft().groups[0].radius;
+    failures += expect(
+      workerRadiusRow < editor.rows().size() &&
+      !editor.rows()[workerRadiusRow].editable &&
+      editor.rows()[workerRadiusRow].value.find("fixed") != std::string::npos &&
+      !editor.adjustSelected(1) &&
+      near(menu.draft().groups[0].radius, storedOrbRadius),
+      "Worker radius should be fixed and reject edits without losing the stored Orb radius"
+    );
+    lg::AimTrainer workerRuntime(arena, balance);
+    failures += expect(
+      workerRuntime.arm(menu.draft()).ok && workerRuntime.start(),
+      "fixed Worker presentation scenario should start"
+    );
+    const lg::AimTrainerPresentation workerPresentation =
+      lg::buildAimTrainerPresentation(workerRuntime.view());
+    failures += expect(
+      workerRuntime.view().targets[0].radius == lg::CollisionBounds{}.radius &&
+      !workerPresentation.targetEffects.empty() &&
+      near(workerPresentation.targetEffects[0].initialScale, 1.0F) &&
+      near(workerPresentation.targetEffects[0].finalScale, 1.0F),
+      "Worker collision and presentation size should use fixed model bounds"
+    );
+    editor.selectRow(visualRow);
+    failures += expect(
+      editor.adjustSelected(1) &&
+      menu.draft().groups[0].visual == lg::AimTargetVisual::Orb &&
+      near(menu.draft().groups[0].radius, storedOrbRadius) &&
+      editor.rows()[editorRow(editor, lg::AimTrainerEditorField::Radius)].editable,
+      "switching back to Orb should restore its editable stored radius"
+    );
     const std::size_t addRow = editorRow(editor, lg::AimTrainerEditorField::AddGroup);
     editor.selectRow(addRow);
     failures += expect(editor.activateSelected() && menu.selectedGroupIndex() == 1U,
@@ -766,16 +972,6 @@ int main() {
       player.position = loaded.arena.spawnPositions[0];
       player.position.z += player.bounds.halfHeight;
       player.onGround = true;
-      const lg::Vec3 aimPoint = {10.0F, 0.0F, 1.55F};
-      const lg::Vec3 start = player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
-      const lg::Vec3 segment = aimPoint - start;
-      const float distance = lg::length(segment);
-      const lg::WorldTrace reach = lg::traceWorld(
-        loaded.arena,
-        start,
-        segment / distance,
-        distance
-      );
       const lg::WorldTrace ceiling = lg::traceWorld(
         loaded.arena,
         player.position,
@@ -789,11 +985,73 @@ int main() {
         20.0F
       );
       failures += expect(
-        reach.distance >= distance - 0.01F &&
         ceiling.distance > player.bounds.halfHeight * 2.0F &&
         side.distance > player.bounds.radius * 2.0F,
-        "spawn should have player clearance and a clear line to x=10 targets"
+        "spawn should retain player clearance inside the closed room"
       );
+
+      const std::filesystem::path balancePath =
+        std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
+        "config" / "balance.cfg";
+      const lg::BalanceConfigLoadResult actualBalance =
+        lg::loadBalanceConfigFromFile(balancePath.string());
+      failures += expect(actualBalance.ok,
+        "reachability regression should load the normal balance config");
+      if (actualBalance.ok) {
+        for (const lg::AimScenario& preset : lg::AimTrainerStore::builtInPresets()) {
+          float shortestRange = std::numeric_limits<float>::max();
+          lg::Weapon shortestWeapon = preset.forcedWeapon;
+          for (std::size_t weaponIndex = 0U; weaponIndex < lg::kWeaponCount; ++weaponIndex) {
+            const lg::Weapon weapon = static_cast<lg::Weapon>(weaponIndex);
+            const bool enabled = preset.weaponPolicy == lg::AimWeaponPolicy::Forced
+              ? weapon == preset.forcedWeapon
+              : preset.allowedWeapons[weaponIndex];
+            if (!enabled) continue;
+            const float range = weaponEffectiveRange(actualBalance.config, weapon);
+            if (range < shortestRange) {
+              shortestRange = range;
+              shortestWeapon = weapon;
+            }
+          }
+          const lg::Vec3 muzzle = lg::weaponMuzzlePosition(
+            player,
+            weaponEyeHeight(actualBalance.config, shortestWeapon)
+          );
+          for (const lg::AimTargetGroup& group : preset.groups) {
+            std::vector<lg::Vec3> extremes;
+            if (group.spawnMode == lg::AimSpawnMode::FixedList) {
+              extremes = group.fixedSpawns;
+            } else {
+              for (int x = 0; x < 2; ++x) {
+                for (int y = 0; y < 2; ++y) {
+                  for (int z = 0; z < 2; ++z) {
+                    extremes.push_back({
+                      x == 0 ? group.randomMinimum.x : group.randomMaximum.x,
+                      y == 0 ? group.randomMinimum.y : group.randomMaximum.y,
+                      z == 0 ? group.randomMinimum.z : group.randomMaximum.z,
+                    });
+                  }
+                }
+              }
+            }
+            for (const lg::Vec3 extreme : extremes) {
+              const lg::Vec3 segment = extreme - muzzle;
+              const float distance = lg::length(segment);
+              const lg::WorldTrace reach = lg::traceWorld(
+                loaded.arena,
+                muzzle,
+                segment / distance,
+                distance
+              );
+              failures += expect(
+                distance <= shortestRange + 0.001F &&
+                reach.distance >= distance - 0.01F,
+                "every built-in spawn extreme must be clear and within its shortest enabled weapon range"
+              );
+            }
+          }
+        }
+      }
       const lg::Vec3 before = player.position;
       lg::simulateMovement(
         player,

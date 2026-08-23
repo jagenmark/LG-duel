@@ -14,8 +14,8 @@ AimTrainerPresentation buildAimTrainerPresentation(const AimTrainerFrame& frame)
         target.position,
         0.0F,
         0.0F,
-        target.radius,
-        target.radius,
+        1.0F,
+        1.0F,
         {target.color.red, target.color.green, target.color.blue, 255U},
         target.id,
       });

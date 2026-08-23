@@ -192,7 +192,13 @@ std::vector<AimTrainerEditorRow> AimTrainerEditor::rows() const {
   add(AimTrainerEditorField::GroupName, "Group name", group.name, false, true);
   add(AimTrainerEditorField::Visual, "Target visual", visualName(group.visual));
   add(AimTrainerEditorField::Count, "Target count", std::to_string(group.count), false, true);
-  add(AimTrainerEditorField::Radius, "Target radius", floatText(group.radius), false, true);
+  add(
+    AimTrainerEditorField::Radius,
+    group.visual == AimTargetVisual::Orb ? "Orb radius" : "Worker radius",
+    group.visual == AimTargetVisual::Orb ? floatText(group.radius) : "fixed model body",
+    false,
+    group.visual == AimTargetVisual::Orb
+  );
   add(AimTrainerEditorField::Color, "Target red", std::to_string(group.color.red), false, true, 0U);
   add(AimTrainerEditorField::Color, "Target green", std::to_string(group.color.green), false, true, 1U);
   add(AimTrainerEditorField::Color, "Target blue", std::to_string(group.color.blue), false, true, 2U);
@@ -376,6 +382,7 @@ bool AimTrainerEditor::adjust(const AimTrainerEditorRow& row, int direction) {
       static_cast<std::int64_t>(group.count) + direction, 1,
       AimScenario::kMaxTargetsPerGroup)); break;
   case AimTrainerEditorField::Radius:
+    if (group.visual != AimTargetVisual::Orb) return false;
     group.radius = std::clamp(group.radius + direction * 0.05F, 0.05F, 5.0F); break;
   case AimTrainerEditorField::Color: {
     if (row.component >= 3U) return false;
@@ -479,7 +486,8 @@ bool AimTrainerEditor::applyText(
     if (ok) group.count = static_cast<std::uint32_t>(natural);
     break;
   case AimTrainerEditorField::Radius:
-    ok = parseFloat(text, real) && real >= 0.05F && real <= 5.0F;
+    ok = group.visual == AimTargetVisual::Orb &&
+      parseFloat(text, real) && real >= 0.05F && real <= 5.0F;
     if (ok) group.radius = real;
     break;
   case AimTrainerEditorField::Color:

@@ -397,7 +397,7 @@ void advanceProjectiles(
 
     const float radius = radiusFor(projectile.weapon);
     const int splashDamage = splashDamageFor(projectile.weapon);
-    std::uint32_t damagingTargets = 0;
+    bool damagedAnyTarget = false;
     for (std::size_t index = 0; index < targets.size(); ++index) {
       const WeaponRuntimeTarget& target = targets[index];
       if (!target.active) continue;
@@ -427,9 +427,9 @@ void advanceProjectiles(
         0U,
         index == directTarget
       );
-      ++damagingTargets;
+      damagedAnyTarget = true;
     }
-    result.damagingProjectileHits += damagingTargets;
+    if (damagedAnyTarget) ++result.damagingProjectileHits;
 
     const float selfDistance = weaponRuntimePlayerCylinderDistance(
       explosionPosition,
@@ -850,11 +850,13 @@ WeaponRuntimeTick tickWeaponRuntime(
       const int shotsApplied = static_cast<int>(std::floor(
         state.beamShotCredit[beamIndex]
       ));
+      state.beamShotCredit[beamIndex] -= shotsApplied;
+      state.beamShotCredit[beamIndex] +=
+        static_cast<double>(std::max(1.0F, fireHz)) *
+        static_cast<double>(fixedDt);
+      int damage = 0;
+      float freezeApplied = 0.0F;
       if (shotsApplied > 0) {
-        state.beamShotCredit[beamIndex] -= shotsApplied;
-        state.beamShotCredit[beamIndex] +=
-          static_cast<double>(std::max(1.0F, fireHz)) *
-          static_cast<double>(fixedDt);
         const float damagePerSecond = weapon == Weapon::LightningGun
           ? config.balance.lightningGun.damagePerSecond
           : config.balance.freezeGun.damagePerSecond;
@@ -862,24 +864,26 @@ WeaponRuntimeTick tickWeaponRuntime(
           static_cast<double>(shotsApplied) *
           static_cast<double>(damagePerSecond) /
           static_cast<double>(std::max(1.0F, fireHz));
-        int damage = static_cast<int>(std::floor(state.beamDamageCredit[beamIndex]));
+        damage = static_cast<int>(std::floor(state.beamDamageCredit[beamIndex]));
         state.beamDamageCredit[beamIndex] -= damage;
         damage = headshotDamage(damage, headshot, weapon, config.balance);
-        const float freezeApplied = weapon == Weapon::FreezeGun
+        freezeApplied = weapon == Weapon::FreezeGun
           ? config.balance.freezeGun.freezePerSecond *
             static_cast<float>(shotsApplied) / std::max(1.0F, fireHz)
           : 0.0F;
-        addHit(
-          result,
-          targets[targetIndex],
-          weapon,
-          damage,
-          headshot,
-          freezeApplied
-        );
         result.beam.damageApplied = damage;
         result.beam.freezeApplied = freezeApplied;
       }
+      // Accuracy and hit-score use the visible fixed-tick beam intersection,
+      // while damage keeps the lower shared shot-credit rate.
+      addHit(
+        result,
+        targets[targetIndex],
+        weapon,
+        damage,
+        headshot,
+        freezeApplied
+      );
     } else {
       state.beamShotCredit[beamIndex] = std::min(
         1.0,
