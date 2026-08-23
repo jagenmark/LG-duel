@@ -3978,7 +3978,7 @@ SunShadowProjection buildSunShadowProjection(
       : Vec3{0.0F, 0.0F, 1.0F};
   projection.right = normalize(cross(referenceUp, projection.forward));
   projection.up = normalize(cross(projection.forward, projection.right));
-  projection.halfExtent = quality == 1 ? 32.0F : 40.0F;
+  projection.halfExtent = quality == 1 ? 32.0F : 48.0F;
   projection.nearPlane = 0.0F;
   projection.farPlane = 96.0F;
 
@@ -7076,7 +7076,6 @@ Scene3D buildStaticWorldScene(
   if (arena.skyId == SkyId::None) {
     addArenaBoundaryWalls(scene, arena, activeAmbientBaker, ambientDebugByte);
   }
-  addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     if (!arena.walls[index].renderable) {

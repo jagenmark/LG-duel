@@ -342,7 +342,7 @@ and camera, `lg_exec_console`, `lg_get_cvar`, `lg_set_cvar`, `lg_send_input`,
 screenshot, map-view capture, and benchmark tools. Each has
 a closed typed JSON schema. Results include text plus `structuredContent`;
 captures return compact WebP agent copies by default. The saved PNG stays at
-full size for evidence and gallery use. The default agent copy uses quality 92
+full size. The default agent copy uses quality 92
 and at most 1,440,000 pixels (1600x900 for a 16:9 frame), records its source
 and delivered sizes and dimensions, and can shrink further to stay within the
 shared 1 MiB base64 budget. That budget covers all images in one reply, so a
@@ -531,8 +531,7 @@ TrenchBroom for those edits.
 - **Capture returns no inline image:** check
   `inline_image_omitted`. `size_limit` means the copy did not fit;
   `encoder_unavailable` means the MCP runtime needs setup again. Inspect the
-  returned local path or publish it through the visual-evidence flow. The
-  capture itself succeeded.
+  returned local path. The capture itself succeeded.
 
 Known limitations: normal live requests use one worker slot; output is PNG
 on disk; MCP uses control port 27961; and `eyetoeye/standard` is the only curated
