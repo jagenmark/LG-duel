@@ -1,5 +1,7 @@
 #include "server/ServerGame.hpp"
 
+#include "sim/WeaponRuntime.hpp"
+
 #include "net/NetCodec.hpp"
 #include "replay/ReplayCodec.hpp"
 #include "shared/Sequence.hpp"
@@ -26,6 +28,17 @@
 
 namespace lg {
 namespace {
+
+[[nodiscard]] WeaponRuntimeSwitchingMode runtimeSwitchingMode(
+  WeaponSwitchingMode mode
+) {
+  switch (mode) {
+  case WeaponSwitchingMode::Ql: return WeaponRuntimeSwitchingMode::Ql;
+  case WeaponSwitchingMode::Cpma: return WeaponRuntimeSwitchingMode::Cpma;
+  case WeaponSwitchingMode::Crazy: return WeaponRuntimeSwitchingMode::Crazy;
+  }
+  return WeaponRuntimeSwitchingMode::Crazy;
+}
 
 constexpr std::uint32_t kMaxLagCompensationTicks = 25;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
@@ -349,37 +362,6 @@ void recordProjectileHit(
   return target.position + Vec3{0.0F, 0.0F, target.bounds.halfHeight * 0.45F};
 }
 
-[[nodiscard]] bool splashCanReachPlayer(
-  const Arena& arena,
-  Vec3 explosionPosition,
-  const PlayerState& player
-) {
-  const float sideOffset = player.bounds.radius * 0.75F;
-  const std::array<Vec3, 5> targetPoints = {{
-    player.position,
-    player.position + Vec3{sideOffset, 0.0F, 0.0F},
-    player.position + Vec3{-sideOffset, 0.0F, 0.0F},
-    player.position + Vec3{0.0F, sideOffset, 0.0F},
-    player.position + Vec3{0.0F, -sideOffset, 0.0F},
-  }};
-
-  for (const Vec3 targetPoint : targetPoints) {
-    const Vec3 segment = explosionPosition - targetPoint;
-    const float distance = length(segment);
-    if (distance <= kProjectileCollisionEpsilon) {
-      return true;
-    }
-    const WorldTrace trace =
-      traceWorld(arena, targetPoint, segment / distance, distance);
-    // Trace from the body to the blast. An impact brush may sit at the far
-    // endpoint, but any nearer hit means solid world lies between them.
-    if (trace.distance >= distance - kProjectileCollisionEpsilon) {
-      return true;
-    }
-  }
-  return false;
-}
-
 [[nodiscard]] std::optional<std::size_t> uniqueScoreLeader(
   const std::array<PlayerScore, kDuelPlayerCount>& scores,
   const std::array<bool, kDuelPlayerCount>& players
@@ -559,6 +541,7 @@ ServerGame::ServerGame(NetTransport& transport, std::string balanceConfigPath)
 
 void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   const std::uint64_t previousHash = replayGameplayConfigHash();
+  balanceConfig_ = config;
   lightningGunTuning_.range = config.lightningGun.range;
   lightningGunTuning_.eyeHeight = config.lightningGun.eyeHeight;
   lightningGunTuning_.headshotMultiplier = config.lightningGun.headshotMultiplier;
@@ -700,46 +683,14 @@ void ServerGame::tick(float fixedDt) {
   snapshot_.damageTakenEvents = {};
   // Event fields describe occurrences, not durable state. They are rebuilt for
   // this tick and restored near publication only for packet-loss tolerance.
-  for (std::uint32_t& cooldown : railgunCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : revolverCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : machineGunCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : shotgunCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : rocketCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : grenadeCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : plasmaGunCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& pullout : weaponPulloutTicks_) {
-    if (pullout > 0) {
-      --pullout;
-    }
-  }
+  advanceWeaponRuntimeCooldowns(railgunCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(revolverCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(machineGunCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(shotgunCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(rocketCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(grenadeCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(plasmaGunCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(weaponPulloutTicks_);
   decayIcePools(fixedDt);
   for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
     std::uint32_t& cooldown = healthPickupCooldownTicks_[index];
@@ -1154,7 +1105,9 @@ void ServerGame::tick(float fixedDt) {
         attackerIndex,
         snapshot_.weaponFires[attackerIndex]
       );
-      railgunCooldownTicks_[attackerIndex] = railgunCooldownDurationTicks_;
+      railgunCooldownTicks_[attackerIndex] = weaponRuntimeCooldownTicks(
+        Weapon::Railgun, balanceConfig_
+      );
       (void)consumeAmmo(attackerIndex, Weapon::Railgun);
       // A shot spends the whole charge whether it hits or misses.
       sniperChargeFractions_[attackerIndex] = 0.0F;
@@ -1186,7 +1139,9 @@ void ServerGame::tick(float fixedDt) {
         attackerIndex,
         snapshot_.weaponFires[attackerIndex]
       );
-      revolverCooldownTicks_[attackerIndex] = revolverCooldownDurationTicks_;
+      revolverCooldownTicks_[attackerIndex] = weaponRuntimeCooldownTicks(
+        Weapon::Revolver, balanceConfig_
+      );
       (void)consumeAmmo(attackerIndex, Weapon::Revolver);
     } else if (
       command.weapon == Weapon::MachineGun &&
@@ -1215,7 +1170,9 @@ void ServerGame::tick(float fixedDt) {
         attackerIndex,
         snapshot_.weaponFires[attackerIndex]
       );
-      machineGunCooldownTicks_[attackerIndex] = machineGunCooldownDurationTicks_;
+      machineGunCooldownTicks_[attackerIndex] = weaponRuntimeCooldownTicks(
+        Weapon::MachineGun, balanceConfig_
+      );
       (void)consumeAmmo(attackerIndex, Weapon::MachineGun);
     } else if (
       command.weapon == Weapon::Shotgun &&
@@ -1250,7 +1207,9 @@ void ServerGame::tick(float fixedDt) {
           damageAllowedPellets
         );
       }
-      shotgunCooldownTicks_[attackerIndex] = shotgunCooldownDurationTicks_;
+      shotgunCooldownTicks_[attackerIndex] = weaponRuntimeCooldownTicks(
+        Weapon::Shotgun, balanceConfig_
+      );
       (void)consumeAmmo(attackerIndex, Weapon::Shotgun);
     } else if (
       command.weapon == Weapon::RocketLauncher &&
@@ -1265,7 +1224,9 @@ void ServerGame::tick(float fixedDt) {
           Weapon::RocketLauncher
         )
       ) {
-        rocketCooldownTicks_[attackerIndex] = rocketLauncherCooldownDurationTicks_;
+        rocketCooldownTicks_[attackerIndex] = weaponRuntimeCooldownTicks(
+          Weapon::RocketLauncher, balanceConfig_
+        );
         (void)consumeAmmo(attackerIndex, Weapon::RocketLauncher);
       }
     } else if (
@@ -1281,8 +1242,9 @@ void ServerGame::tick(float fixedDt) {
           Weapon::GrenadeLauncher
         )
       ) {
-        grenadeCooldownTicks_[attackerIndex] =
-          grenadeLauncherTuning_.cooldownTicks;
+        grenadeCooldownTicks_[attackerIndex] = weaponRuntimeCooldownTicks(
+          Weapon::GrenadeLauncher, balanceConfig_
+        );
         (void)consumeAmmo(attackerIndex, Weapon::GrenadeLauncher);
       }
     } else if (
@@ -1298,8 +1260,9 @@ void ServerGame::tick(float fixedDt) {
           Weapon::PlasmaGun
         )
       ) {
-        plasmaGunCooldownTicks_[attackerIndex] =
-          plasmaGunTuning_.cooldownTicks;
+        plasmaGunCooldownTicks_[attackerIndex] = weaponRuntimeCooldownTicks(
+          Weapon::PlasmaGun, balanceConfig_
+        );
         (void)consumeAmmo(attackerIndex, Weapon::PlasmaGun);
       }
     }
@@ -3975,42 +3938,50 @@ std::uint32_t ServerGame::weaponCooldownTicks(
   std::size_t playerIndex,
   Weapon weapon
 ) const {
+  std::uint32_t cooldown = 0U;
   switch (weapon) {
   case Weapon::Railgun:
-    return railgunCooldownTicks_[playerIndex];
+    cooldown = railgunCooldownTicks_[playerIndex]; break;
   case Weapon::Revolver:
-    return revolverCooldownTicks_[playerIndex];
+    cooldown = revolverCooldownTicks_[playerIndex]; break;
   case Weapon::MachineGun:
-    return machineGunCooldownTicks_[playerIndex];
+    cooldown = machineGunCooldownTicks_[playerIndex]; break;
   case Weapon::Shotgun:
-    return shotgunCooldownTicks_[playerIndex];
+    cooldown = shotgunCooldownTicks_[playerIndex]; break;
   case Weapon::RocketLauncher:
-    return rocketCooldownTicks_[playerIndex];
+    cooldown = rocketCooldownTicks_[playerIndex]; break;
   case Weapon::GrenadeLauncher:
-    return grenadeCooldownTicks_[playerIndex];
+    cooldown = grenadeCooldownTicks_[playerIndex]; break;
+  case Weapon::PlasmaGun:
+    cooldown = plasmaGunCooldownTicks_[playerIndex]; break;
   case Weapon::LightningGun:
   case Weapon::FreezeGun:
-  case Weapon::PlasmaGun:
-    return 0;
+    break;
   }
-  return 0;
+  return weaponRuntimeSwitchBlockingCooldown(weapon, cooldown);
 }
 
 bool ServerGame::canSwitchWeapon(std::size_t playerIndex) const {
-  return weaponSwitchingMode_ == WeaponSwitchingMode::Crazy ||
-    weaponCooldownTicks(playerIndex, selectedWeapons_[playerIndex]) == 0;
+  return canSwitchWeaponRuntime(
+    runtimeSwitchingMode(weaponSwitchingMode_),
+    weaponCooldownTicks(playerIndex, selectedWeapons_[playerIndex])
+  );
 }
 
 bool ServerGame::canFireSelectedWeapon(std::size_t playerIndex) const {
-  return (
-    weaponSwitchingMode_ != WeaponSwitchingMode::Ql ||
-    weaponPulloutTicks_[playerIndex] == 0
-  ) && hasAmmoForWeapon(playerIndex, selectedWeapons_[playerIndex]);
+  return canFireWeaponRuntime(
+    runtimeSwitchingMode(weaponSwitchingMode_),
+    weaponPulloutTicks_[playerIndex],
+    playerAmmo_[playerIndex],
+    selectedWeapons_[playerIndex],
+    weaponAmmoConfig_.infiniteAmmo
+  );
 }
 
 bool ServerGame::hasAmmoForWeapon(std::size_t playerIndex, Weapon weapon) const {
-  return weaponAmmoConfig_.infiniteAmmo ||
-    playerAmmo_[playerIndex][weaponIndex(weapon)] > 0;
+  return hasWeaponRuntimeAmmo(
+    playerAmmo_[playerIndex], weapon, weaponAmmoConfig_.infiniteAmmo
+  );
 }
 
 void ServerGame::refillAmmo(std::size_t playerIndex) {
@@ -4022,135 +3993,43 @@ void ServerGame::refillAmmo(std::size_t playerIndex) {
 }
 
 bool ServerGame::consumeAmmo(std::size_t playerIndex, Weapon weapon) {
-  if (weaponAmmoConfig_.infiniteAmmo) {
-    return true;
-  }
-  std::int32_t& ammo = playerAmmo_[playerIndex][weaponIndex(weapon)];
-  if (ammo <= 0) {
-    return false;
-  }
-  --ammo;
+  const bool consumed = consumeWeaponRuntimeAmmo(
+    playerAmmo_[playerIndex], weapon, weaponAmmoConfig_.infiniteAmmo
+  );
+  if (!consumed) return false;
   snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
   return true;
 }
 
 void ServerGame::consumeLightningGunAmmo(std::size_t playerIndex, float fixedDt) {
-  if (weaponAmmoConfig_.infiniteAmmo) {
-    return;
-  }
-  std::int32_t& ammo =
-    playerAmmo_[playerIndex][weaponIndex(Weapon::LightningGun)];
-  if (ammo <= 0) {
-    snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
-    return;
-  }
-  const double fireHz =
-    static_cast<double>(std::max(1.0F, lightningGunTuning_.fireHz));
-  double& credit = lightningAmmoCredit_[playerIndex];
-  credit = std::min(credit, fireHz);
-  const int shots = static_cast<int>(std::floor(credit));
-  if (shots > 0) {
-    const int consumed = std::min(shots, ammo);
-    ammo -= consumed;
-    credit -= static_cast<double>(consumed);
-  }
-  credit += fireHz * static_cast<double>(fixedDt);
+  consumeWeaponRuntimeBeamAmmo(
+    playerAmmo_[playerIndex], Weapon::LightningGun,
+    weaponAmmoConfig_.infiniteAmmo, lightningAmmoCredit_[playerIndex],
+    lightningGunTuning_.fireHz, fixedDt
+  );
   snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
 }
 
 void ServerGame::consumeFreezeGunAmmo(std::size_t playerIndex, float fixedDt) {
-  if (weaponAmmoConfig_.infiniteAmmo) {
-    return;
-  }
-  std::int32_t& ammo =
-    playerAmmo_[playerIndex][weaponIndex(Weapon::FreezeGun)];
-  if (ammo <= 0) {
-    snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
-    return;
-  }
-  const double fireHz =
-    static_cast<double>(std::max(1.0F, freezeGunTuning_.fireHz));
-  double& credit = freezeAmmoCredit_[playerIndex];
-  credit = std::min(credit, fireHz);
-  const int shots = static_cast<int>(std::floor(credit));
-  if (shots > 0) {
-    const int consumed = std::min(shots, ammo);
-    ammo -= consumed;
-    credit -= static_cast<double>(consumed);
-  }
-  credit += fireHz * static_cast<double>(fixedDt);
+  consumeWeaponRuntimeBeamAmmo(
+    playerAmmo_[playerIndex], Weapon::FreezeGun,
+    weaponAmmoConfig_.infiniteAmmo, freezeAmmoCredit_[playerIndex],
+    freezeGunTuning_.fireHz, fixedDt
+  );
   snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
 }
 
 void ServerGame::decayIcePools(float fixedDt) {
-  for (IcePool& pool : snapshot_.icePools) {
-    if (!pool.active) {
-      continue;
-    }
-    pool.lifetimeSeconds -= fixedDt;
-    if (pool.lifetimeSeconds <= 0.0F || pool.radius <= 0.0F) {
-      pool = {};
-    }
-  }
+  decayWeaponRuntimeIcePools(snapshot_.icePools, fixedDt);
 }
 
 void ServerGame::growIcePool(Vec3 center, Vec3 normal, float fixedDt) {
-  if (
-    icePoolTuning_.maxRadius <= 0.0F ||
-    icePoolTuning_.growthPerSecond <= 0.0F ||
-    icePoolTuning_.lifetimeSeconds <= 0.0F
-  ) {
-    return;
-  }
-
-  IcePool* chosen = nullptr;
-  IcePool* reusable = nullptr;
-  for (IcePool& pool : snapshot_.icePools) {
-    if (!pool.active) {
-      if (reusable == nullptr) {
-        reusable = &pool;
-      }
-      continue;
-    }
-    const Vec3 delta = center - pool.center;
-    const float planeDistance = dot(delta, pool.normal);
-    const Vec3 tangentDelta = delta - pool.normal * planeDistance;
-    if (
-      std::fabs(planeDistance) <= 0.5F &&
-      length(tangentDelta) <= pool.radius + icePoolTuning_.mergeDistance
-    ) {
-      chosen = &pool;
-      break;
-    }
-  }
-
-  if (chosen == nullptr) {
-    if (reusable == nullptr) {
-      reusable = &snapshot_.icePools.front();
-      for (IcePool& pool : snapshot_.icePools) {
-        if (pool.lifetimeSeconds < reusable->lifetimeSeconds) {
-          reusable = &pool;
-        }
-      }
-    }
-    *reusable = IcePool{
-      true,
-      center,
-      normal,
-      0.0F,
-      icePoolTuning_.lifetimeSeconds,
-    };
-    chosen = reusable;
-  }
-
-  chosen->normal = normalize(chosen->normal + normal);
-  chosen->lifetimeSeconds = icePoolTuning_.lifetimeSeconds;
-  chosen->radius = std::min(
-    icePoolTuning_.maxRadius,
-    chosen->radius +
-      (icePoolTuning_.maxRadius - chosen->radius) *
-        icePoolTuning_.growthPerSecond *
-        fixedDt
+  growWeaponRuntimeIcePool(
+    snapshot_.icePools,
+    center,
+    normal,
+    icePoolTuning_,
+    fixedDt
   );
 }
 
@@ -4158,21 +4037,15 @@ void ServerGame::updateSelectedWeapon(
   std::size_t playerIndex,
   Weapon requestedWeapon
 ) {
-  Weapon& selectedWeapon = selectedWeapons_[playerIndex];
-  if (requestedWeapon == selectedWeapon) {
-    snapshot_.selectedWeapons[playerIndex] = selectedWeapon;
-    return;
-  }
-  if (!canSwitchWeapon(playerIndex)) {
-    snapshot_.selectedWeapons[playerIndex] = selectedWeapon;
-    return;
-  }
-
-  selectedWeapon = requestedWeapon;
-  if (weaponSwitchingMode_ == WeaponSwitchingMode::Ql) {
-    weaponPulloutTicks_[playerIndex] = weaponPulloutDurationTicks_;
-  }
-  snapshot_.selectedWeapons[playerIndex] = selectedWeapon;
+  const WeaponRuntimeSwitchResult result = requestWeaponRuntimeSwitch(
+    selectedWeapons_[playerIndex], requestedWeapon,
+    runtimeSwitchingMode(weaponSwitchingMode_),
+    weaponCooldownTicks(playerIndex, selectedWeapons_[playerIndex]),
+    weaponPulloutTicks_[playerIndex], weaponPulloutDurationTicks_
+  );
+  selectedWeapons_[playerIndex] = result.selectedWeapon;
+  weaponPulloutTicks_[playerIndex] = result.pulloutTicks;
+  snapshot_.selectedWeapons[playerIndex] = result.selectedWeapon;
 }
 
 void ServerGame::recordHistory() {
@@ -4519,39 +4392,15 @@ bool ServerGame::spawnProjectile(
       continue;
     }
 
-    const bool grenade = weapon == Weapon::GrenadeLauncher;
-    const bool plasma = weapon == Weapon::PlasmaGun;
-    const float eyeHeight = grenade
-      ? grenadeLauncherTuning_.eyeHeight
-      : plasma
-        ? plasmaGunTuning_.eyeHeight
-        : rocketLauncherTuning_.eyeHeight;
-    const float speed = grenade
-      ? grenadeLauncherTuning_.speed
-      : plasma
-        ? plasmaGunTuning_.speed
-        : rocketLauncherTuning_.speed;
-    const Vec3 direction =
-      cameraForward(command.viewYawRadians, command.viewPitchRadians);
-
-    rocket.active = true;
-    rocket.owner = static_cast<std::uint8_t>(attackerIndex);
     std::uint32_t& ownerSequence = projectileSequences_[attackerIndex];
     ++ownerSequence;
     if (ownerSequence == 0U) {
       ++ownerSequence;
     }
-    rocket.sequence = ownerSequence;
-    rocket.weapon = weapon;
-    rocket.position = weaponMuzzlePosition(attacker, eyeHeight);
-    rocket.previousPosition = rocket.position;
-    rocket.projectileRadius = grenade ? grenadeLauncherTuning_.projectileRadius : 0.0F;
-    rocket.projectileHitboxRadius = grenade ? grenadeLauncherTuning_.projectileHitboxRadius : 0.0F;
-    rocket.velocity = direction * speed;
-    if (grenade) {
-      rocket.velocity.z += grenadeLauncherTuning_.verticalBoost;
-    }
-    rocket.ageTicks = 0;
+    rocket = makeWeaponRuntimeProjectile(
+      static_cast<std::uint8_t>(attackerIndex), ownerSequence,
+      weapon, attacker, command, balanceConfig_
+    );
     // Ignore the owner only until the projectile has fully left its spawn
     // hitbox; once armed, later self-intersection must behave like any other hit.
     rocket.ownerCollisionArmed = false;
@@ -4562,7 +4411,8 @@ bool ServerGame::spawnProjectile(
     fire.weapon = weapon;
     fire.visualSeed = rocket.sequence;
     fire.start = rocket.position;
-    fire.end = rocket.position + (direction * 1.2F);
+    fire.end = rocket.position +
+      (cameraForward(command.viewYawRadians, command.viewPitchRadians) * 1.2F);
     ProjectileUpdate& spawned =
       spawnedProjectileUpdates_[spawnedProjectileCount_++];
     spawned.kind = ProjectileUpdateKind::Spawn;
@@ -4582,51 +4432,6 @@ bool ServerGame::spawnProjectile(
 }
 
 void ServerGame::simulateRockets(float fixedDt) {
-  const auto cylinderDistance = [](Vec3 point, const PlayerState& player) {
-    // Splash distance is measured to the finite player cylinder surface, not its
-    // center, so player size and vertical overlap affect falloff consistently.
-    const float radial =
-      std::max(
-        0.0F,
-        std::hypot(point.x - player.position.x, point.y - player.position.y) -
-          player.bounds.radius
-      );
-    const float vertical =
-      std::max(0.0F, std::fabs(point.z - player.position.z) - player.bounds.halfHeight);
-    return std::hypot(radial, vertical);
-  };
-  const auto projectileDirectAabbHalfExtents = [](
-    Weapon weapon,
-    const PlayerState& target,
-    const RocketLauncherTuning& rocketLauncherTuning,
-    const PlasmaGunTuning& plasmaGunTuning
-  ) {
-    // Direct-hit tuning is authored for default bounds and scales with runtime
-    // player-size changes so hit registration follows the authoritative body.
-    const float scaleXY =
-      target.bounds.radius / std::max(0.0001F, kDefaultPlayerBounds.radius);
-    const float scaleZ =
-      target.bounds.halfHeight / std::max(0.0001F, kDefaultPlayerBounds.halfHeight);
-    const float baseXY = weapon == Weapon::PlasmaGun
-      ? plasmaGunTuning.directHitboxHalfExtentXY
-      : rocketLauncherTuning.directHitboxHalfExtentXY;
-    const float baseZ = weapon == Weapon::PlasmaGun
-      ? plasmaGunTuning.directHitboxHalfExtentZ
-      : rocketLauncherTuning.directHitboxHalfExtentZ;
-    return Vec3{baseXY * scaleXY, baseXY * scaleXY, baseZ * scaleZ};
-  };
-  const auto pointInsidePlayerRelativeAabb = [](
-    Vec3 point,
-    const PlayerState& player,
-    Vec3 halfExtents
-  ) {
-    const Vec3 relative = point - player.position;
-    return
-      std::fabs(relative.x) <= halfExtents.x + kProjectileCollisionEpsilon &&
-      std::fabs(relative.y) <= halfExtents.y + kProjectileCollisionEpsilon &&
-      std::fabs(relative.z) <= halfExtents.z + kProjectileCollisionEpsilon;
-  };
-
   for (std::size_t projectileIndex = 0; projectileIndex < rockets_.size(); ++projectileIndex) {
     RocketProjectile& rocket = rockets_[projectileIndex];
     if (!rocket.active) {
@@ -4663,16 +4468,22 @@ void ServerGame::simulateRockets(float fixedDt) {
       if (!rocket.ownerCollisionArmed) {
         if (projectileDirectAabb) {
           const PlayerState& owner = snapshot_.players[rocket.owner];
-          const Vec3 ownerHalfExtents = projectileDirectAabbHalfExtents(
+          const Vec3 ownerHalfExtents = weaponRuntimeProjectileDirectAabbHalfExtents(
             rocket.weapon,
             owner,
-            rocketLauncherTuning_,
-            plasmaGunTuning_
+            balanceConfig_
           );
           rocket.ownerCollisionArmed =
-            !pointInsidePlayerRelativeAabb(rocket.position, owner, ownerHalfExtents);
+            !weaponRuntimePointInsidePlayerDirectAabb(
+              rocket.position,
+              owner,
+              ownerHalfExtents
+            );
         } else if (
-          cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) >
+          weaponRuntimePlayerCylinderDistance(
+            rocket.position,
+            snapshot_.players[rocket.owner]
+          ) >
             rocket.projectileHitboxRadius + 0.0001F
         ) {
           rocket.ownerCollisionArmed = true;
@@ -4687,25 +4498,12 @@ void ServerGame::simulateRockets(float fixedDt) {
           explosionPosition = worldTrace.end;
           if (grenade) {
             Vec3 normal = bounceNormalForPoint(arena_, explosionPosition);
-            if (dot(rocket.velocity, normal) > 0.0F) {
-              normal *= -1.0F;
-            }
-            const float normalVelocity = dot(rocket.velocity, normal);
-            const float impactSpeed = std::fabs(normalVelocity);
-            if (normalVelocity < 0.0F) {
-              rocket.velocity =
-                (rocket.velocity - (normal * (2.0F * normalVelocity))) *
-                grenadeLauncherTuning_.bounceDamping;
-            } else {
-              rocket.velocity *= grenadeLauncherTuning_.bounceDamping;
-            }
-            const bool restingOnFloor =
-              normal.z > 0.5F && length(rocket.velocity) <= grenadeLauncherTuning_.restSpeed;
-            if (restingOnFloor) {
-              rocket.velocity = {};
-              rocket.resting = true;
-            }
-            if (impactSpeed >= grenadeLauncherTuning_.bounceSoundMinSpeed) {
+            const WeaponRuntimeGrenadeBounce bounce = bounceWeaponRuntimeGrenade(
+              rocket.velocity, normal, grenadeLauncherTuning_
+            );
+            rocket.velocity = bounce.velocity;
+            rocket.resting = bounce.resting;
+            if (bounce.impactSpeed >= grenadeLauncherTuning_.bounceSoundMinSpeed) {
               GrenadeBounceAudioEvent bounce;
               bounce.active = true;
               ++grenadeBounceSequences_[projectileIndex];
@@ -4754,11 +4552,10 @@ void ServerGame::simulateRockets(float fixedDt) {
                 direction,
                 target,
                 bestHitDistance,
-                projectileDirectAabbHalfExtents(
+                weaponRuntimeProjectileDirectAabbHalfExtents(
                   rocket.weapon,
                   target,
-                  rocketLauncherTuning_,
-                  plasmaGunTuning_
+                  balanceConfig_
                 ),
                 hitDistance
               );
@@ -4787,11 +4584,9 @@ void ServerGame::simulateRockets(float fixedDt) {
       }
 
       ++rocket.ageTicks;
-      const std::uint32_t maxLifetimeTicks = grenade
-        ? grenadeLauncherTuning_.fuseTicks
-        : plasma
-          ? plasmaGunTuning_.maxLifetimeTicks
-          : rocketLauncherTuning_.maxLifetimeTicks;
+      const std::uint32_t maxLifetimeTicks = weaponRuntimeProjectileMaxLifetime(
+        rocket.weapon, balanceConfig_
+      );
       if (!explode && rocket.ageTicks >= maxLifetimeTicks) {
         explode = true;
         explosionPosition = nextPosition;
@@ -4858,7 +4653,10 @@ void ServerGame::simulateRockets(float fixedDt) {
       if (player.health <= 0 || !isCombatant(snapshot_, playerIndex)) {
         continue;
       }
-      const float distance = cylinderDistance(explosionPosition, player);
+      const float distance = weaponRuntimePlayerCylinderDistance(
+        explosionPosition,
+        player
+      );
       if (distance > radius) {
         continue;
       }
@@ -4866,7 +4664,7 @@ void ServerGame::simulateRockets(float fixedDt) {
       // Splash-only damage needs at least one clear path around solid world.
       if (
         playerIndex != directTarget &&
-        !splashCanReachPlayer(arena_, explosionPosition, player)
+        !weaponRuntimeSplashCanReachPlayer(arena_, explosionPosition, player)
       ) {
         continue;
       }

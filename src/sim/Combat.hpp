@@ -264,6 +264,12 @@ struct WorldTrace {
   std::uint8_t pelletCount = kShotgunPelletCount
 );
 
+[[nodiscard]] Vec3 machineGunShotDirection(
+  Vec3 forward,
+  float spreadRadians,
+  std::uint32_t shotSeed
+);
+
 struct ShotgunTargetCandidate {
   std::uint8_t playerIndex = kShotgunNoPlayer;
   PlayerState player = {};

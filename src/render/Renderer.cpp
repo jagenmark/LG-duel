@@ -11545,6 +11545,7 @@ void drawPerspectiveWorld(
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const std::array<bool, Arena::kHealthPickupCount>& healthPickupAvailable,
+  std::span<const TransientEffect> transientEffects,
   const RenderSettings& settings
 ) {
   const float aspectRatio =
@@ -11739,6 +11740,33 @@ void drawPerspectiveWorld(
         remote.teammate,
         remote.bodyFade.modelAlpha
       )
+    );
+  }
+
+  for (const TransientEffect& effect : transientEffects) {
+    if (
+      effect.type != TransientEffectType::TrainerWorkerTarget &&
+      effect.type != TransientEffectType::TrainerOrbTarget
+    ) {
+      continue;
+    }
+    const SDL_FColor color = {
+      static_cast<float>(effect.color.red) / 255.0F,
+      static_cast<float>(effect.color.green) / 255.0F,
+      static_cast<float>(effect.color.blue) / 255.0F,
+      static_cast<float>(effect.color.alpha) / 255.0F,
+    };
+    const Vec3 halfExtents = effect.type == TransientEffectType::TrainerWorkerTarget
+      ? Vec3{0.45F, 0.45F, 0.9F}
+      : Vec3{effect.initialScale, effect.initialScale, effect.initialScale};
+    drawSolidBox(
+      renderer,
+      camera,
+      width,
+      height,
+      effect.position - halfExtents,
+      effect.position + halfExtents,
+      color
     );
   }
 
@@ -13692,6 +13720,7 @@ void Renderer::render(
     rocketExplosions,
     rockets,
     healthPickupAvailable,
+    transientEffects,
     *effectiveSdlSettings
   );
   const PerspectiveCamera camera = playerPerspectiveCamera(

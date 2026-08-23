@@ -1304,6 +1304,7 @@ void addMcGuffinNavigation(
     hud.mcguffinNavigation.kind == McGuffinNavigationKind::None ||
     hud.settingsOpen ||
     hud.miscMenuOpen ||
+    hud.trainerMenuOpen ||
     hud.scoreboardOpen
   ) {
     return;
@@ -3877,6 +3878,14 @@ void addMiscMenu(DrawList2D &drawList, int width, int height,
                 hud.miscMenuPressedRow, hud.miscMenuFooter);
 }
 
+void addTrainerMenu(DrawList2D &drawList, int width, int height,
+                    const HudRenderState &hud) {
+  addOptionMenu(drawList, width, height, "AIM TRAINER / SCENARIO",
+                hud.trainerMenuItems, hud.trainerMenuScrollRows,
+                hud.trainerMenuHoveredRow, hud.trainerMenuPressedRow,
+                hud.trainerMenuFooter);
+}
+
 void addConsole(
   DrawList2D& drawList,
   int width,
@@ -4834,9 +4843,11 @@ DrawList2D buildScreenUi(
     static_cast<float>(outputWidth),
     static_cast<float>(outputHeight),
   };
-  // Settings is a modal layer. Do not emit normal HUD, chat, console, scope,
-  // crosshair, weapon, or network overlays beneath it: the menu owns both the
-  // visual layer and input until it closes.
+  // Menus are modal layers and own both the visual layer and input.
+  if (hud.trainerMenuOpen) {
+    addTrainerMenu(drawList, outputWidth, outputHeight, hud);
+    return drawList;
+  }
   if (hud.settingsOpen) {
     addSettingsMenu(drawList, outputWidth, outputHeight, hud);
     return drawList;

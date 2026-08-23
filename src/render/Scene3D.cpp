@@ -5321,6 +5321,7 @@ void addTransientTracerInstances(
 
 [[nodiscard]] bool effectUsesCoreMesh(TransientEffectType type) {
   switch (type) {
+  case TransientEffectType::TrainerOrbTarget:
   case TransientEffectType::RocketExplosionCore:
   case TransientEffectType::PlasmaExplosionCore:
   case TransientEffectType::GrenadeExplosionCore:
@@ -5342,6 +5343,7 @@ void addTransientTracerInstances(
   case TransientEffectType::BulletDecal:
   case TransientEffectType::RocketExplosionShard:
   case TransientEffectType::RocketExplosionSmoke:
+  case TransientEffectType::TrainerWorkerTarget:
     return false;
   }
   return false;
@@ -5370,6 +5372,8 @@ void addTransientTracerInstances(
   case TransientEffectType::BulletDecal:
   case TransientEffectType::RocketExplosionShard:
   case TransientEffectType::RocketExplosionSmoke:
+  case TransientEffectType::TrainerOrbTarget:
+  case TransientEffectType::TrainerWorkerTarget:
     return false;
   }
   return false;
@@ -5400,6 +5404,8 @@ void addTransientTracerInstances(
   case TransientEffectType::BulletDecal:
   case TransientEffectType::RocketExplosionShard:
   case TransientEffectType::RocketExplosionSmoke:
+  case TransientEffectType::TrainerOrbTarget:
+  case TransientEffectType::TrainerWorkerTarget:
     break;
   }
   return BillboardHandle::Invalid;
@@ -5486,6 +5492,46 @@ void addTransientEffectInstances(
 ) {
   scene.transientVfxStats.activeEffects += static_cast<std::uint32_t>(effects.size());
   for (const TransientEffect& effect : effects) {
+    if (effect.type == TransientEffectType::TrainerWorkerTarget) {
+      continue;
+    }
+    if (effect.type == TransientEffectType::TrainerOrbTarget) {
+      if (
+        !std::isfinite(effect.position.x) ||
+        !std::isfinite(effect.position.y) ||
+        !std::isfinite(effect.position.z) ||
+        !std::isfinite(effect.initialScale) ||
+        effect.initialScale <= 0.0F
+      ) {
+        continue;
+      }
+      if (
+        settings.frustumCullRemotePlayers &&
+        !sphereIntersectsPerspectiveFrustum(
+          scene.camera,
+          effect.position,
+          effect.initialScale
+        )
+      ) {
+        continue;
+      }
+      appendSimpleInstance(
+        scene,
+        {
+          MeshHandle::ExplosionCore,
+          BillboardHandle::Invalid,
+          RenderPass::OpaqueWorld,
+          effect.position,
+          {effect.initialScale, effect.initialScale, effect.initialScale},
+          0.0F,
+          0.0F,
+          effect.color,
+          0.0F,
+          {effect.position, effect.initialScale},
+        }
+      );
+      continue;
+    }
     // The store can outlive a live quality change. Gate held effects again at
     // submission so a lower setting takes effect on the same rendered frame.
     if (!effectEnabledForQuality(effect.type, settings.combatEffectsQuality)) {
@@ -5766,6 +5812,70 @@ void addTransientEffectInstances(
       ++scene.transientVfxStats.transparentEffectsSubmitted;
     }
     ++scene.transientVfxStats.explosionInstancesSubmitted;
+  }
+}
+
+void addTrainerWorkerTargetInstances(
+  Scene3D& scene,
+  std::span<const TransientEffect> effects,
+  const GltfSkinnedModel* model,
+  const RenderSettings& settings,
+  GltfSkinnedModel::PoseScratch& poseScratch
+) {
+  constexpr std::uint8_t kTrainerTargetPlayerIndex = 255U;
+  const OutlineState noOutline = {};
+  for (const TransientEffect& effect : effects) {
+    if (effect.type != TransientEffectType::TrainerWorkerTarget) continue;
+    if (
+      !std::isfinite(effect.position.x) ||
+      !std::isfinite(effect.position.y) ||
+      !std::isfinite(effect.position.z)
+    ) {
+      continue;
+    }
+    PlayerState worker;
+    worker.position = effect.position;
+    worker.health = 1;
+    worker.viewYawRadians = static_cast<float>(effect.seed % 628U) * 0.01F;
+    if (
+      settings.frustumCullRemotePlayers &&
+      !sphereIntersectsPerspectiveFrustum(
+        scene.camera,
+        remotePlayerVisualSphereCenter(worker),
+        remotePlayerVisualSphereRadius(worker)
+      )
+    ) {
+      continue;
+    }
+    if (model != nullptr && model->loaded()) {
+      addGltfPlayerModelInstance(
+        scene,
+        *model,
+        worker,
+        effect.color,
+        false,
+        0.0F,
+        settings.presentationTimeSeconds,
+        nullptr,
+        kTrainerTargetPlayerIndex,
+        noOutline,
+        false,
+        0.0F,
+        poseScratch,
+        nullptr
+      );
+    } else {
+      addPlayerBoxInstances(
+        scene,
+        worker,
+        effect.color,
+        false,
+        0.0F,
+        kTrainerTargetPlayerIndex,
+        noOutline,
+        false
+      );
+    }
   }
 }
 
@@ -6825,6 +6935,14 @@ Scene3D buildPerspectiveScene(
       }
     }
   }
+
+  addTrainerWorkerTargetInstances(
+    scene,
+    transientEffects,
+    gltfPlayerModel,
+    settings,
+    gltfPoseScratch
+  );
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {
     const auto addBounds =
