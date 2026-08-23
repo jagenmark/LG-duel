@@ -4,6 +4,11 @@ on:
   pull_request:
     branches:
       - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
   workflow_dispatch:
 
 permissions:
@@ -15,6 +20,7 @@ concurrency:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: "1"
+  LG_CANDIDATE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
   PYTHONUNBUFFERED: "1"
 
 jobs:
@@ -112,6 +118,7 @@ jobs:
         run: python scripts/lg_verification.py protocol-budget --evidence-root verification
 
       - name: Collect Linux build evidence
+        id: linux-result
         if: always()
         shell: bash
         run: |
@@ -129,6 +136,7 @@ jobs:
               status=failure
             fi
           done
+          printf 'status=%s\n' "$status" >> "$GITHUB_OUTPUT"
           python scripts/lg_verification.py collect-ci \
             --evidence-root verification \
             --platform linux \
@@ -144,25 +152,12 @@ jobs:
             verification/**
             build/default/Testing/Temporary/**
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 14
 
       - name: Enforce Linux build and CTest result
         if: always()
         shell: bash
-        run: |
-          for outcome in \
-            "${{ steps.checkout.outcome }}" \
-            "${{ steps.python.outcome }}" \
-            "${{ steps.pillow.outcome }}" \
-            "${{ steps.vulkan.outcome }}" \
-            "${{ steps.dependencies.outcome }}" \
-            "${{ steps.configure.outcome }}" \
-            "${{ steps.build.outcome }}" \
-            "${{ steps.ctest.outcome }}"; do
-            if [[ "$outcome" != success ]]; then
-              exit 1
-            fi
-          done
+        run: test "${{ steps.linux-result.outputs.status }}" = success
 
   deterministic-scenarios:
     name: deterministic-scenarios
@@ -171,7 +166,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
+      - name: Record reused deterministic result
+        if: always()
+        shell: bash
+        env:
+          SOURCE_OUTCOME: ${{ needs.linux-build-and-tests.outputs.determinism }}
+        run: |
+          mkdir -p verification/deterministic-scenarios
+          printf '{\n  "schema_version": 1,\n  "source_job": "linux-build-and-tests",\n  "source_outcome": "%s"\n}\n' \
+            "$SOURCE_OUTCOME" > verification/deterministic-scenarios/gate-result.json
+
+      - name: Upload deterministic gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deterministic-scenarios-${{ github.run_attempt }}
+          path: verification/deterministic-scenarios/gate-result.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Enforce reused deterministic result
+        if: always()
         shell: bash
         run: test "${{ needs.linux-build-and-tests.outputs.determinism }}" = success
 
@@ -182,7 +197,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
+      - name: Record reused protocol result
+        if: always()
+        shell: bash
+        env:
+          SOURCE_OUTCOME: ${{ needs.linux-build-and-tests.outputs.protocol }}
+        run: |
+          mkdir -p verification/protocol
+          printf '{\n  "schema_version": 1,\n  "source_job": "linux-build-and-tests",\n  "source_outcome": "%s"\n}\n' \
+            "$SOURCE_OUTCOME" > verification/protocol/gate-result.json
+
+      - name: Upload protocol gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocol-and-packet-budgets-${{ github.run_attempt }}
+          path: verification/protocol/gate-result.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Enforce reused protocol-budget result
+        if: always()
         shell: bash
         run: test "${{ needs.linux-build-and-tests.outputs.protocol }}" = success
 
@@ -290,7 +325,7 @@ jobs:
             verification/**
             build/sanitize/Testing/Temporary/**
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 14
 
       - name: Enforce sanitizer result
         if: always()
@@ -366,7 +401,7 @@ jobs:
             verification/**
             build/msvc/Testing/Temporary/**
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 14
 
   live-client-server-smoke:
     name: live-client-server-smoke
@@ -434,7 +469,7 @@ jobs:
           name: live-client-server-smoke-${{ github.run_attempt }}
           path: verification/**
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 14
 
   # Run this optional evidence job only when a PR has the performance-smoke
   # label, or when a maintainer starts the workflow by hand.
@@ -510,4 +545,4 @@ jobs:
             verification/**
             !verification/benchmarks/temp/**
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 14

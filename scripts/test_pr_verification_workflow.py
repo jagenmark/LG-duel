@@ -72,6 +72,10 @@ class PrVerificationWorkflowTests(unittest.TestCase):
                 self.assertIn("uses: actions/checkout@", job)
                 self.assertIn(f"ref: {PR_HEAD_REF}", job)
 
+    def test_evidence_identity_matches_the_checked_out_head(self) -> None:
+        header = self.workflow.partition("\njobs:\n")[0]
+        self.assertIn(f"LG_CANDIDATE_COMMIT: {PR_HEAD_REF}", header)
+
     def test_linux_result_gates_reuse_the_linux_build(self) -> None:
         linux = self.jobs["linux-build-and-tests"]
         self.assertIn("determinism: ${{ steps.determinism.outcome }}", linux)
@@ -90,12 +94,26 @@ class PrVerificationWorkflowTests(unittest.TestCase):
                 self.assertNotIn("actions/checkout", job)
                 self.assertNotIn("cmake ", job)
 
+    def test_each_check_uploads_evidence_for_fourteen_days(self) -> None:
+        for job_name, job in self.jobs.items():
+            with self.subTest(job=job_name):
+                self.assertIn("uses: actions/upload-artifact@v4", job)
+                self.assertRegex(job, r"(?m)^          retention-days: 14$")
+
     def test_performance_check_keeps_its_opt_in_gate(self) -> None:
         performance = self.jobs["performance-smoke"]
         self.assertIn("github.event_name == 'workflow_dispatch'", performance)
         self.assertIn(
             "contains(github.event.pull_request.labels.*.name, 'performance-smoke')",
             performance,
+        )
+
+    def test_label_event_can_start_performance_check(self) -> None:
+        header = self.workflow.partition("\njobs:\n")[0]
+        self.assertRegex(
+            header,
+            r"(?ms)^  pull_request:\n"
+            r"(?=.*?^    types:\n(?:^      - [a-z]+\n)*^      - labeled$)",
         )
 
 
