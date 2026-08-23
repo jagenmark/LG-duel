@@ -12,6 +12,7 @@
 #include "app/PerfTelemetry.hpp"
 #include "app/Scoreboard.hpp"
 #include "app/TextInput.hpp"
+#include "app/TracerPresentation.hpp"
 #include "benchmark/Benchmark.hpp"
 #include "benchmark/BenchmarkTiming.hpp"
 #include "client/ClientSession.hpp"
@@ -89,9 +90,7 @@ constexpr float kQ3RunRoll = 0.005F;
 constexpr float kQuakeUnitsPerProjectUnit = 40.0F;
 constexpr std::uint32_t kClientRailgunCooldownTicks = 188;
 constexpr float kTwoPi = 6.28318530718F;
-constexpr std::size_t kMaxTransientTracers = 128;
 constexpr std::size_t kMaxTransientEffects = 192;
-constexpr std::size_t kLocalTracerAimHistorySize = 128;
 constexpr std::uint8_t kShotgunVisualPelletCount = 6;
 constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
 
@@ -651,13 +650,7 @@ struct WeaponPresentationFrame {
 );
 
 struct TransientTracerStore {
-  std::array<TransientTracer, kMaxTransientTracers> tracers = {};
-  std::array<bool, kMaxTransientTracers> active = {};
-  std::array<bool, kMaxTransientTracers> followMuzzle = {};
-  std::array<std::uint8_t, kMaxTransientTracers> followPlayerIndex = {};
-  std::array<Weapon, kMaxTransientTracers> followWeapon = {};
-  std::array<std::uint32_t, kMaxTransientTracers> followSeed = {};
-  std::array<std::uint8_t, kMaxTransientTracers> expiryGraceState = {};
+  TransientTracerPool tracers;
   std::array<TransientEffect, kMaxTransientEffects> effects = {};
   std::array<bool, kMaxTransientEffects> effectActive = {};
   std::array<std::uint8_t, kMaxTransientEffects> effectExpiryGraceState = {};
@@ -670,31 +663,7 @@ struct TransientTracerStore {
   void update(float dt) {
     explosionEventsConsumedThisFrame = 0;
     const float elapsed = std::max(0.0F, dt);
-    for (std::size_t index = 0; index < tracers.size(); ++index) {
-      if (!active[index]) {
-        continue;
-      }
-      if (expiryGraceState[index] == 2U) {
-        active[index] = false;
-        continue;
-      }
-      const float ageBeforeUpdate = tracers[index].ageSeconds;
-      tracers[index].ageSeconds += elapsed;
-      if (tracers[index].ageSeconds >= tracers[index].lifetimeSeconds) {
-        if (
-          expiryGraceState[index] == 1U &&
-          ageBeforeUpdate <= 0.0001F
-        ) {
-          expiryGraceState[index] = 2U;
-          tracers[index].ageSeconds =
-            tracers[index].lifetimeSeconds * 0.35F;
-          continue;
-        }
-        active[index] = false;
-      } else if (expiryGraceState[index] == 1U) {
-        expiryGraceState[index] = 0U;
-      }
-    }
+    tracers.update(elapsed);
     for (std::size_t index = 0; index < effects.size(); ++index) {
       if (!effectActive[index]) {
         continue;
@@ -766,32 +735,15 @@ struct TransientTracerStore {
     std::uint32_t seed,
     std::uint8_t playerIndex
   ) {
-    std::size_t slot = tracers.size();
-    for (std::size_t index = 0; index < active.size(); ++index) {
-      if (!active[index]) {
-        slot = index;
-        break;
-      }
-    }
-    if (slot == tracers.size()) {
-      slot = 0;
-      for (std::size_t index = 1; index < active.size(); ++index) {
-        if (tracers[index].ageSeconds > tracers[slot].ageSeconds) {
-          slot = index;
-        }
-      }
-    }
-    tracers[slot] = tracer;
-    active[slot] = true;
-    this->followMuzzle[slot] = followMuzzle;
-    followWeapon[slot] = weapon;
-    followSeed[slot] = seed;
-    followPlayerIndex[slot] = playerIndex;
-    // Keep the compact Rocket flash for one extra submitted frame if a long
-    // frame crosses its whole lifetime. This keeps the cue readable at low
-    // frame rates without a time trail or an unbounded store.
-    expiryGraceState[slot] =
-      tracer.style == TracerStyle::RocketLauncherMuzzleFlash ? 1U : 0U;
+    tracers.add(tracer, followMuzzle, weapon, seed, playerIndex);
+  }
+
+  void addCapturedMachineGunPresentation(
+    const CapturedMachineGunTracerPresentation& presentation,
+    std::uint32_t seed,
+    std::uint8_t playerIndex
+  ) {
+    tracers.addCapturedMachineGunPresentation(presentation, seed, playerIndex);
   }
 
   void addEffect(const TransientEffect& effect) {
@@ -826,100 +778,57 @@ struct TransientTracerStore {
     const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
     const RenderSettings& settings
   ) const {
-    result.clear();
-    result.reserve(tracers.size());
-    for (std::size_t index = 0; index < tracers.size(); ++index) {
-      if (active[index]) {
-        TransientTracer tracer = tracers[index];
-        if (
-          settings.combatEffectsQuality <= 0 &&
-          (
-            tracer.style == TracerStyle::MachineGun ||
-            tracer.style == TracerStyle::MachineGunMuzzleFlash
-          )
-        ) {
-          continue;
-        }
-        // Only the short muzzle-flash cues stay attached to the live weapon.
-        // Fired tracer endpoints are captured when the shot is accepted.
-        if (
-          followMuzzle[index] &&
-          (
-            tracer.style == TracerStyle::MachineGunMuzzleFlash ||
-            tracer.style == TracerStyle::RevolverMuzzleFlash ||
-            tracer.style == TracerStyle::RocketLauncherMuzzleFlash
-          )
-        ) {
-          const Vec3 oldStart = tracer.start;
-          const Vec3 oldDelta = tracer.end - oldStart;
-          const std::size_t playerIndex = followPlayerIndex[index];
-          const bool local =
-            playerIndex == static_cast<std::size_t>(settings.localPlayerIndex);
-          bool followsCurrentDirection = false;
-          if (local && !settings.showOwnWeapons) {
-            tracer.start = hiddenWeaponVisualOrigin(localPlayer);
-          } else if (followWeapon[index] == Weapon::MachineGun) {
-            if (local) {
-              tracer.start = firstPersonMachineGunMuzzlePosition(
-                localPlayer,
-                settings
-              );
-            } else {
-              WeaponFireResult attachmentFire;
-              attachmentFire.start = oldStart;
-              tracer.start = machineGunTracerSource(
-                attachmentFire,
-                localPlayer,
-                remotePlayers,
-                playerIndex,
-                settings
-              );
-            }
-          } else if (followWeapon[index] == Weapon::Shotgun) {
-            tracer.start = weaponPresentationPoint(
-              firstPersonWeaponPresentationFrame(
-                localPlayer,
-                settings.weaponPosition,
-                Weapon::Shotgun
-              ),
-              0.46F,
-              0.0F,
-              0.12F
-            );
-          } else if (followWeapon[index] == Weapon::RocketLauncher) {
-            WeaponFireResult attachmentFire;
-            attachmentFire.start = oldStart;
-            tracer.start = rocketLauncherMuzzleSource(
-              attachmentFire,
+    tracers.fillActive(
+      result,
+      settings.combatEffectsQuality,
+      [&](TransientTracer& tracer, const TransientTracerAttachment& attachment) {
+        const Vec3 oldStart = tracer.start;
+        const Vec3 oldDelta = tracer.end - oldStart;
+        const std::size_t playerIndex = attachment.playerIndex;
+        const bool local =
+          playerIndex == static_cast<std::size_t>(settings.localPlayerIndex);
+        bool followsCurrentDirection = false;
+        if (local && !settings.showOwnWeapons) {
+          tracer.start = hiddenWeaponVisualOrigin(localPlayer);
+        } else if (attachment.weapon == Weapon::Shotgun) {
+          tracer.start = weaponPresentationPoint(
+            firstPersonWeaponPresentationFrame(
               localPlayer,
-              remotePlayers,
-              playerIndex,
-              settings
-            );
-            const PlayerState& sourcePlayer =
-              local || playerIndex >= remotePlayers.size()
-                ? localPlayer
-                : remotePlayers[playerIndex].player;
-            const Vec3 currentDirection = cameraForward(
-              sourcePlayer.viewYawRadians,
-              sourcePlayer.viewPitchRadians
-            );
-            tracer.end =
-              tracer.start + currentDirection * length(oldDelta);
-            followsCurrentDirection = true;
-          } else if (followWeapon[index] == Weapon::Revolver) {
-            tracer.start = firstPersonRevolverMuzzlePosition(
-              localPlayer,
-              settings
-            );
-          }
-          if (!followsCurrentDirection) {
-            tracer.end += tracer.start - oldStart;
-          }
+              settings.weaponPosition,
+              Weapon::Shotgun
+            ),
+            0.46F,
+            0.0F,
+            0.12F
+          );
+        } else if (attachment.weapon == Weapon::RocketLauncher) {
+          WeaponFireResult attachmentFire;
+          attachmentFire.start = oldStart;
+          tracer.start = rocketLauncherMuzzleSource(
+            attachmentFire,
+            localPlayer,
+            remotePlayers,
+            playerIndex,
+            settings
+          );
+          const PlayerState& sourcePlayer =
+            local || playerIndex >= remotePlayers.size()
+              ? localPlayer
+              : remotePlayers[playerIndex].player;
+          const Vec3 currentDirection = cameraForward(
+            sourcePlayer.viewYawRadians,
+            sourcePlayer.viewPitchRadians
+          );
+          tracer.end = tracer.start + currentDirection * length(oldDelta);
+          followsCurrentDirection = true;
+        } else if (attachment.weapon == Weapon::Revolver) {
+          tracer.start = firstPersonRevolverMuzzlePosition(localPlayer, settings);
         }
-        result.push_back(tracer);
+        if (!followsCurrentDirection) {
+          tracer.end += tracer.start - oldStart;
+        }
       }
-    }
+    );
   }
 
   void fillActiveEffects(std::vector<TransientEffect>& result) const {
@@ -933,126 +842,6 @@ struct TransientTracerStore {
   }
 
 };
-
-struct LocalTracerAim {
-  std::uint32_t sequence = 0;
-  float yawRadians = 0.0F;
-  float pitchRadians = 0.0F;
-  bool active = false;
-};
-
-struct LocalTracerAimHistory {
-  std::array<LocalTracerAim, kLocalTracerAimHistorySize> entries = {};
-  std::size_t next = 0;
-
-  void remember(const UserCommand& command) {
-    entries[next] = {
-      command.sequence,
-      command.viewYawRadians,
-      command.viewPitchRadians,
-      true,
-    };
-    next = (next + 1U) % entries.size();
-  }
-
-  [[nodiscard]] bool find(
-    std::uint32_t sequence,
-    float& yawRadians,
-    float& pitchRadians
-  ) const {
-    for (const LocalTracerAim& entry : entries) {
-      if (entry.active && entry.sequence == sequence) {
-        yawRadians = entry.yawRadians;
-        pitchRadians = entry.pitchRadians;
-        return true;
-      }
-    }
-    return false;
-  }
-};
-
-[[nodiscard]] RenderColor tracerColor(Weapon weapon, std::uint32_t seed) {
-  const std::uint8_t variation =
-    static_cast<std::uint8_t>((seed * 17U + 31U) & 23U);
-  if (weapon == Weapon::Shotgun) {
-    return {
-      static_cast<std::uint8_t>(218U + variation),
-      static_cast<std::uint8_t>(166U + variation),
-      92,
-      150,
-    };
-  }
-  return {
-    255,
-    static_cast<std::uint8_t>(210U + variation),
-    118,
-    185,
-  };
-}
-
-[[nodiscard]] float localTracerVisualRange(const WeaponFireResult& fire) {
-  const float fireDistance = length(fire.end - fire.start);
-  if (std::isfinite(fireDistance) && fireDistance > 0.001F) {
-    // Server cameraForward endpoints can rebuild a fraction short after client normalization.
-    return fireDistance + 0.001F;
-  }
-  return fire.weapon == Weapon::Shotgun ? 18.0F : 100.0F;
-}
-
-[[nodiscard]] WeaponFireResult localPerspectiveTracerFire(
-  const Arena& arena,
-  const WeaponFireResult& fire,
-  Vec3 visualStart,
-  const PlayerState& localPlayer,
-  const LocalTracerAimHistory& localAimHistory
-) {
-  float yawRadians = localPlayer.viewYawRadians;
-  float pitchRadians = localPlayer.viewPitchRadians;
-  (void)localAimHistory.find(fire.visualSeed, yawRadians, pitchRadians);
-
-  WeaponFireResult visualFire = fire;
-  const Vec3 direction = cameraForward(yawRadians, pitchRadians);
-  const WorldTrace trace =
-    traceWorld(arena, fire.start, direction, localTracerVisualRange(fire));
-  visualFire.start = visualStart;
-  visualFire.end = trace.end;
-  return visualFire;
-}
-
-void spawnMachineGunTracer(
-  TransientTracerStore& store,
-  const WeaponFireResult& fire,
-  Vec3 visualStart,
-  std::uint8_t playerIndex
-) {
-  const Vec3 direction = normalize(fire.end - fire.start);
-  if (length(direction) <= 0.0001F) {
-    return;
-  }
-  const float width = 0.010F + static_cast<float>(fire.visualSeed & 3U) * 0.0015F;
-  store.add({
-    visualStart + direction * 0.22F,
-    fire.end,
-    0.0F,
-    0.036F,
-    width,
-    tracerColor(Weapon::MachineGun, fire.visualSeed),
-    fire.visualSeed,
-    TracerStyle::MachineGun,
-  }, false, Weapon::MachineGun, fire.visualSeed, playerIndex);
-  // The flash shares the tracer's deduplicated fire event and muzzle-follow
-  // metadata, so it cannot repeat when the same snapshot is rendered twice.
-  store.add({
-    visualStart,
-    visualStart + direction * 0.16F,
-    0.0F,
-    kMachineGunMuzzleFlashDurationSeconds,
-    0.045F,
-    {255, 188, 76, 235},
-    fire.visualSeed,
-    TracerStyle::MachineGunMuzzleFlash,
-  }, true, Weapon::MachineGun, fire.visualSeed, playerIndex);
-}
 
 [[nodiscard]] Vec3 rocketLauncherMuzzleSource(
   const WeaponFireResult& fire,
@@ -1347,10 +1136,14 @@ void consumeTracerWeaponFires(
           )
         : fire;
       if (effectsTuning.quality > 0) {
-        spawnMachineGunTracer(
-          store,
-          visualFire,
-          visualStart,
+        const CapturedMachineGunTracerPresentation tracerPresentation =
+          captureMachineGunTracerPresentation(
+            visualFire,
+            visualStart
+          );
+        store.addCapturedMachineGunPresentation(
+          tracerPresentation,
+          fire.visualSeed,
           eventPlayer
         );
         const Vec3 shotDirection = normalize(visualFire.end - visualFire.start);
@@ -6867,7 +6660,7 @@ int GameApp::run() const {
   LocalTracerAimHistory localTracerAimHistory;
   std::vector<TransientTracer> activeTransientTracers;
   std::vector<TransientEffect> activeTransientEffects;
-  activeTransientTracers.reserve(kMaxTransientTracers);
+  activeTransientTracers.reserve(TransientTracerPool::kCapacity);
   activeTransientEffects.reserve(
     kMaxTransientEffects +
     CombatEffects::kLightCapacity +
