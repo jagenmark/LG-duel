@@ -892,7 +892,8 @@ int main() {
     lg::AimScenario builtIn = lg::AimTrainerStore::builtInPresets()[0];
     builtIn.durationTicks = 321U;
     const lg::AimTrainerStoreReply overrideReply = store.savePreset(builtIn, true);
-    const lg::AimScenario* override = presetNamed(store.loadPresets().presets, builtIn.name);
+    const lg::AimTrainerPresetList overridden = store.loadPresets();
+    const lg::AimScenario* override = presetNamed(overridden.presets, builtIn.name);
     failures += expect(
       overrideReply.ok && !overrideReply.warning.empty() && override != nullptr &&
       override->durationTicks == 321U,
