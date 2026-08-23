@@ -2563,6 +2563,16 @@ int main() {
       "a selected sky should omit the five fallback boundary surfaces"
     );
 
+    lg::Arena emptyAuthoredSkyArena;
+    emptyAuthoredSkyArena.renderDefaultFloor = false;
+    emptyAuthoredSkyArena.skyId = lg::SkyId::Aurora;
+    const lg::Scene3D emptyAuthoredSkyScene =
+      lg::buildStaticWorldScene(emptyAuthoredSkyArena);
+    failures += expect(
+      emptyAuthoredSkyScene.vertices.empty(),
+      "normal world rendering should not emit the arena bounds debug box"
+    );
+
     skyArena.wallCount = 1;
     skyArena.walls[0].min = {0.0F, 0.0F, 0.0F};
     skyArena.walls[0].max = {1.0F, 1.0F, 1.0F};

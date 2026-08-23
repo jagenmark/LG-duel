@@ -2247,7 +2247,19 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   }
   ArenaLoadResult result = loadArenaFromText(arenaText.str());
   if (result.ok) {
-    result.arena.renderDefaultFloor = !sourceBoundImport;
+    const auto hasRenderableGeometry = [](const auto& geometry) {
+      return std::any_of(
+        geometry.begin(),
+        geometry.end(),
+        [](const auto& solid) { return solid.renderable; }
+      );
+    };
+    result.arena.renderDefaultFloor = !sourceBoundImport && !(
+      hasRenderableGeometry(walls) ||
+      hasRenderableGeometry(brushes) ||
+      hasRenderableGeometry(visualWalls) ||
+      hasRenderableGeometry(visualBrushes)
+    );
     if (brushes.size() > Arena::kBrushCount) {
       return {{}, false, "map has too many convex brushes"};
     }

@@ -7076,7 +7076,6 @@ Scene3D buildStaticWorldScene(
   if (arena.skyId == SkyId::None) {
     addArenaBoundaryWalls(scene, arena, activeAmbientBaker, ambientDebugByte);
   }
-  addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     if (!arena.walls[index].renderable) {

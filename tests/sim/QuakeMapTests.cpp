@@ -130,6 +130,43 @@ int main() {
   }
 
   {
+    const lg::ArenaLoadResult authoredWorld = lg::loadArenaFromMapText(
+      basicMap(cuboidBrush(-80, -80, -8, 80, 80, 0, "stone"))
+    );
+    failures += expect(
+      authoredWorld.ok && !authoredWorld.arena.renderDefaultFloor,
+      "authored render geometry should suppress the legacy z=0 floor"
+    );
+
+    const lg::ArenaLoadResult collisionOnlyWorld = lg::loadArenaFromMapText(
+      basicMap(cuboidBrush(-80, -80, -8, 80, 80, 0, "common/playerclip"))
+    );
+    failures += expect(
+      collisionOnlyWorld.ok && collisionOnlyWorld.arena.renderDefaultFloor,
+      "a collision-only legacy map should retain the fallback floor"
+    );
+
+    std::string sourceBoundCollisionOnlyText = basicMap(
+      cuboidBrush(-80, -80, -8, 80, 80, 0, "common/playerclip")
+    );
+    const std::string worldClass = "\"classname\" \"worldspawn\"\n";
+    sourceBoundCollisionOnlyText.insert(
+      sourceBoundCollisionOnlyText.find(worldClass) + worldClass.size(),
+      "\"lg_source_bsp_sha256\" "
+      "\"0000000000000000000000000000000000000000000000000000000000000000\"\n"
+      "\"lg_raw_decompile_sha256\" "
+      "\"1111111111111111111111111111111111111111111111111111111111111111\"\n"
+    );
+    const lg::ArenaLoadResult sourceBoundCollisionOnlyWorld =
+      lg::loadArenaFromMapText(sourceBoundCollisionOnlyText);
+    failures += expect(
+      sourceBoundCollisionOnlyWorld.ok &&
+        !sourceBoundCollisionOnlyWorld.arena.renderDefaultFloor,
+      "source-bound collision-only maps should suppress the fallback floor"
+    );
+  }
+
+  {
     const lg::MapParseResult result =
       lg::parseMapDocument(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1, "common/playerclip")));
     failures += expect(result.ok, "parser should read playerclip brush materials");
