@@ -1,5 +1,7 @@
 #include "server/ServerGame.hpp"
 
+#include "sim/WeaponRuntime.hpp"
+
 #include "net/NetCodec.hpp"
 #include "replay/ReplayCodec.hpp"
 #include "shared/Sequence.hpp"
@@ -26,6 +28,17 @@
 
 namespace lg {
 namespace {
+
+[[nodiscard]] WeaponRuntimeSwitchingMode runtimeSwitchingMode(
+  WeaponSwitchingMode mode
+) {
+  switch (mode) {
+  case WeaponSwitchingMode::Ql: return WeaponRuntimeSwitchingMode::Ql;
+  case WeaponSwitchingMode::Cpma: return WeaponRuntimeSwitchingMode::Cpma;
+  case WeaponSwitchingMode::Crazy: return WeaponRuntimeSwitchingMode::Crazy;
+  }
+  return WeaponRuntimeSwitchingMode::Crazy;
+}
 
 constexpr std::uint32_t kMaxLagCompensationTicks = 25;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
@@ -694,41 +707,13 @@ void ServerGame::tick(float fixedDt) {
   snapshot_.damageTakenEvents = {};
   // Event fields describe occurrences, not durable state. They are rebuilt for
   // this tick and restored near publication only for packet-loss tolerance.
-  for (std::uint32_t& cooldown : railgunCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : revolverCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : machineGunCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : shotgunCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : rocketCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : grenadeCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
-  for (std::uint32_t& cooldown : plasmaGunCooldownTicks_) {
-    if (cooldown > 0) {
-      --cooldown;
-    }
-  }
+  advanceWeaponRuntimeCooldowns(railgunCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(revolverCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(machineGunCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(shotgunCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(rocketCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(grenadeCooldownTicks_);
+  advanceWeaponRuntimeCooldowns(plasmaGunCooldownTicks_);
   for (std::uint32_t& pullout : weaponPulloutTicks_) {
     if (pullout > 0) {
       --pullout;
@@ -3780,8 +3765,10 @@ std::uint32_t ServerGame::weaponCooldownTicks(
 }
 
 bool ServerGame::canSwitchWeapon(std::size_t playerIndex) const {
-  return weaponSwitchingMode_ == WeaponSwitchingMode::Crazy ||
-    weaponCooldownTicks(playerIndex, selectedWeapons_[playerIndex]) == 0;
+  return canSwitchWeaponRuntime(
+    runtimeSwitchingMode(weaponSwitchingMode_),
+    weaponCooldownTicks(playerIndex, selectedWeapons_[playerIndex])
+  );
 }
 
 bool ServerGame::canFireSelectedWeapon(std::size_t playerIndex) const {
@@ -3792,8 +3779,9 @@ bool ServerGame::canFireSelectedWeapon(std::size_t playerIndex) const {
 }
 
 bool ServerGame::hasAmmoForWeapon(std::size_t playerIndex, Weapon weapon) const {
-  return weaponAmmoConfig_.infiniteAmmo ||
-    playerAmmo_[playerIndex][weaponIndex(weapon)] > 0;
+  return hasWeaponRuntimeAmmo(
+    playerAmmo_[playerIndex], weapon, weaponAmmoConfig_.infiniteAmmo
+  );
 }
 
 void ServerGame::refillAmmo(std::size_t playerIndex) {
@@ -3805,14 +3793,10 @@ void ServerGame::refillAmmo(std::size_t playerIndex) {
 }
 
 bool ServerGame::consumeAmmo(std::size_t playerIndex, Weapon weapon) {
-  if (weaponAmmoConfig_.infiniteAmmo) {
-    return true;
-  }
-  std::int32_t& ammo = playerAmmo_[playerIndex][weaponIndex(weapon)];
-  if (ammo <= 0) {
-    return false;
-  }
-  --ammo;
+  const bool consumed = consumeWeaponRuntimeAmmo(
+    playerAmmo_[playerIndex], weapon, weaponAmmoConfig_.infiniteAmmo
+  );
+  if (!consumed) return false;
   snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
   return true;
 }

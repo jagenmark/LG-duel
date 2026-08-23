@@ -82,6 +82,10 @@ add_library(lg_duel_core
   src/sim/Movement.cpp
   src/sim/MapRegistry.cpp
   src/sim/WeaponCatalog.cpp
+  src/sim/WeaponRuntime.cpp
+  src/trainer/AimTrainer.cpp
+  src/trainer/AimTrainerMenu.cpp
+  src/trainer/AimTrainerStore.cpp
 )
 
 target_include_directories(lg_duel_core
@@ -97,6 +101,7 @@ if(WIN32)
 endif()
 
 add_library(lg_duel_client_app
+  src/app/AimTrainerApp.cpp
   src/app/AudioAssets.cpp
   src/app/ClientAudio.cpp
   src/app/ClientCvars.cpp

@@ -1,4 +1,5 @@
 #include "app/GameApp.hpp"
+#include "app/AimTrainerApp.hpp"
 
 #include <charconv>
 #include <exception>
@@ -27,6 +28,7 @@ int main(int argc, char** argv) {
   std::uint16_t port = 27960;
   lg::DeveloperControlOptions developerControl;
   lg::BenchmarkOptions benchmark;
+  bool aimTrainer = false;
   int positional = 0;
   for (int index = 1; index < argc; ++index) {
     const std::string_view argument = argv[index];
@@ -37,6 +39,10 @@ int main(int argc, char** argv) {
     if (argument == "--benchmark") {
       benchmark.enabled = true;
       developerControl.enabled = true;
+      continue;
+    }
+    if (argument == "--aim-trainer") {
+      aimTrainer = true;
       continue;
     }
     if (argument == "--control-port") {
@@ -50,7 +56,7 @@ int main(int argc, char** argv) {
     if (argument == "--help" || argument == "-h") {
       std::cout
         << "Usage: lg_duel_client [server-host] [server-port] "
-           "[--dev-control] [--benchmark] [--control-port port]\n";
+           "[--aim-trainer] [--dev-control] [--benchmark] [--control-port port]\n";
       return 0;
     }
     if (argument.starts_with("--")) {
@@ -72,6 +78,14 @@ int main(int argc, char** argv) {
   }
 
   try {
+    if (aimTrainer) {
+      if (positional != 0 || developerControl.enabled || benchmark.enabled) {
+        std::cerr << "--aim-trainer cannot be combined with network or developer options\n";
+        return 1;
+      }
+      const lg::AimTrainerApp app;
+      return app.run();
+    }
     const lg::GameApp app(std::string(host), port, developerControl, benchmark);
     return app.run();
   } catch (const std::bad_alloc& exception) {
