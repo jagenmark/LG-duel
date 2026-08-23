@@ -152,7 +152,45 @@ int main() {
     failures += expect(
       transport.receiveCommand(secondPress) &&
         secondPress.actionEdges.attack == 2U,
-      "a later attack press should advance the cumulative edge"
+        "a later attack press should advance the cumulative edge"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::ServerSnapshot snapshot;
+    snapshot.serverTick = 10U;
+    snapshot.players[0] = groundedPlayer();
+    queueSnapshot(transport, snapshot);
+    client.receiveSnapshots();
+
+    lg::UserCommand command;
+    command.sequence = 1U;
+    command.forwardMove = 1.0F;
+    client.sendCommand(command, false);
+    lg::CommandPacket predictedCommand;
+    (void)transport.receiveCommand(predictedCommand);
+    const lg::PlayerState beforeKeepalive = client.predictedPlayer();
+    const std::size_t pendingBefore =
+      client.predictionDiagnostics().pendingCommandCount;
+
+    client.sendKeepalive(2U);
+    lg::CommandPacket keepalive;
+    failures += expect(
+      !transport.receiveCommand(keepalive),
+      "replay keepalive must not enter the authoritative command stream"
+    );
+    const lg::PlayerState afterKeepalive = client.predictedPlayer();
+    failures += expect(
+      afterKeepalive.position.x == beforeKeepalive.position.x &&
+        afterKeepalive.position.y == beforeKeepalive.position.y &&
+        afterKeepalive.position.z == beforeKeepalive.position.z &&
+        afterKeepalive.velocity.x == beforeKeepalive.velocity.x &&
+        afterKeepalive.velocity.y == beforeKeepalive.velocity.y &&
+        afterKeepalive.velocity.z == beforeKeepalive.velocity.z &&
+        client.predictionDiagnostics().pendingCommandCount == pendingBefore,
+      "keepalive should not change live prediction state"
     );
   }
 

@@ -29,6 +29,8 @@ lg::replay::ReplayDemo sampleDemo() {
   demo.metadata.mapContentHash = 1U;
   demo.metadata.gameMode = lg::GameMode::Duel;
   demo.metadata.visibility = lg::replay::ReplayVisibility::DuelOnly;
+  demo.metadata.gameplayConfigHash =
+    lg::replay::canonicalGameplayConfigHash(demo.metadata.gameplayConfig);
   for (std::size_t index = 0U; index < demo.metadata.players.size(); ++index) {
     demo.metadata.players[index].slot = static_cast<std::uint8_t>(index);
   }
@@ -39,6 +41,7 @@ lg::replay::ReplayDemo sampleDemo() {
   checkpoint.serverTick = 7U;
   checkpoint.mapRevision = 1U;
   checkpoint.projectileRevision = 1U;
+  checkpoint.gameplayConfigHash = demo.metadata.gameplayConfigHash;
   checkpoint.spawnRandomState = 1U;
   checkpoint.match.gameMode = lg::GameMode::Duel;
   checkpoint.history.push_back({checkpoint.serverTick, {}});

@@ -583,11 +583,6 @@ void addLayeredFreezeBeam2D(
   float scale,
   const RenderSettings& settings
 ) {
-  const float dx = end.x - start.x;
-  const float dy = end.y - start.y;
-  const float beamLength = std::max(1.0F, std::sqrt(dx * dx + dy * dy));
-  const float normalX = -dy / beamLength;
-  const float normalY = dx / beamLength;
   const float active = std::clamp(settings.freezeGunFiringAmount, 0.0F, 1.0F);
   const float flash = std::clamp(
     settings.freezeGunActivationFlashAmount,
@@ -596,26 +591,8 @@ void addLayeredFreezeBeam2D(
   );
 
   addLine(drawList, start, end, {82, 203, 255, 42}, settings.beamWidth * 5.2F);
-  constexpr int kSegments = 18;
-  for (int strand = 0; strand < 2; ++strand) {
-    ScreenPoint previous = start;
-    for (int index = 1; index <= kSegments; ++index) {
-      const float t = static_cast<float>(index) / static_cast<float>(kSegments);
-      const float envelope = std::sin(t * 3.14159265359F);
-      const float phase = settings.beamPhaseRadians * 0.38F +
-        static_cast<float>(index) * 1.19F +
-        static_cast<float>(strand) * 3.14159265359F;
-      const float offset = std::sin(phase) * 5.0F * scale * envelope;
-      const ScreenPoint current = {
-        start.x + dx * t + normalX * offset,
-        start.y + dy * t + normalY * offset,
-      };
-      addLine(drawList, previous, current, {132, 229, 255, 86}, 1.35F * scale);
-      previous = current;
-    }
-  }
-  // This core never receives procedural displacement: it is the aim-readable
-  // representation of the authoritative trace.
+  // Keep the local beam aim-readable: every line follows the same current
+  // muzzle-to-crosshair axis. The puffs below provide the moving detail.
   addLine(drawList, start, end, {238, 253, 255, 245}, std::max(1.4F, settings.beamWidth * 0.72F));
   addFreezeBeamPuffs(drawList, start, end, scale, settings.beamPhaseRadians);
 
@@ -625,21 +602,6 @@ void addLayeredFreezeBeam2D(
     255,
     static_cast<std::uint8_t>(105.0F + flash * 105.0F),
   });
-  for (int index = 0; index < 7; ++index) {
-    const float phase = settings.beamPhaseRadians * 0.16F +
-      static_cast<float>(index) * 2.07F;
-    const float backward = (13.0F + static_cast<float>(index) * 7.0F) * scale;
-    const float sideways = std::sin(phase) * (18.0F + index * 2.0F) * scale;
-    addDiamond(
-      drawList,
-      {
-        start.x - dx / beamLength * backward + normalX * sideways,
-        start.y - dy / beamLength * backward + normalY * sideways,
-      },
-      (2.5F + static_cast<float>(index % 3)) * scale,
-      {218, 248, 255, static_cast<std::uint8_t>(24 + index * 5)}
-    );
-  }
 }
 
 void addText(
@@ -3442,6 +3404,39 @@ void addHud(
     }
   }
 
+  if (hud.killcam.active) {
+    const float panelWidth = std::min(
+      620.0F,
+      std::max(260.0F, static_cast<float>(width) - 24.0F)
+    );
+    const float panelHeight = 126.0F;
+    const float panelX = (static_cast<float>(width) - panelWidth) * 0.5F;
+    constexpr float panelY = 34.0F;
+    addRect(drawList, panelX, panelY, panelWidth, panelHeight, {7, 11, 17, 232});
+    addOutline(drawList, panelX, panelY, panelWidth, panelHeight,
+               {235, 90, 70, 245});
+    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 8.0F,
+            "KILLCAM", {255, 225, 190, 255}, 2.6F,
+            TextHorizontalAlignment::Center);
+    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 38.0F,
+            "KILLED BY " + hud.killcam.killer + " - " + hud.killcam.weapon,
+            {235, 242, 250, 255}, 1.75F, TextHorizontalAlignment::Center);
+    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 59.0F,
+            hud.killcam.cause, {225, 195, 170, 245}, 1.5F,
+            TextHorizontalAlignment::Center);
+    constexpr float barXPadding = 28.0F;
+    constexpr float barY = panelY + 83.0F;
+    const float barWidth = panelWidth - barXPadding * 2.0F;
+    addRect(drawList, panelX + barXPadding, barY, barWidth, 8.0F,
+            {35, 39, 48, 255});
+    addRect(drawList, panelX + barXPadding, barY,
+            barWidth * std::clamp(hud.killcam.progress, 0.0F, 1.0F), 8.0F,
+            {235, 90, 70, 255});
+    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 98.0F,
+            hud.killcam.prompt, {255, 240, 220, 255}, 1.35F,
+            TextHorizontalAlignment::Center);
+  }
+
   float y = 12.0F;
   for (const std::string& line : hud.topLeftLines) {
     addText(drawList, 12.0F, y, line, defaultText, textScale);
@@ -4236,7 +4231,7 @@ DrawList2D buildPerspectiveWeaponOverlay(
   Weapon previousWeapon,
   float weaponSwitchProgress,
   const RenderSettings& settings,
-  ScreenPoint freezeGunMuzzle
+  ScreenPoint beamMuzzle
 ) {
   DrawList2D drawList;
   const float hitAmount = std::clamp(settings.beamHitAmount, 0.0F, 1.0F);
@@ -4299,8 +4294,8 @@ DrawList2D buildPerspectiveWeaponOverlay(
   const float muzzleY = height - 154.0F * scale;
   if (localLightningGun.active) {
     if (freezeGunSelected) {
-      const ScreenPoint start = freezeGunMuzzle.x >= 0.0F
-        ? freezeGunMuzzle
+      const ScreenPoint start = beamMuzzle.x >= 0.0F
+        ? beamMuzzle
         : ScreenPoint{weaponCenterX, height * 1.15F};
       addLayeredFreezeBeam2D(
         drawList,
@@ -4310,9 +4305,12 @@ DrawList2D buildPerspectiveWeaponOverlay(
         settings
       );
     } else {
+      const ScreenPoint start = beamMuzzle.x >= 0.0F
+        ? beamMuzzle
+        : ScreenPoint{weaponCenterX, height * 1.15F};
       addLine(
         drawList,
-        {weaponCenterX, height * 1.15F},
+        start,
         {centerX, height * 0.5F},
         animatedColor,
         settings.beamWidth * (1.0F + pulse * 0.04F)

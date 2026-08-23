@@ -1,6 +1,7 @@
 #pragma once
 
 #include "net/NetProtocol.hpp"
+#include "replay/ReplayTransfer.hpp"
 
 #include <array>
 #include <cstddef>
@@ -72,6 +73,10 @@ public:
   }
   virtual void publishChatHistory(const ChatHistory&) {}
   [[nodiscard]] virtual bool receiveChatHistory(ChatHistoryChunk&) { return false; }
+  virtual bool sendReplayTransferMessage(
+      const replay::ReplayTransferMessage&) { return false; }
+  [[nodiscard]] virtual bool receiveReplayTransferMessage(
+      replay::ReplayTransferMessage&) { return false; }
   [[nodiscard]] virtual SnapshotDiagnostics snapshotDiagnostics() const {
     return {};
   }

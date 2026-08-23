@@ -68,6 +68,7 @@ constexpr float kSniperRifleViewModelHeightScale = 1.15F;
 constexpr float kRocketLauncherViewModelForwardOffset = -0.16F;
 constexpr float kRocketLauncherViewModelUpOffset = -0.15F;
 constexpr Vec3 kGrenadeLauncherMuzzleSocket = {0.805F, 0.0F, 0.09F};
+constexpr Vec3 kLightningGunMuzzleSocket = {1.00F, 0.0F, 0.105F};
 constexpr int kPlayerContactShadowSegments = 16;
 constexpr std::size_t kPlayerContactShadowVerticesPerPlayer =
   static_cast<std::size_t>(kPlayerContactShadowSegments) * 3U;
@@ -3492,7 +3493,12 @@ void addWireBox(
   switch (weapon) {
   case Weapon::LightningGun:
   case Weapon::FreezeGun:
-    return weaponLocalPoint(frame, 1.00F, 0.0F, 0.105F);
+    return weaponLocalPoint(
+      frame,
+      kLightningGunMuzzleSocket.x,
+      kLightningGunMuzzleSocket.y,
+      kLightningGunMuzzleSocket.z
+    );
   case Weapon::Railgun:
     return weaponLocalPoint(
       frame,
@@ -4383,6 +4389,10 @@ Vec3 machineGunBarrelPivot() {
   return kMachineGunBarrelPivot;
 }
 
+Vec3 lightningGunMuzzleSocket() {
+  return kLightningGunMuzzleSocket;
+}
+
 Vec3 machineGunMuzzleSocket() {
   return kMachineGunMuzzleSocket;
 }
@@ -4472,7 +4482,13 @@ namespace {
     settings.weaponPosition,
     settings.viewModelPresentation
   );
-  return weaponLocalPoint(frame, 1.00F, 0.0F, 0.105F);
+  // The Lightning Gun static mesh uses this authored emitter point.
+  return weaponLocalPoint(
+    frame,
+    kLightningGunMuzzleSocket.x,
+    kLightningGunMuzzleSocket.y,
+    kLightningGunMuzzleSocket.z
+  );
 }
 
 } // namespace
@@ -4672,6 +4688,34 @@ Vec3 firstPersonFreezeGunMuzzlePosition(
   viewModelPlayer.position.z += cameraVerticalOffset;
   viewModelPlayer.position += viewModelCameraMotion(player, settings);
   return freezeGunMuzzlePositionForViewModelPlayer(viewModelPlayer, settings);
+}
+
+Vec3 firstPersonLightningGunMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings,
+  float cameraVerticalOffset
+) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position.z += cameraVerticalOffset;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  return lightningGunMuzzlePositionForViewModelPlayer(viewModelPlayer, settings);
+}
+
+PerspectiveCamera firstPersonBeamProjectionCamera(
+  const PerspectiveCamera& sceneCamera,
+  Weapon weapon,
+  const RenderSettings& settings
+) {
+  PerspectiveCamera projectionCamera = sceneCamera;
+  if (weapon != Weapon::FreezeGun) {
+    return projectionCamera;
+  }
+  constexpr float kPi = 3.14159265359F;
+  const float viewModelFov = std::max(50.0F, settings.fieldOfView - 10.0F);
+  projectionCamera.focalLength = 1.0F / std::tan(
+    viewModelFov * (kPi / 180.0F) * 0.5F
+  );
+  return projectionCamera;
 }
 
 const BillboardAsset* billboardAsset(BillboardHandle handle) {
@@ -7024,43 +7068,6 @@ Scene3D buildPerspectiveScene(
         );
       }
     }
-  }
-  if (
-    localLightningGun.active &&
-    settings.showOwnWeapons &&
-    settings.localSelectedWeapon == Weapon::FreezeGun &&
-    settings.freezeGunFiringAmount > 0.001F
-  ) {
-    addLayeredFreezeBeam(
-      scene,
-      freezeGunMuzzlePositionForViewModelPlayer(viewModelPlayer, settings),
-      localLightningGun.end,
-      settings.beamPhaseRadians,
-      settings.freezeGunFiringAmount,
-      settings.freezeGunActivationFlashAmount
-    );
-  } else if (
-    localLightningGun.active &&
-    settings.showOwnWeapons &&
-    settings.localSelectedWeapon == Weapon::LightningGun
-  ) {
-    const float pulse = std::clamp(settings.beamPulse, -1.0F, 1.0F);
-    const float brightness = 1.0F + pulse * 0.05F;
-    const float hitAmount = std::clamp(settings.beamHitAmount, 0.0F, 1.0F);
-    addSegment(
-      scene,
-      lightningGunMuzzlePositionForViewModelPlayer(viewModelPlayer, settings),
-      localLightningGun.end,
-      std::max(0.015F, settings.beamWidth * (1.0F + pulse * 0.04F) * 0.012F),
-      scaleColor({
-        blendChannel(settings.beamRed, settings.beamHitRed, hitAmount),
-        blendChannel(settings.beamGreen, settings.beamHitGreen, hitAmount),
-        blendChannel(settings.beamBlue, settings.beamHitBlue, hitAmount),
-        static_cast<std::uint8_t>(
-          std::clamp(settings.beamAlpha, 0.0F, 1.0F) * 255.0F
-        ),
-      }, brightness)
-    );
   }
   addTransientTracerInstances(scene, transientTracers, settings);
   addTransientEffectInstances(scene, transientEffects, settings);

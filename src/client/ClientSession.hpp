@@ -2,6 +2,7 @@
 
 #include "client/ClientGame.hpp"
 #include "net/UdpTransport.hpp"
+#include "replay/ReplayTransfer.hpp"
 
 #include <cstdint>
 #include <chrono>
@@ -26,6 +27,10 @@ public:
   bool reconnect();
   void update();
   void setNetworkSimulationConfig(const ClientNetworkSimulationConfig& config);
+  [[nodiscard]] bool sendReplayTransferMessage(
+      const replay::ReplayTransferMessage& message);
+  [[nodiscard]] bool receiveReplayTransferMessage(
+      replay::ReplayTransferMessage& message);
 
   void sendCommand(
     const UserCommand& command,
@@ -64,12 +69,17 @@ public:
     bool wantsScoreboardStats = false,
     bool requestSpectator = false
   );
+  void sendKeepalive(
+    std::uint32_t sequence,
+    bool usePresentedServerTick = true
+  );
 
   [[nodiscard]] ClientConnectionState state() const;
   [[nodiscard]] bool connected() const;
   [[nodiscard]] bool readyForPlay() const;
   [[nodiscard]] std::size_t playerIndex() const;
   [[nodiscard]] std::size_t clientIndex() const;
+  [[nodiscard]] std::uint32_t sessionId() const;
   [[nodiscard]] bool spectator() const;
   [[nodiscard]] float pingMilliseconds() const;
   [[nodiscard]] ClientNetworkSimulationStats networkSimulationStats() const;

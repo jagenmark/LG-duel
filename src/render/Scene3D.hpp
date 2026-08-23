@@ -1092,6 +1092,7 @@ void appendCollisionDebugGeometry(
 [[nodiscard]] const MaterialMeshAsset* materialMeshAsset(MeshHandle handle);
 [[nodiscard]] MeshHandle remoteWeaponMeshHandle(Weapon weapon);
 [[nodiscard]] Vec3 machineGunBarrelPivot();
+[[nodiscard]] Vec3 lightningGunMuzzleSocket();
 [[nodiscard]] Vec3 machineGunMuzzleSocket();
 [[nodiscard]] Vec3 machineGunCasingEjectSocket();
 [[nodiscard]] Vec3 firstPersonMachineGunMuzzlePosition(
@@ -1124,6 +1125,16 @@ void appendCollisionDebugGeometry(
 );
 [[nodiscard]] Vec3 remoteRocketLauncherMuzzlePosition(
   const RemotePlayerView& remote,
+  const RenderSettings& settings
+);
+[[nodiscard]] Vec3 firstPersonLightningGunMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings,
+  float cameraVerticalOffset = 0.0F
+);
+[[nodiscard]] PerspectiveCamera firstPersonBeamProjectionCamera(
+  const PerspectiveCamera& sceneCamera,
+  Weapon weapon,
   const RenderSettings& settings
 );
 [[nodiscard]] Vec3 firstPersonFreezeGunMuzzlePosition(

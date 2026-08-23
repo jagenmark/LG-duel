@@ -61,7 +61,7 @@ struct McGuffinNavigationProjection {
   Weapon previousWeapon,
   float weaponSwitchProgress,
   const RenderSettings& settings,
-  ScreenPoint freezeGunMuzzle = {-1.0F, -1.0F}
+  ScreenPoint beamMuzzle = {-1.0F, -1.0F}
 );
 
 } // namespace lg

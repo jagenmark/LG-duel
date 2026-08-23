@@ -19,17 +19,29 @@ match, roster, map, and rule changes -------------------------+
                                            |                    |
                                            |                    +-> verifier
                                            v
-                                 playback runner -> replay-only client state
+                                 playback runner -> replay-only ServerGame
                                                         |
-                                               cameras, HUD, audio, effects
+                                             ReplayRuntime frame source
+                                                        |
+                                      normal renderer, HUD, audio, effects
 
 lethal marker -> rolling-buffer segment extraction -> the same playback runner
 ```
 
-The core now implements the resolved-input, `ReplayDemo`, codec, checkpoint,
-headless runner, rolling archive, lethal-segment extraction, transfer state,
-file helpers, and presentation-session state. The remaining app work is a disk
-job and controls, live transport hookup, and renderer/audio/HUD hookup.
+PR-C remote path:
+
+```text
+lethal marker -> post-tick coordinator -> bounded encode worker
+       -> authenticated UDP ReplayTransfer -> client receiver
+       -> client ReplayIoService decode -> ReplayRuntime presentation source
+```
+
+The core and local app now implement the resolved-input, `ReplayDemo`, codec,
+checkpoint, headless runner, rolling archive, lethal-segment extraction,
+transfer state, file helpers, presentation-session state, bounded I/O, and the
+replay-only runtime. PR-C adds the narrow remote Duel transfer path and the
+KILLCAM HUD overlay with killer, weapon, cause, progress, and skip prompt.
+Team visibility filtering and cinematic controls remain future work.
 
 The server records the final command after human acceptance and after bot
 generation, but before movement and combat consume it. It captures the completed
@@ -70,15 +82,16 @@ command and the data used with it:
 - slot/body connection changes, human-or-bot marker, name, team, ready state,
   spectator state, phase, rules, map, and configuration changes.
 
-The current v3 `ReplayTickInput` records only present slots. It keeps each
+The current v6 `ReplayTickInput` records only present slots. It keeps each
 present slot’s resolved command, `viewedServerTick`, consumed action edges,
 accepted jump/dash/attack/throw edges, and original attack edge command. An
-absent slot has no replay payload and must have default input state. It does not
-yet encode separate dynamic roster, name, team, ready, rule, map, or
-configuration-change records. Those records remain pending.
+absent slot has no replay payload and must have default input state. V6 carries
+dynamic roster, name, team, ready, mode, rule, reset, and configuration changes
+in explicit authority-boundary records.
 
-The replay decoder accepts only format v3. It rejects v1 and v2 before
-restoring any state.
+The replay decoder accepts only format v6. It rejects v1 through v5 before
+restoring any state and charges native decoded allocations against a fixed
+resident-memory budget before growing replay containers.
 
 During replay, both human and bot slots inject those recorded commands through
 the normal authoritative input path. Bot generation stays off. A bot marker may
@@ -127,7 +140,7 @@ restore without a partial rewind. During replay playback the server suppresses
 snapshot, projectile, and chat transport output; live recording still publishes
 its normal transport output.
 
-The rolling archive uses the same resolved inputs and completed checkpoints as
+The rolling archive uses the same resolved inputs, authority boundaries, and completed checkpoints as
 full recording. Its default retention is 1,500 ticks (12 seconds at 125 Hz),
 with a 16 MiB rolling-storage cap that charges native tick, checkpoint, and
 lag-history storage. It trims or stops before exceeding that cap. Segment
@@ -145,11 +158,21 @@ killcam-only state format.
 | Cameras, HUD, bob, sway, recoil, barrel spin, animation, audio, and viewmodels | Derived from replay state and replay clock | Rebuild or reset on seek, speed change, and followed-player change. |
 | Raw packets, retries, ACKs, UI state, renderer state, wall-clock time, bot plan/state | Never authoritative replay data | Do not store or feed them to playback. |
 
-The current playback runner is headless. A separate replay client session is
-still pending. When it lands, it must stay separate from live `ClientGame`
-state: live play keeps receiving snapshots, and replay state must not rewind the
-live world, replace its transport state, send replay commands as live commands,
-or write back into live client state.
+`ReplayRuntime` owns one replay `ServerGame`, one `ReplayPlaybackRunner`, one
+presentation session, and a null transport. `GameApp` owns a single
+presentation-source adapter that selects either the live `ClientGame` source or
+the replay frame source at a frame boundary. Replay commands never enter the
+live command send path; normal transport Ping/Pong traffic keeps the authenticated
+connection alive while replay presentation owns input. The replay source supplies
+the arena, snapshot, player
+poses, camera subject, projectiles, and event arrays used by the normal
+renderer, HUD, and effects code. It does not write to the live `ClientGame`.
+
+The runtime checks map identity and content hash before restore. `ServerGame`
+then checks protocol, simulation, build, gameplay config, checkpoint, player
+occupancy, and authority-boundary data. A divergence aborts the replay source.
+The runtime caps whole-tick catch-up per update; a large wall-clock pause does
+not run an unbounded loop in one frame.
 
 A replay can closely reconstruct a killer's first-person action from recorded
 view angles, weapon state, attacks, and authoritative outcomes. It does not
@@ -159,6 +182,9 @@ promise the exact pixels from the killer's locally predicted original frame.
 
 Map changes, map revisions, hard reset, and replay-generation changes clear the
 rolling record and end a matching replay or killcam. The archive rejects a
-segment that spans a generation or lacks a valid earlier checkpoint. No
-player-facing killcam currently invokes that abort path; future presentation
-must leave live play intact when it rejects data.
+segment that spans a generation or lacks a valid earlier checkpoint. The coordinator marks pending and active transfers for an explicit Cancel packet;
+the receiver still has an idle/overall timeout if that packet is lost. After a
+receiver assembles a transfer it retains a short completion tombstone, allowing
+a duplicate terminal chunk to recover a lost final ACK without pinning the
+server slot until timeout. The coordinator and client receiver invoke the same
+cleanup path and leave live play intact when they reject data.

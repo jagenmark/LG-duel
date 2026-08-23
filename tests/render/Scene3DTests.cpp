@@ -1,3 +1,4 @@
+#include "app/TracerPresentation.hpp"
 #include "render/GltfSkinnedModel.hpp"
 #include "render/PointLightResponse.hpp"
 #include "render/Scene3D.hpp"
@@ -365,14 +366,6 @@ float maxVertexX(const lg::Scene3D& scene) {
 float nearestTranslucentVertexDistance(const lg::Scene3D& scene, lg::Vec3 point) {
   float result = std::numeric_limits<float>::infinity();
   for (const lg::Vertex3D& vertex : scene.translucentVertices) {
-    result = std::min(result, lg::length(vertex.position - point));
-  }
-  return result;
-}
-
-float nearestSceneVertexDistance(const lg::Scene3D& scene, lg::Vec3 point) {
-  float result = nearestTranslucentVertexDistance(scene, point);
-  for (const lg::Vertex3D& vertex : scene.vertices) {
     result = std::min(result, lg::length(vertex.position - point));
   }
   return result;
@@ -1279,6 +1272,207 @@ int main() {
   const std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> weaponFires = {};
   const std::array<lg::RocketExplosionResult, lg::kDuelPlayerCount> rocketExplosions = {};
   const std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> rockets = {};
+
+  {
+    lg::RenderSettings beamProjectionSettings = settings;
+    beamProjectionSettings.fieldOfView = 90.0F;
+    const lg::PerspectiveCamera sceneCamera = lg::makePerspectiveCamera(
+      {0.0F, 0.0F, 0.65F},
+      0.0F,
+      0.0F,
+      beamProjectionSettings.fieldOfView,
+      16.0F / 9.0F
+    );
+    const lg::PerspectiveCamera lightningCamera =
+      lg::firstPersonBeamProjectionCamera(
+        sceneCamera,
+        lg::Weapon::LightningGun,
+        beamProjectionSettings
+      );
+    const lg::PerspectiveCamera freezeCamera =
+      lg::firstPersonBeamProjectionCamera(
+        sceneCamera,
+        lg::Weapon::FreezeGun,
+        beamProjectionSettings
+      );
+    const lg::PerspectiveCamera narrowFreezeCamera = lg::makePerspectiveCamera(
+      {0.0F, 0.0F, 0.65F},
+      0.0F,
+      0.0F,
+      80.0F,
+      16.0F / 9.0F
+    );
+    failures += expect(
+      std::fabs(lightningCamera.focalLength - sceneCamera.focalLength) < 0.0001F &&
+        std::fabs(freezeCamera.focalLength - narrowFreezeCamera.focalLength) <
+          0.0001F,
+      "Lightning socket projection should keep scene FOV while Freeze uses viewmodel FOV"
+    );
+  }
+
+  {
+    lg::RenderSettings machineGunSettings = settings;
+    machineGunSettings.localSelectedWeapon = lg::Weapon::MachineGun;
+    lg::PlayerState recordedPlayer = player;
+    recordedPlayer.viewYawRadians = 0.0F;
+    lg::PlayerState turnedPlayer = recordedPlayer;
+    turnedPlayer.viewYawRadians = 0.65F;
+    const lg::Vec3 recordedMuzzle = lg::firstPersonMachineGunMuzzlePosition(
+      recordedPlayer,
+      machineGunSettings
+    );
+    const lg::Vec3 turnedMuzzle = lg::firstPersonMachineGunMuzzlePosition(
+      turnedPlayer,
+      machineGunSettings
+    );
+    lg::LocalTracerAimHistory localAimHistory;
+    lg::UserCommand recordedCommand;
+    recordedCommand.sequence = 73U;
+    recordedCommand.viewYawRadians = recordedPlayer.viewYawRadians;
+    recordedCommand.viewPitchRadians = recordedPlayer.viewPitchRadians;
+    localAimHistory.remember(recordedCommand);
+    lg::WeaponFireResult acceptedFire;
+    acceptedFire.fired = true;
+    acceptedFire.weapon = lg::Weapon::MachineGun;
+    acceptedFire.start = recordedPlayer.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+    acceptedFire.end = acceptedFire.start + lg::Vec3{20.0F, 0.0F, 0.0F};
+    acceptedFire.visualSeed = recordedCommand.sequence;
+    const lg::WeaponFireResult visualFire = lg::localPerspectiveTracerFire(
+      arena,
+      acceptedFire,
+      recordedMuzzle,
+      recordedPlayer,
+      localAimHistory
+    );
+    const lg::CapturedMachineGunTracerPresentation tracerPresentation =
+      lg::captureMachineGunTracerPresentation(visualFire, recordedMuzzle);
+    lg::TransientTracerPool tracerPool;
+    tracerPool.addCapturedMachineGunPresentation(
+      tracerPresentation,
+      acceptedFire.visualSeed,
+      0U
+    );
+    const auto findTracer = [](const std::vector<lg::TransientTracer>& tracers,
+                               lg::TracerStyle style) {
+      const auto found = std::find_if(
+        tracers.begin(),
+        tracers.end(),
+        [style](const lg::TransientTracer& tracer) {
+          return tracer.style == style;
+        }
+      );
+      return found == tracers.end() ? nullptr : &*found;
+    };
+    std::vector<lg::TransientTracer> stationaryTracers;
+    int stationaryLiveMuzzleResolutions = 0;
+    tracerPool.fillActive(
+      stationaryTracers,
+      1,
+      [&](lg::TransientTracer&, const lg::TransientTracerAttachment&) {
+        ++stationaryLiveMuzzleResolutions;
+      }
+    );
+    std::vector<lg::TransientTracer> turnedTracers;
+    int turnedLiveMuzzleResolutions = 0;
+    tracerPool.fillActive(
+      turnedTracers,
+      1,
+      [&](lg::TransientTracer& tracer, const lg::TransientTracerAttachment&) {
+        ++turnedLiveMuzzleResolutions;
+        const lg::Vec3 oldStart = tracer.start;
+        tracer.start = turnedMuzzle;
+        tracer.end += turnedMuzzle - oldStart;
+      }
+    );
+    const lg::TransientTracer* stationaryLong = findTracer(
+      stationaryTracers,
+      lg::TracerStyle::MachineGun
+    );
+    const lg::TransientTracer* stationaryCue = findTracer(
+      stationaryTracers,
+      lg::TracerStyle::MachineGunMuzzleFlash
+    );
+    const lg::TransientTracer* turnedLong = findTracer(
+      turnedTracers,
+      lg::TracerStyle::MachineGun
+    );
+    const lg::TransientTracer* turnedCue = findTracer(
+      turnedTracers,
+      lg::TracerStyle::MachineGunMuzzleFlash
+    );
+    const auto sharesShotAxis = [](const lg::TransientTracer& longTracer,
+                                   const lg::TransientTracer& muzzleCue) {
+      const lg::Vec3 direction = lg::normalize(longTracer.end - longTracer.start);
+      const lg::Vec3 cueDirection = lg::normalize(muzzleCue.end - muzzleCue.start);
+      const float startOffset = lg::length(
+        crossProduct(muzzleCue.start - longTracer.start, direction)
+      );
+      const float endOffset = lg::length(
+        crossProduct(muzzleCue.end - longTracer.start, direction)
+      );
+      return lg::dot(direction, cueDirection) > 0.999F &&
+        startOffset < 0.001F &&
+        endOffset < 0.001F;
+    };
+    failures += expect(
+      tracerPresentation.active &&
+        stationaryLiveMuzzleResolutions == 0 &&
+        stationaryLong != nullptr &&
+        stationaryCue != nullptr &&
+        sharesShotAxis(*stationaryLong, *stationaryCue),
+      "machine-gun tracer pool should keep its captured shot while the view stays still"
+    );
+    failures += expect(
+      lg::length(turnedMuzzle - recordedMuzzle) > 0.01F &&
+        turnedLiveMuzzleResolutions == 0 &&
+        turnedLong != nullptr &&
+        turnedCue != nullptr &&
+        turnedLong->start.x == tracerPresentation.longTracer.start.x &&
+        turnedLong->start.y == tracerPresentation.longTracer.start.y &&
+        turnedLong->start.z == tracerPresentation.longTracer.start.z &&
+        turnedCue->start.x == tracerPresentation.muzzleCue.start.x &&
+        turnedCue->start.y == tracerPresentation.muzzleCue.start.y &&
+        turnedCue->start.z == tracerPresentation.muzzleCue.start.z &&
+        sharesShotAxis(*turnedLong, *turnedCue),
+      "machine-gun pool should retain both captured parts on one shot axis after a turn"
+    );
+
+    lg::TransientTracerPool liveCuePool;
+    lg::TransientTracer revolverCue = tracerPresentation.muzzleCue;
+    revolverCue.style = lg::TracerStyle::RevolverMuzzleFlash;
+    lg::TransientTracer rocketCue = tracerPresentation.muzzleCue;
+    rocketCue.style = lg::TracerStyle::RocketLauncherMuzzleFlash;
+    liveCuePool.add(revolverCue, true, lg::Weapon::Revolver, 1U, 0U);
+    liveCuePool.add(rocketCue, true, lg::Weapon::RocketLauncher, 2U, 0U);
+    std::vector<lg::TransientTracer> liveCueTracers;
+    int liveCueResolutions = 0;
+    liveCuePool.fillActive(
+      liveCueTracers,
+      1,
+      [&](lg::TransientTracer& tracer, const lg::TransientTracerAttachment&) {
+        ++liveCueResolutions;
+        const lg::Vec3 oldStart = tracer.start;
+        tracer.start = turnedMuzzle;
+        tracer.end += turnedMuzzle - oldStart;
+      }
+    );
+    const lg::TransientTracer* movedRevolverCue = findTracer(
+      liveCueTracers,
+      lg::TracerStyle::RevolverMuzzleFlash
+    );
+    const lg::TransientTracer* movedRocketCue = findTracer(
+      liveCueTracers,
+      lg::TracerStyle::RocketLauncherMuzzleFlash
+    );
+    failures += expect(
+      liveCueResolutions == 2 &&
+        movedRevolverCue != nullptr &&
+        movedRocketCue != nullptr &&
+        lg::length(movedRevolverCue->start - turnedMuzzle) < 0.001F &&
+        lg::length(movedRocketCue->start - turnedMuzzle) < 0.001F,
+      "tracer pool should retain live muzzle updates for Revolver and Rocket cues"
+    );
+  }
 
   const lg::Scene3D baseScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -5465,6 +5659,56 @@ int main() {
     "remote rocket muzzle helper should follow mechanism motion and pose turns"
   );
 
+  lg::RenderSettings localLightningGunSettings = settings;
+  localLightningGunSettings.localSelectedWeapon = lg::Weapon::LightningGun;
+  localLightningGunSettings.weaponPosition = 1;
+  localLightningGunSettings.viewModelPresentation.translation =
+    {0.025F, -0.015F, 0.010F};
+  localLightningGunSettings.viewModelPresentation.rotationRadians =
+    {0.030F, -0.020F, 0.010F};
+  localLightningGunSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  constexpr float kLocalLightningCameraVerticalOffset = 0.12F;
+  const std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
+    localLightningRemotePlayers = {};
+  const lg::Scene3D localLightningGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    localLightningRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    localLightningGunSettings,
+    kLocalLightningCameraVerticalOffset
+  );
+  const lg::StaticMeshInstance lightningGunBody = findViewModel(
+    localLightningGunScene,
+    lg::MeshHandle::RemoteLightningGun
+  );
+  const lg::Vec3 localLightningMuzzle =
+    lg::firstPersonLightningGunMuzzlePosition(
+      player,
+      localLightningGunSettings,
+      kLocalLightningCameraVerticalOffset
+    );
+  const lg::Vec3 unoffsetLightningMuzzle =
+    lg::firstPersonLightningGunMuzzlePosition(player, localLightningGunSettings);
+  failures += expect(
+    lightningGunBody.mesh == lg::MeshHandle::RemoteLightningGun &&
+      localLightningGunScene.viewModelStats.drawCalls == 1U &&
+      lg::length(
+        transformPoint(lightningGunBody, lg::lightningGunMuzzleSocket()) -
+        localLightningMuzzle
+      ) < 0.001F &&
+      lg::length(localLightningMuzzle - unoffsetLightningMuzzle) > 0.10F,
+    "first-person Lightning muzzle should match the rendered model through camera and step motion"
+  );
+
   lg::RenderSettings localFreezeGunSettings = settings;
   localFreezeGunSettings.localSelectedWeapon = lg::Weapon::FreezeGun;
   localFreezeGunSettings.weaponPosition = 1;
@@ -5507,31 +5751,63 @@ int main() {
   );
   const lg::Vec3 unoffsetFreezeMuzzle =
     lg::firstPersonFreezeGunMuzzlePosition(player, localFreezeGunSettings);
-  const float nearestFreezeBeamVertex = nearestSceneVertexDistance(
-    localFreezeGunScene,
-    localFreezeMuzzle
-  );
-  const float nearestUnoffsetFreezeBeamVertex = nearestSceneVertexDistance(
-    localFreezeGunScene,
-    unoffsetFreezeMuzzle
-  );
   failures += expect(
     freezeGunBody.mesh == lg::MeshHandle::RemoteFreezeGunBody &&
       localFreezeGunScene.viewModelStats.drawCalls == 3U &&
       lg::length(
         transformPoint(freezeGunBody, lg::freezeGunMuzzleSocket()) -
         localFreezeMuzzle
-      ) < 0.001F,
+      ) < 0.001F &&
+      lg::length(localFreezeMuzzle - unoffsetFreezeMuzzle) > 0.10F,
     "first-person Freeze muzzle should match the rendered model through camera and step motion"
   );
-  failures += expect(
-    nearestFreezeBeamVertex < 0.035F,
-    "first-person Freeze beam should begin at the rendered muzzle through camera and step motion"
-  );
-  failures += expect(
-    nearestUnoffsetFreezeBeamVertex > 0.040F,
-    "first-person Freeze beam should not retain the unoffset muzzle after a camera step"
-  );
+
+  {
+    lg::PlayerState acceptedBeamPlayer = player;
+    acceptedBeamPlayer.viewYawRadians = 0.0F;
+    lg::PlayerState renderedBeamPlayer = acceptedBeamPlayer;
+    renderedBeamPlayer.viewYawRadians = 0.55F;
+    lg::LightningGunResult turnedFreezeBeam;
+    turnedFreezeBeam.active = true;
+    turnedFreezeBeam.end = acceptedBeamPlayer.position +
+      lg::Vec3{8.0F, 0.0F, 0.65F};
+    const lg::Scene3D turnedFreezeScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      renderedBeamPlayer,
+      localFreezeRemotePlayers,
+      turnedFreezeBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      std::span<const lg::TransientTracer>{},
+      std::span<const lg::TransientEffect>{},
+      std::span<const lg::IcePool>{},
+      localFreezeGunSettings
+    );
+    lg::LightningGunResult inactiveTurnedFreezeBeam = turnedFreezeBeam;
+    inactiveTurnedFreezeBeam.active = false;
+    const lg::Scene3D inactiveTurnedFreezeScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      renderedBeamPlayer,
+      localFreezeRemotePlayers,
+      inactiveTurnedFreezeBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      std::span<const lg::TransientTracer>{},
+      std::span<const lg::TransientEffect>{},
+      std::span<const lg::IcePool>{},
+      localFreezeGunSettings
+    );
+    failures += expect(
+      turnedFreezeScene.vertices.size() == inactiveTurnedFreezeScene.vertices.size() &&
+        turnedFreezeScene.translucentVertices.size() ==
+          inactiveTurnedFreezeScene.translucentVertices.size(),
+      "turned local Freeze input should not submit a stale world beam beside the current overlay"
+    );
+  }
 
   lg::RenderSettings localGrenadeLauncherSettings = settings;
   localGrenadeLauncherSettings.localSelectedWeapon =

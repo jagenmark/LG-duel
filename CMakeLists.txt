@@ -58,16 +58,24 @@ add_library(lg_duel_core
   src/net/UdpTransport.cpp
   src/replay/ReplayCodec.cpp
   src/replay/ReplayFile.cpp
+  src/replay/ReplayIoService.cpp
   src/replay/ReplayPlayback.cpp
   src/replay/ReplayPresentationSession.cpp
   src/replay/ReplayRecorder.cpp
   src/replay/ReplayRollingBuffer.cpp
+  src/replay/ReplayRuntime.cpp
+  src/replay/ReplayStorage.cpp
   src/replay/ReplayTransfer.cpp
+  src/replay/ReplayTransferServer.cpp
+  src/replay/ClientKillcamCoordinator.cpp
+  src/replay/KillcamClientReceiver.cpp
+  src/replay/KillcamServerCoordinator.cpp
   src/scenario/LiveScenarioSession.cpp
   src/scenario/ScenarioEvidence.cpp
   src/scenario/ScenarioRuntime.cpp
   src/scenario/ScenarioSchema.cpp
   src/server/BotAi.cpp
+  src/server/ReplayAutoRecordLifecycle.cpp
   src/server/ServerGame.cpp
   src/sim/Arena.cpp
   src/sim/ArenaBroadphase.cpp
@@ -115,6 +123,7 @@ add_library(lg_duel_client_app
   src/app/PerfTelemetry.cpp
   src/app/Scoreboard.cpp
   src/app/TextInput.cpp
+  src/app/TracerPresentation.cpp
   src/render/BitmapFont.cpp
   src/render/ChatLayout.cpp
   src/render/CombatEffects.cpp

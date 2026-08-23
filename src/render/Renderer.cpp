@@ -8586,24 +8586,35 @@ void appendCommandBatches(
       hud.selectedWeapon != Weapon::RocketLauncher &&
       hud.selectedWeapon != Weapon::Revolver
     ) {
-      ScreenPoint freezeGunMuzzle = {-1.0F, -1.0F};
+      ScreenPoint beamMuzzle = {-1.0F, -1.0F};
       if (
-        hud.selectedWeapon == Weapon::FreezeGun &&
+        (hud.selectedWeapon == Weapon::LightningGun ||
+         hud.selectedWeapon == Weapon::FreezeGun) &&
         settings.showOwnWeapons
       ) {
-        PerspectiveCamera muzzleCamera = perspectiveScene.camera;
-        constexpr float kPi = 3.14159265359F;
-        const float viewModelFov = std::max(50.0F, settings.fieldOfView - 10.0F);
-        muzzleCamera.focalLength = 1.0F / std::tan(
-          viewModelFov * (kPi / 180.0F) * 0.5F
+        const PerspectiveCamera muzzleCamera = firstPersonBeamProjectionCamera(
+          perspectiveScene.camera,
+          hud.selectedWeapon,
+          settings
         );
         ProjectedPoint projectedMuzzle;
+        const Vec3 muzzlePosition = hud.selectedWeapon == Weapon::LightningGun
+          ? firstPersonLightningGunMuzzlePosition(
+              sampledPlayer,
+              settings,
+              cameraVerticalOffset
+            )
+          : firstPersonFreezeGunMuzzlePosition(
+              sampledPlayer,
+              settings,
+              cameraVerticalOffset
+            );
         if (projectPerspectivePoint(
               muzzleCamera,
-              firstPersonFreezeGunMuzzlePosition(sampledPlayer, settings),
+              muzzlePosition,
               projectedMuzzle
             )) {
-          freezeGunMuzzle = {
+          beamMuzzle = {
             (projectedMuzzle.x + 1.0F) * 0.5F * static_cast<float>(outputWidth),
             (1.0F - projectedMuzzle.y) * 0.5F * static_cast<float>(outputHeight),
           };
@@ -8617,7 +8628,7 @@ void appendCommandBatches(
         hud.previousWeapon,
         hud.weaponSwitchProgress,
         settings,
-        freezeGunMuzzle
+        beamMuzzle
       );
       appendCommandBatches(
         vertices,

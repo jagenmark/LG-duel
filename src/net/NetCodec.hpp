@@ -1,6 +1,7 @@
 #pragma once
 
 #include "net/NetProtocol.hpp"
+#include "replay/ReplayTransfer.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -9,7 +10,6 @@
 namespace lg {
 
 inline constexpr std::uint32_t kProtocolMagic = 0x4C474455U;
-inline constexpr std::uint16_t kProtocolVersion = 61;
 inline constexpr std::size_t kMaxPacketBytes = 65535;
 inline constexpr std::size_t kMaxUdpApplicationDatagramBytes = 1200;
 
@@ -26,6 +26,7 @@ enum class PacketType : std::uint8_t {
   ChatHistoryAck = 10,
   CombatStats = 11,
   ProjectileUpdates = 12,
+  ReplayTransfer = 13,
 };
 
 using WirePacket = std::vector<std::uint8_t>;
@@ -102,6 +103,15 @@ using WirePacket = std::vector<std::uint8_t>;
 [[nodiscard]] bool decodeProjectileUpdatePacket(
   const WirePacket& wire,
   ProjectileUpdatePacket& packet
+);
+
+[[nodiscard]] bool encodeReplayTransferPacket(
+  const replay::ReplayTransferMessage& message,
+  WirePacket& wire
+);
+[[nodiscard]] bool decodeReplayTransferPacket(
+  const WirePacket& wire,
+  replay::ReplayTransferMessage& message
 );
 
 } // namespace lg

@@ -39,11 +39,16 @@ public:
 private:
   [[nodiscard]] bool compareHash(std::string* error);
   [[nodiscard]] std::size_t tickOffsetFor(std::uint32_t tick) const;
+  [[nodiscard]] ReplayMetadata metadataForBoundary(
+    const ReplayAuthorityBoundary& boundary
+  ) const;
+  [[nodiscard]] bool applyBoundariesForCurrentTick(std::string* error);
 
   ServerGame& game_;
   const ReplayDemo& demo_;
   std::size_t nextInput_ = 0;
   std::size_t nextHash_ = 0;
+  std::size_t nextBoundary_ = 0;
   bool initialized_ = false;
   bool finished_ = false;
   ReplayDivergence divergence_ = {};

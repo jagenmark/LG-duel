@@ -100,6 +100,18 @@ void ClientSession::setNetworkSimulationConfig(
   }
 }
 
+bool ClientSession::sendReplayTransferMessage(
+  const replay::ReplayTransferMessage& message
+) {
+  return transport_ != nullptr && transport_->sendReplayTransferMessage(message);
+}
+
+bool ClientSession::receiveReplayTransferMessage(
+  replay::ReplayTransferMessage& message
+) {
+  return transport_ != nullptr && transport_->receiveReplayTransferMessage(message);
+}
+
 void ClientSession::sendCommand(
   const UserCommand& command,
   bool requestReset,
@@ -178,6 +190,13 @@ void ClientSession::sendCommand(
   }
 }
 
+void ClientSession::sendKeepalive(
+  std::uint32_t sequence,
+  bool usePresentedServerTick
+) {
+  if (game_) game_->sendKeepalive(sequence, usePresentedServerTick);
+}
+
 ClientConnectionState ClientSession::state() const {
   return state_;
 }
@@ -198,6 +217,10 @@ std::size_t ClientSession::clientIndex() const {
   return game_
     ? game_->localClientIndex()
     : transport_ ? transport_->clientIndex() : kNoAssignedPlayer;
+}
+
+std::uint32_t ClientSession::sessionId() const {
+  return transport_ == nullptr ? 0U : transport_->sessionId();
 }
 
 bool ClientSession::spectator() const {

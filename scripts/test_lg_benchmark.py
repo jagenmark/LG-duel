@@ -196,6 +196,17 @@ class BenchmarkTests(unittest.TestCase):
             )
             self.assertEqual(lg_benchmark.source_protocol_version(root), 56)
 
+    def test_source_protocol_version_reads_net_protocol_header(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            header = root / "src" / "net"
+            header.mkdir(parents=True)
+            (header / "NetProtocol.hpp").write_text(
+                "inline constexpr std::uint16_t kProtocolVersion = 61;\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(lg_benchmark.source_protocol_version(root), 61)
+
     def test_source_fixed_tick_rate_reads_header(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
