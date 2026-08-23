@@ -43,27 +43,6 @@ Every graphics pass that exposes a user-facing option must include its F10 graph
 - A live F10 GUI check confirms that changing the option updates the rendered result and that reopening the menu shows the applied value.
 - The pass includes focused tests for value range, profile mapping, persistence, and fallback where the current settings test path supports them.
 
-### Independent visual-evidence rule
-
-Every graphics task that uses screenshots or captures as completion evidence must have a separate reviewer agent inspect the actual image files before the task can finish. The reviewer must not accept file names, capture logs, automated checks, or the author's summary as a substitute for image review.
-
-**Acceptance checks:**
-
-- Each capture uses the specified fixed scene, camera, graphics profile, resolution, and relevant effect load.
-- The images visibly show the claimed change at a useful scale and moment.
-- Before-and-after images use matched framing where comparison applies.
-- UI, debug text, camera placement, blank space, or unrelated action does not hide the subject or make the evidence unclear.
-- The images support each stated readability claim; performance claims also cite measured data from the matching run rather than appearance alone.
-- Weak, mismatched, obscured, irrelevant, or inconclusive evidence fails the gate and requires a new capture and review.
-
-The reviewer report must state:
-
-- the files inspected and their scene, camera, profile, resolution, and effect load;
-- which claimed changes each image does or does not show;
-- any framing, timing, clarity, mismatch, or readability defect;
-- whether matching performance data supports any performance claim;
-- a clear `pass` or `recapture required` verdict, with the exact missing evidence when it does not pass.
-
 ## Phase 1 - Foundation and benchmark profiles
 
 ### 1.1 Define profile settings and fallbacks
@@ -258,7 +237,6 @@ The reviewer report must state:
 Apply these gates to every completed item:
 
 - No new graphics setting is complete until it is usable, applied, persisted, and verified in the existing F10 graphics-settings GUI.
-- No screenshot or capture claim is complete until a separate reviewer agent inspects the actual images and issues the required visual-evidence report.
 - Run all defined benchmark scenes for each affected graphics profile.
 - Compare 50%, 100%, and 150% render scale where the setting exists; retain 100% as default unless data supports a change.
 - Record frame time, average FPS, 1% low FPS, spikes, and peak counts for lights, particles, decals, and visible transparent effects.

@@ -47,7 +47,6 @@ Reference:
 
 * [Console and cvar bible](docs/CONSOLE-BIBLE.md)
 * [Developer control and visual capture](docs/DEVELOPER-CONTROL.md)
-* [Visual evidence review and private publishing](docs/VISUAL-EVIDENCE.md)
 * [Task integration workflow](docs/INTEGRATION-WORKFLOW.md)
 * [Performance benchmarks](docs/PERFORMANCE-BENCHMARKS.md)
 

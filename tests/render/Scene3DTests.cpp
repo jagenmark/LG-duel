@@ -1111,6 +1111,41 @@ int main() {
     ),
     "sun shadow projection should stay fixed for sub-texel camera motion"
   );
+  const lg::PerspectiveCamera wideShadowCamera = lg::makePerspectiveCamera(
+    {0.0F, 0.0F, 3.0F},
+    0.0F,
+    0.0F,
+    100.0F,
+    16.0F / 10.0F
+  );
+  const lg::SunShadowProjection wideShadowProjection =
+    lg::buildSunShadowProjection(
+      wideShadowCamera,
+      {0.25F, -0.45F, -0.86F},
+      2
+    );
+  const auto insideShadowProjection = [](
+                                        const lg::SunShadowProjection& projection,
+                                        lg::Vec3 point) {
+    const lg::Vec3 relative = point - projection.origin;
+    return
+      std::fabs(lg::dot(relative, projection.right)) <= projection.halfExtent &&
+      std::fabs(lg::dot(relative, projection.up)) <= projection.halfExtent &&
+      lg::dot(relative, projection.forward) >= projection.nearPlane &&
+      lg::dot(relative, projection.forward) <= projection.farPlane;
+  };
+  const lg::Vec3 routeCenter =
+    wideShadowCamera.position + wideShadowCamera.forward * 48.0F;
+  lg::Vec3 wideRouteReceiver =
+    routeCenter - wideShadowCamera.right * 32.0F;
+  wideRouteReceiver.z = 0.0F;
+  const lg::Vec3 wideRouteCaster =
+    wideRouteReceiver - wideShadowProjection.forward * 16.0F;
+  failures += expect(
+    insideShadowProjection(wideShadowProjection, wideRouteReceiver) &&
+      insideShadowProjection(wideShadowProjection, wideRouteCaster),
+    "sun shadow projection should cover ordinary casters and ground across a wide near-view route"
+  );
   {
     const lg::Vec3 albedo = {0.35F, 0.60F, 0.80F};
     const lg::Vec3 radiance = {0.90F, 0.40F, 0.20F};
@@ -2561,6 +2596,16 @@ int main() {
     failures += expect(
       boundaryScene.vertices.size() == skyBoundaryScene.vertices.size() + 30U,
       "a selected sky should omit the five fallback boundary surfaces"
+    );
+
+    lg::Arena emptyAuthoredSkyArena;
+    emptyAuthoredSkyArena.renderDefaultFloor = false;
+    emptyAuthoredSkyArena.skyId = lg::SkyId::Aurora;
+    const lg::Scene3D emptyAuthoredSkyScene =
+      lg::buildStaticWorldScene(emptyAuthoredSkyArena);
+    failures += expect(
+      emptyAuthoredSkyScene.vertices.empty(),
+      "normal world rendering should not emit the arena bounds debug box"
     );
 
     skyArena.wallCount = 1;

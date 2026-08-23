@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LG Duel Visual Evidence",
-  description: "Private LG Duel images with short captions and full-size originals.",
+  title: "LG Duel Gallery",
+  description: "Private LG Duel screenshots.",
 };
 
 export default function RootLayout({

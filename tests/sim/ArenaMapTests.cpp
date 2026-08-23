@@ -146,6 +146,10 @@ int main() {
     const lg::Arena& arena = loaded.arena;
     failures += expect(arena.wallCount > 0, "eyetoeye should load static geometry");
     failures += expect(
+      !arena.renderDefaultFloor,
+      "eyetoeye authored geometry should suppress the legacy z=0 floor"
+    );
+    failures += expect(
       arena.skyId == lg::SkyId::CrimsonSunset,
       "eyetoeye should select the crimson-sunset sky"
     );
@@ -776,6 +780,10 @@ int main() {
     failures += expect(
       loaded.ok && loaded.arena.skyId == lg::SkyId::Aurora,
       "thunderstruck should select the aurora sky"
+    );
+    failures += expect(
+      loaded.ok && !loaded.arena.renderDefaultFloor,
+      "thunderstruck authored geometry should suppress the legacy z=0 floor"
     );
     failures += expect(
       loaded.ok &&

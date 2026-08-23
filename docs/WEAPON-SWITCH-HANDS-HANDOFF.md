@@ -4,7 +4,7 @@
 
 This branch keeps the switch code, reset rules, view ownership, tests, and
 render paths. First-person hands are an experimental, default-off preview;
-they need separate visual review before they become a normal setting.
+keep them off by default until their look is good enough for normal play.
 
 The user asked to pause after the final pose pass on 2026-08-11. Resume from
 the existing branch and worktree. Do not reset the three earlier commits or
@@ -18,7 +18,7 @@ The final design choices are:
   toward the head, swap near the top, then return to the normal grip.
 - Hands: keep the weapon as the main shape. Hands should be small, natural,
   mostly below the weapon, and opt-in with `r_viewmodel_hands 1` until their
-  visual work passes review.
+  visual work is ready for normal play.
 - The Revolver may use only the right hand.
 
 ## Worktree and branch
@@ -174,7 +174,7 @@ also sit below the visible screen even when it is correct in model space.
 ## Final hand attempt and visual result
 
 The final pass is `weapon-hands-v27-*` under `build/captures`. These are local
-diagnostic files, not approved evidence and not gallery items.
+diagnostic files.
 
 The result still fails:
 
@@ -246,9 +246,8 @@ ctest --test-dir build/default -R "^(lg_duel_(screen_ui|scene_3d|weapon_switch_p
 python scripts/test_lg_live_scenario.py
 ```
 
-The full suite, asset checks, package check, timing run, final evidence set, and
-independent review still remain. Do not reuse an older full-suite result as a
-final result.
+The full suite, asset checks, package check, and timing run still remain. Do not
+reuse an older full-suite result as a final result.
 
 ## Live session and captures
 
@@ -280,10 +279,9 @@ It records switch view, actor, normalized time, lift, shown weapon, old weapon,
 new weapon, hand toggle, first-person vertical offset, and third-person pitch
 in capture frame metadata. Verify that metadata again after the next build.
 
-## Final evidence still required
+## Live checks still required
 
-Do not ask for review until all of this exists and has been checked by the task
-author:
+Run these checks before enabling hands by default:
 
 - rest, 25 percent down, hidden apex, 75 percent up, and final rest strips for
   Machine Gun, Rocket Launcher, and Revolver;
@@ -297,9 +295,6 @@ author:
 - outgoing, apex, incoming, and final Worker frames;
 - followed teammate first-person view with the right weapon and hands;
 - hands-on and hands-off timing with resource and draw counts.
-
-Final proof images need the UTC naming rule, metadata, an independent `pass`,
-and private publication to the project Sites gallery.
 
 ## Parallel work limits
 

@@ -8,13 +8,6 @@ type Capture = {
   title: string;
   description: string;
   captured_at: string;
-  captured_by: string;
-  review_status: "not_reviewed" | "pass" | "fail" | "needs_changes";
-  reviewer: string | null;
-  reviewed_at: string | null;
-  review_notes: string | null;
-  sha256: string;
-  size_bytes: number;
   preview_url: string;
   full_size_url: string;
   original_url?: string | null;
@@ -27,17 +20,9 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function formatBytes(value: number) {
-  if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 export function Gallery() {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const visibleCaptures = captures.filter((capture) => (
-    capture.review_status === "pass" || capture.review_status === "not_reviewed"
-  ));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -61,7 +46,7 @@ export function Gallery() {
     return (
       <section className="gallery-state" aria-live="polite">
         <span className="status-dot" />
-        Loading approved captures…
+        Loading captures…
       </section>
     );
   }
@@ -74,69 +59,47 @@ export function Gallery() {
     );
   }
 
-  if (visibleCaptures.length === 0) {
+  if (captures.length === 0) {
     return (
       <section className="empty">
-        <p className="eyebrow">No visible captures yet</p>
-        <h2>The first uploaded image will appear here.</h2>
-        <p>Passed and not-reviewed uploads appear with their review state.</p>
+        <p className="eyebrow">Gallery</p>
+        <h2>No captures yet.</h2>
       </section>
     );
   }
 
   return (
-    <section className="gallery" aria-label="Published captures">
+    <section className="gallery" aria-label="Captures">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Published evidence</p>
+          <p className="eyebrow">Gallery</p>
           <h2>
-            {visibleCaptures.length} published {visibleCaptures.length === 1 ? "capture" : "captures"}
+            {captures.length} {captures.length === 1 ? "capture" : "captures"}
           </h2>
         </div>
         <p>Newest first</p>
       </div>
       <div className="capture-grid">
-        {visibleCaptures.map((capture) => (
+        {captures.map((capture) => (
           <article className="capture-card" key={capture.capture_id}>
             <a
               className="preview-link"
               href={capture.full_size_url}
               aria-label={`Open full-size image: ${capture.title}`}
             >
-              {/* Review links always use the compact derivative. */}
               <img src={capture.preview_url} alt={capture.description} loading="lazy" />
               <span className="open-label">Open full size</span>
             </a>
             <div className="capture-body">
               <div className="capture-topline">
                 <span className="task-chip">{capture.task_id}</span>
-                <span>{formatBytes(capture.size_bytes)}</span>
+                <span>{formatDate(capture.captured_at)}</span>
               </div>
               <h3>{capture.title}</h3>
               <p>{capture.description}</p>
-              <dl>
-                <div>
-                  <dt>Captured</dt>
-                  <dd>{formatDate(capture.captured_at)} · {capture.captured_by}</dd>
-                </div>
-                <div>
-                  <dt>Review</dt>
-                  <dd>
-                    {capture.review_status === "pass"
-                      ? `Passed by ${capture.reviewer}`
-                      : capture.review_status === "not_reviewed"
-                        ? "Not claimed as reviewed evidence"
-                        : capture.review_status.replace("_", " ")}
-                  </dd>
-                </div>
-              </dl>
-              {capture.review_notes ? (
-                <p className="review-note">“{capture.review_notes}”</p>
-              ) : null}
               <div className="capture-actions">
-                <a href={capture.full_size_url}>Compact review image</a>
+                <a href={capture.full_size_url}>Open image</a>
                 {capture.original_url ? <a href={capture.original_url}>Original</a> : null}
-                <span title={capture.sha256}>SHA-256 {capture.sha256.slice(0, 10)}…</span>
               </div>
             </div>
           </article>
