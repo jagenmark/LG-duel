@@ -319,6 +319,7 @@ private:
   ) const;
   void recordReplayAuthorityBoundaryIfChanged();
   [[nodiscard]] std::uint64_t replayGameplayConfigHash() const;
+  void completeReplayRecording(replay::ReplayStopReason stopReason);
   void resetRollingReplay();
   void recordReplayLethal(
     std::size_t attackerIndex,

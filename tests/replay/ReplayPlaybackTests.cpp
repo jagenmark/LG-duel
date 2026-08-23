@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string_view>
 
 namespace {
@@ -87,10 +88,195 @@ void aimAtPlayerBody(
   command.planarAim = false;
 }
 
+int testFinalReadyAuthorityBoundary() {
+  int failures = 0;
+  lg::LoopbackTransport sourceTransport;
+  lg::ServerGame source(sourceTransport);
+  source.setArena(replayArena());
+  source.setConnectedPlayers({true, true});
+  lg::MatchRules rules;
+  rules.countdownTicks = 1U;
+  source.setMatchRules(rules);
+
+  source.tick(lg::kFixedTickSeconds);
+  discardSnapshots(sourceTransport);
+  failures += expect(
+    source.snapshot().matchPhase == lg::MatchPhase::WaitingForReady,
+    "authority-boundary fixture should enter ready-up"
+  );
+
+  lg::CommandPacket firstReady;
+  firstReady.playerIndex = 0U;
+  firstReady.command.sequence = 1U;
+  firstReady.toggleReady = true;
+  sourceTransport.sendCommand(firstReady);
+  source.tick(lg::kFixedTickSeconds);
+  discardSnapshots(sourceTransport);
+  failures += expect(
+    source.snapshot().matchPhase == lg::MatchPhase::WaitingForReady &&
+      source.snapshot().readyPlayers[0] &&
+      !source.snapshot().readyPlayers[1],
+    "authority-boundary fixture should wait for the final ready player"
+  );
+
+  lg::replay::ReplayRecordingConfig recordingConfig;
+  recordingConfig.checkpointIntervalTicks = 32U;
+  recordingConfig.hashIntervalTicks = 1U;
+  std::string error;
+  failures += expect(
+    source.beginReplayRecording(recordingConfig, &error),
+    "ready-up replay should start recording"
+  );
+  const std::uint32_t finalReadyTick = source.snapshot().serverTick;
+
+  lg::CommandPacket finalReady;
+  finalReady.playerIndex = 1U;
+  finalReady.command.sequence = 1U;
+  finalReady.toggleReady = true;
+  sourceTransport.sendCommand(finalReady);
+  source.tick(lg::kFixedTickSeconds);
+  discardSnapshots(sourceTransport);
+  failures += expect(
+    source.snapshot().matchPhase == lg::MatchPhase::Countdown &&
+      source.snapshot().phaseTicksRemaining == 1U,
+    "the final ready tick should produce countdown state once"
+  );
+
+  source.tick(lg::kFixedTickSeconds);
+  discardSnapshots(sourceTransport);
+  failures += expect(
+    source.snapshot().matchPhase == lg::MatchPhase::Live,
+    "the tick after final ready should enter live play"
+  );
+
+  const std::optional<lg::replay::ReplayDemo> recorded =
+    source.finishReplayRecording();
+  failures += expect(
+    recorded.has_value() && recorded->hashes.size() >= 2U &&
+      recorded->authorityBoundaries.size() == 1U &&
+      recorded->authorityBoundaries.front().tick == finalReadyTick &&
+      recorded->authorityBoundaries.front().checkpoint.match.phase ==
+        lg::MatchPhase::WaitingForReady &&
+      recorded->authorityBoundaries.front().checkpoint.players[0].ready &&
+      recorded->authorityBoundaries.front().checkpoint.players[1].ready,
+    "the final-ready boundary should bind ready input before phase simulation"
+  );
+  if (!recorded.has_value()) return failures;
+
+  lg::LoopbackTransport playbackTransport;
+  lg::ServerGame playback(playbackTransport);
+  playback.setArena(replayArena());
+  playback.setMatchRules(recorded->metadata.matchRules);
+  lg::replay::ReplayPlaybackRunner runner(playback, *recorded);
+  failures += expect(
+    runner.initialize(&error),
+    "ready-up replay should restore its initial state"
+  );
+  while (runner.step(&error)) {}
+  failures += expect(
+    runner.finished() && !runner.divergence().diverged &&
+      playback.snapshot().matchPhase == lg::MatchPhase::Live,
+    "ready-up playback should match every tick without replaying the phase change"
+  );
+  runner.stop();
+  return failures;
+}
+
+int testOutOfTickResetFinalizesReplay(bool disconnectPlayer) {
+  int failures = 0;
+  lg::LoopbackTransport sourceTransport;
+  lg::ServerGame source(sourceTransport);
+  source.setArena(replayArena());
+  source.setConnectedPlayers({true, true});
+  lg::MatchRules rules;
+  rules.countdownTicks = 0U;
+  source.setMatchRules(rules);
+
+  for (std::size_t slot = 0U; slot < 2U; ++slot) {
+    lg::CommandPacket ready;
+    ready.playerIndex = static_cast<std::uint8_t>(slot);
+    ready.command.sequence = 1U;
+    ready.toggleReady = true;
+    sourceTransport.sendCommand(ready);
+  }
+  source.tick(lg::kFixedTickSeconds);
+  discardSnapshots(sourceTransport);
+  failures += expect(
+    source.snapshot().matchPhase == lg::MatchPhase::Live,
+    "out-of-tick reset fixture should enter live play"
+  );
+
+  lg::replay::ReplayRecordingConfig config;
+  config.checkpointIntervalTicks = 32U;
+  config.hashIntervalTicks = 32U;
+  std::string error;
+  failures += expect(
+    source.beginReplayRecording(config, &error),
+    "out-of-tick reset fixture should start recording"
+  );
+  for (std::uint32_t tick = 0U; tick < 3U; ++tick) {
+    source.tick(lg::kFixedTickSeconds);
+    discardSnapshots(sourceTransport);
+  }
+  const lg::replay::ReplayCheckpoint finalLiveState =
+    source.captureReplayCheckpoint();
+
+  if (disconnectPlayer) {
+    std::array<bool, lg::kDuelPlayerCount> connected = {};
+    connected[0] = true;
+    source.setConnectedPlayers(connected);
+  } else {
+    source.resetMatch();
+  }
+  failures += expect(
+    !source.replayRecordingActive(),
+    disconnectPlayer
+      ? "an active-match disconnect should close the replay before reset"
+      : "an admin reset should close the replay before reset"
+  );
+
+  const std::optional<lg::replay::ReplayDemo> recorded =
+    source.finishReplayRecording();
+  failures += expect(
+    recorded.has_value() && !recorded->hashes.empty() &&
+      recorded->hashes.back().tick == finalLiveState.serverTick &&
+      recorded->hashes.back().value ==
+        lg::replay::canonicalStateHash(finalLiveState),
+    disconnectPlayer
+      ? "disconnect should save the last live state, not reset authority"
+      : "admin reset should save the last live state, not reset authority"
+  );
+  if (!recorded.has_value()) return failures;
+
+  lg::LoopbackTransport playbackTransport;
+  lg::ServerGame playback(playbackTransport);
+  playback.setArena(replayArena());
+  playback.setMatchRules(recorded->metadata.matchRules);
+  lg::replay::ReplayPlaybackRunner runner(playback, *recorded);
+  failures += expect(
+    runner.initialize(&error),
+    "reset-finalized replay should initialize"
+  );
+  while (runner.step(&error)) {}
+  failures += expect(
+    runner.finished() && !runner.divergence().diverged &&
+      lg::replay::canonicalStateHash(playback.captureReplayCheckpoint()) ==
+        lg::replay::canonicalStateHash(finalLiveState),
+    disconnectPlayer
+      ? "disconnect-finalized replay should pass every saved hash"
+      : "admin-reset-finalized replay should pass every saved hash"
+  );
+  runner.stop();
+  return failures;
+}
+
 } // namespace
 
 int main() {
   int failures = 0;
+  failures += testFinalReadyAuthorityBoundary();
+  failures += testOutOfTickResetFinalizesReplay(false);
+  failures += testOutOfTickResetFinalizesReplay(true);
   lg::LoopbackTransport sourceTransport;
   lg::ServerGame source(sourceTransport);
   discardSnapshots(sourceTransport);

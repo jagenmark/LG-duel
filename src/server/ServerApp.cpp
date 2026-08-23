@@ -6,6 +6,7 @@
 #include "replay/KillcamServerCoordinator.hpp"
 #include "replay/ReplayIoService.hpp"
 #include "replay/ReplayStorage.hpp"
+#include "server/ReplayAutoRecordLifecycle.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
 #include "sim/Arena.hpp"
@@ -418,6 +419,7 @@ int ServerApp::run() const {
   std::optional<std::string> recordingStem;
   std::string lastReplayResult;
   bool autoRecording = false;
+  bool autoRecordStartedThisMatch = false;
 
   ConsoleSystem console;
   console.registerCvar({"sv_roundlimit", "Rounds required to win.", 10, CvarFlag::None, 1.0F, 100.0F});
@@ -546,6 +548,7 @@ int ServerApp::run() const {
     }
     recordingStem = *stem;
     autoRecording = automatic;
+    if (automatic) autoRecordStartedThisMatch = true;
     return "demo recording " + *stem;
   };
 
@@ -565,6 +568,7 @@ int ServerApp::run() const {
       std::optional<replay::ReplayDemo> demo =
         server.finishReplayRecording();
       if (!demo.has_value()) {
+        recordingStem.reset();
         return std::string("no completed demo to save");
       }
       pendingReplaySave = PendingReplaySave{path, std::move(*demo)};
@@ -1171,16 +1175,26 @@ int ServerApp::run() const {
       std::cerr << "Killcam configuration rejected: " << killcamError << '\n';
     }
 
-    const bool autoRecordEnabled = console.getBool("sv_demo_autorecord");
-    if (autoRecordEnabled && !autoRecording && !server.replayRecordingActive() &&
-        !recordingStem.has_value() && !pendingReplaySave.has_value() &&
-        server.snapshot().matchPhase == MatchPhase::Live) {
+    const MatchPhase replayMatchPhase = server.snapshot().matchPhase;
+    if (replayMatchPhase == MatchPhase::WaitingForPlayers ||
+        replayMatchPhase == MatchPhase::WaitingForReady) {
+      autoRecordStartedThisMatch = false;
+    }
+    const ReplayAutoRecordAction autoRecordAction = replayAutoRecordAction({
+      console.getBool("sv_demo_autorecord"),
+      autoRecording,
+      server.replayRecordingActive(),
+      recordingStem.has_value(),
+      pendingReplaySave.has_value(),
+      autoRecordStartedThisMatch,
+      replayMatchPhase,
+    });
+    if (autoRecordAction == ReplayAutoRecordAction::Start) {
       const std::string result = beginReplayRecording({}, true);
       if (result.rfind("demo recording ", 0) != 0) {
         std::cerr << result << '\n';
       }
-    } else if ((!autoRecordEnabled || server.snapshot().matchPhase != MatchPhase::Live) &&
-               autoRecording && server.replayRecordingActive()) {
+    } else if (autoRecordAction == ReplayAutoRecordAction::Stop) {
       autoRecording = false;
       const std::string result = queueReplaySave();
       if (result.rfind("demo save queued", 0) != 0) {
@@ -1199,6 +1213,7 @@ int ServerApp::run() const {
     if (((!server.replayRecordingActive() && recordingStem.has_value()) ||
          pendingReplaySave.has_value()) &&
         !replaySaveJob.has_value()) {
+      if (!server.replayRecordingActive()) autoRecording = false;
       const std::string result = queueReplaySave();
       if (result.rfind("demo save queued", 0) != 0 &&
           result.rfind("demo save deferred:", 0) != 0) {

@@ -645,8 +645,9 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
 }
 
 void ServerGame::tick(float fixedDt) {
-  // Tick order is authoritative: accept input and phase changes first, simulate
-  // movement, resolve combat, retain events, then publish the completed state.
+  // Tick order is authoritative: accept input, bind changed authority to the
+  // pre-simulation tick, update the phase, simulate, retain events, then
+  // publish the completed state.
   if (replayPlayback_ && !pendingReplayInput_.has_value()) {
     // Playback advances only when its runner has supplied the resolved frame
     // for this server tick. This prevents accidental live or bot input leaks.
@@ -662,6 +663,7 @@ void ServerGame::tick(float fixedDt) {
   spawnedProjectileCount_ = 0;
   if (!replayPlayback_) {
     receiveCommands();
+    recordReplayAuthorityBoundaryIfChanged();
   }
   updateMatchState();
   const bool tickStartedLive = snapshot_.matchPhase == MatchPhase::Live;
@@ -673,7 +675,6 @@ void ServerGame::tick(float fixedDt) {
     pendingReplayInput_.reset();
   } else {
     updateBotCommands(fixedDt);
-    recordReplayAuthorityBoundaryIfChanged();
     const bool recording = replayRecorder_ != nullptr && replayRecorder_->active();
     const bool rolling = rollingReplay_ != nullptr && rollingReplay_->active();
     if (recording || rolling) {
@@ -1651,6 +1652,20 @@ std::optional<replay::ReplayDemo> ServerGame::finishReplayRecording() {
   return demo;
 }
 
+void ServerGame::completeReplayRecording(
+  replay::ReplayStopReason stopReason
+) {
+  if (replayRecorder_ == nullptr || !replayRecorder_->active()) return;
+  std::string ignored;
+  std::optional<replay::ReplayDemo> completed =
+    replayRecorder_->finish(captureReplayCheckpoint(), &ignored);
+  replayRecorder_.reset();
+  if (completed.has_value()) {
+    completed->metadata.stopReason = stopReason;
+    completedReplayRecording_ = std::move(completed);
+  }
+}
+
 bool ServerGame::replayRecordingActive() const {
   return replayRecorder_ != nullptr && replayRecorder_->active();
 }
@@ -2429,6 +2444,9 @@ bool ServerGame::restoreReplayCheckpoint(
 }
 
 void ServerGame::resetMatch() {
+  // A reset does not advance serverTick. Close the old authority stream before
+  // replacing its state so the final hash still matches its last input tick.
+  completeReplayRecording(replay::ReplayStopReason::Completed);
   bumpReplayConfigurationRevision();
   combatBatch_ = {};
   ++damageFeedbackRevision_;
@@ -2575,16 +2593,7 @@ void ServerGame::setArena(const Arena& arena) {
 }
 
 void ServerGame::setArena(const Arena& arena, MapDescriptor descriptor) {
-  if (replayRecorder_ != nullptr && replayRecorder_->active()) {
-    std::string ignored;
-    std::optional<replay::ReplayDemo> completed =
-      replayRecorder_->finish(captureReplayCheckpoint(), &ignored);
-    replayRecorder_.reset();
-    if (completed.has_value()) {
-      completed->metadata.stopReason = replay::ReplayStopReason::MapChanged;
-      completedReplayRecording_ = std::move(completed);
-    }
-  }
+  completeReplayRecording(replay::ReplayStopReason::MapChanged);
   endReplayPlayback();
   arena_ = arena;
   spawnLastUsedTicks_ = {};
@@ -2788,6 +2797,10 @@ void ServerGame::setConnectedPlayers(
   const bool abortActiveMatch = !warmupPhase() &&
     (snapshot_.gameMode == GameMode::Duel ||
      snapshot_.gameMode == GameMode::ClanArena);
+  if (abortActiveMatch) {
+    // Roster cleanup below changes replay authority at the current tick.
+    completeReplayRecording(replay::ReplayStopReason::Completed);
+  }
   const std::array<bool, kDuelPlayerCount> previousConnected =
     snapshot_.connectedPlayers;
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {

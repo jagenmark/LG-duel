@@ -11,10 +11,13 @@ constexpr std::size_t kMaxPendingEvents = 64U;
 
 std::uint32_t readyTickFor(const ReplayLethalEvent& event,
                           std::uint32_t afterTicks) {
-  if (afterTicks > std::numeric_limits<std::uint32_t>::max() - event.tick) {
+  // update() runs after ServerGame::tick(). snapshot().serverTick names the
+  // next input tick, while the rolling buffer ends at the tick just recorded.
+  // Wait for the snapshot after the requested inclusive end tick.
+  if (afterTicks >= std::numeric_limits<std::uint32_t>::max() - event.tick) {
     return std::numeric_limits<std::uint32_t>::max();
   }
-  return event.tick + afterTicks;
+  return event.tick + afterTicks + 1U;
 }
 
 void setError(std::string* error, const std::string& message) {

@@ -178,7 +178,7 @@ int main() {
     while (secondTransport.receiveReplayTransferMessage(staleTransferMessage)) {}
     lg::replay::KillcamServerCoordinatorConfig killcamConfig;
     killcamConfig.beforeTicks = 16U;
-    killcamConfig.afterTicks = 0U;
+    killcamConfig.afterTicks = 2U;
     killcamConfig.transferTimeoutMilliseconds = 4000U;
     killcamConfig.maximumSegmentBytes = 512U * 1024U;
     killcamConfig.packetsPerTick = 4U;
@@ -307,8 +307,11 @@ int main() {
         lg::replay::decodeDemo(*receivedBytes, decoded, &error) &&
         decoded.lethalEvents.size() == 1U &&
         decoded.lethalEvents.front().victim ==
-          static_cast<std::uint8_t>(livePlayer),
-      "coordinator UDP slice should decode the victim's lethal event"
+          static_cast<std::uint8_t>(livePlayer) &&
+        !decoded.ticks.empty() &&
+        decoded.ticks.back().tick ==
+          decoded.lethalEvents.front().tick + killcamConfig.afterTicks,
+      "coordinator UDP slice should include the requested after-death ticks"
     );
     if (receivedBytes.has_value()) {
       lg::replay::ReplayRuntimeConfig runtimeConfig;

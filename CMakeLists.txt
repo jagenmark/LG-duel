@@ -67,6 +67,7 @@ add_library(lg_duel_core
   src/replay/ReplayStorage.cpp
   src/replay/ReplayTransfer.cpp
   src/replay/ReplayTransferServer.cpp
+  src/replay/ClientKillcamCoordinator.cpp
   src/replay/KillcamClientReceiver.cpp
   src/replay/KillcamServerCoordinator.cpp
   src/scenario/LiveScenarioSession.cpp
@@ -74,6 +75,7 @@ add_library(lg_duel_core
   src/scenario/ScenarioRuntime.cpp
   src/scenario/ScenarioSchema.cpp
   src/server/BotAi.cpp
+  src/server/ReplayAutoRecordLifecycle.cpp
   src/server/ServerGame.cpp
   src/sim/Arena.cpp
   src/sim/ArenaBroadphase.cpp
