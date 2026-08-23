@@ -22,8 +22,17 @@ public:
   [[nodiscard]] const AimTrainerFrame& frame() const;
   [[nodiscard]] const std::vector<AimTrainerResult>& leaderboard() const;
   [[nodiscard]] const std::string& warning() const;
+  [[nodiscard]] std::size_t selectedGroupIndex() const;
 
+  void setRuntimeIdentity(
+    std::string mapName,
+    std::uint64_t mapIdentity,
+    std::uint64_t balanceIdentity
+  );
   [[nodiscard]] bool selectPreset(std::size_t index);
+  [[nodiscard]] bool selectGroup(std::size_t index);
+  [[nodiscard]] bool addGroup();
+  [[nodiscard]] bool removeSelectedGroup();
   void edit(AimScenario scenario);
   [[nodiscard]] AimTrainerStoreReply saveAs(std::string name);
   [[nodiscard]] AimTrainerStoreReply overwrite();
@@ -32,8 +41,11 @@ public:
   void tick(const UserCommand& command);
   [[nodiscard]] AimTrainerArmResult repeat();
   void abort();
+  void consumePresentationEvents();
 
 private:
+  void normalizeDraft();
+  void stampDraft();
   void refreshLeaderboard();
 
   AimTrainer& runtime_;
@@ -42,7 +54,12 @@ private:
   std::vector<AimTrainerResult> leaderboard_;
   AimScenario draft_;
   std::size_t selectedPreset_ = 0;
+  std::size_t selectedGroup_ = 0;
   std::string warning_;
+  std::string mapName_ = "aim_trainer";
+  std::uint64_t mapIdentity_ = 0;
+  std::uint64_t balanceIdentity_ = 0;
+  bool hasRuntimeIdentity_ = false;
   bool recordedCurrentResult_ = false;
 };
 

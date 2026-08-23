@@ -84,7 +84,9 @@ add_library(lg_duel_core
   src/sim/WeaponCatalog.cpp
   src/sim/WeaponRuntime.cpp
   src/trainer/AimTrainer.cpp
+  src/trainer/AimTrainerEditor.cpp
   src/trainer/AimTrainerMenu.cpp
+  src/trainer/AimTrainerPresentation.cpp
   src/trainer/AimTrainerStore.cpp
 )
 

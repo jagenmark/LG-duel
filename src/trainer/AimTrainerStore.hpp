@@ -16,6 +16,7 @@ struct AimTrainerStoreReply {
 struct AimTrainerPresetList {
   std::vector<AimScenario> presets;
   std::string warning;
+  bool safeToWrite = true;
 };
 
 // Owns only versioned local JSON below the SDL preference root supplied by the

@@ -657,6 +657,14 @@ Vec3 shotgunPelletDirection(
   );
 }
 
+Vec3 machineGunShotDirection(
+  Vec3 forward,
+  float spreadRadians,
+  std::uint32_t shotSeed
+) {
+  return spreadDirection(forward, spreadRadians, shotSeed);
+}
+
 bool tracePlayerCylinder(
   Vec3 origin,
   Vec3 direction,
@@ -1000,7 +1008,11 @@ WeaponFireResult simulateMachineGun(
   result.visualSeed = command.sequence;
   result.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
   const Vec3 forward = cameraForward(command.viewYawRadians, command.viewPitchRadians);
-  const Vec3 direction = spreadDirection(forward, tuning.spreadRadians, command.sequence);
+  const Vec3 direction = machineGunShotDirection(
+    forward,
+    tuning.spreadRadians,
+    command.sequence
+  );
   const WorldTrace worldTrace = traceWorld(arena, result.start, direction, tuning.range);
   result.end = worldTrace.end;
   result.fired = command.attack && attacker.health > 0;

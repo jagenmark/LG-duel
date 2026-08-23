@@ -517,6 +517,12 @@ struct HudRenderState {
   int miscMenuHoveredRow = -1;
   int miscMenuPressedRow = -1;
   std::string miscMenuFooter;
+  bool trainerMenuOpen = false;
+  std::vector<SettingsMenuItem> trainerMenuItems;
+  std::size_t trainerMenuScrollRows = 0;
+  int trainerMenuHoveredRow = -1;
+  int trainerMenuPressedRow = -1;
+  std::string trainerMenuFooter;
   bool showOpponentHealthBar = false;
   std::int32_t healthAmount = 100;
   DamageNumberPresentation damageNumbers;
@@ -592,6 +598,8 @@ struct TransientTracer {
 };
 
 enum class TransientEffectType : std::uint8_t {
+  TrainerOrbTarget,
+  TrainerWorkerTarget,
   RocketExplosionFlash,
   RocketExplosionCore,
   RocketExplosionHalo,

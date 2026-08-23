@@ -6,6 +6,7 @@
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <string_view>
 #include <utility>
 
 namespace lg {
@@ -26,6 +27,19 @@ namespace {
 
 [[nodiscard]] std::uint64_t mixFloat(std::uint64_t value, float input) {
   return mix(value, static_cast<std::uint64_t>(std::bit_cast<std::uint32_t>(input)));
+}
+
+[[nodiscard]] std::uint64_t mixString(std::uint64_t value, std::string_view input) {
+  value = mix(value, input.size());
+  for (const unsigned char byte : input) value = mix(value, byte);
+  return value;
+}
+
+[[nodiscard]] Weapon firstAllowedWeapon(const AimScenario& scenario) {
+  for (std::size_t index = 0; index < scenario.allowedWeapons.size(); ++index) {
+    if (scenario.allowedWeapons[index]) return static_cast<Weapon>(index);
+  }
+  return Weapon::LightningGun;
 }
 
 } // namespace
@@ -63,7 +77,7 @@ AimTrainerArmResult AimTrainer::arm(const AimScenario& scenario) {
   frame_.phase = AimTrainerPhase::Armed;
   frame_.player = startPlayer_;
   frame_.selectedWeapon = scenario.weaponPolicy == AimWeaponPolicy::Forced
-    ? scenario.forcedWeapon : Weapon::LightningGun;
+    ? scenario.forcedWeapon : firstAllowedWeapon(scenario);
   frame_.remainingTicks = scenario.durationTicks;
   frame_.message = "Scenario armed";
   return {true, {}};
@@ -85,6 +99,7 @@ const AimTrainerFrame& AimTrainer::tick(const UserCommand& suppliedCommand) {
   } else if (!scenario_.allowedWeapons[weaponIndex(command.weapon)]) {
     command.weapon = weapons_.selectedWeapon;
   }
+  decayWeaponRuntimeIcePools(weapons_.icePools, kFixedTickSeconds);
   if (scenario_.playerMovement == AimPlayerMovement::Locked) {
     frame_.player.viewYawRadians = command.viewYawRadians;
     frame_.player.viewPitchRadians = command.viewPitchRadians;
@@ -95,7 +110,15 @@ const AimTrainerFrame& AimTrainer::tick(const UserCommand& suppliedCommand) {
     frame_.player.crouched = false;
     frame_.player.sneaking = false;
   } else {
-    simulateMovement(frame_.player, command, arena_, movement_, kFixedTickSeconds);
+    simulateMovement(
+      frame_.player,
+      command,
+      arena_,
+      movement_,
+      weapons_.icePools,
+      balance_.icePool,
+      kFixedTickSeconds
+    );
   }
 
   for (TargetRuntime& target : targets_) {
@@ -103,7 +126,10 @@ const AimTrainerFrame& AimTrainer::tick(const UserCommand& suppliedCommand) {
       --target.respawnTicks;
       if (target.respawnTicks == 0U) respawnTarget(target);
     }
-    if (target.view.active) updateTargetMotion(target);
+    if (target.view.active) {
+      decayPlayerFreezeLevel(target.view.worker, balance_.freezeGun, kFixedTickSeconds);
+      updateTargetMotion(target);
+    }
   }
 
   std::vector<WeaponRuntimeTarget> targetSnapshot;
@@ -115,8 +141,15 @@ const AimTrainerFrame& AimTrainer::tick(const UserCommand& suppliedCommand) {
     weapons_, weaponConfig_, frame_.player, command, arena_, targetSnapshot,
     kFixedTickSeconds
   );
-  frame_.latestFire = fire.fire;
+  if (fire.fire.fired) {
+    frame_.pendingFires.push_back(fire.fire);
+    frame_.latestFire = fire.fire;
+    frame_.fireEventPending = true;
+  }
+  frame_.latestBeam = fire.beam;
   frame_.selectedWeapon = weapons_.selectedWeapon;
+  frame_.ammo = weapons_.ammo;
+  frame_.icePools = weapons_.icePools;
   applyHitBatch(fire);
   refreshTargetViews();
   frame_.projectiles.clear();
@@ -129,12 +162,21 @@ const AimTrainerFrame& AimTrainer::tick(const UserCommand& suppliedCommand) {
   }
 
   ++frame_.elapsedTicks;
-  frame_.remainingTicks = scenario_.durationTicks - frame_.elapsedTicks;
-  if (frame_.elapsedTicks >= scenario_.durationTicks) finishNaturally();
+  if (frame_.elapsedTicks >= scenario_.durationTicks) {
+    finishNaturally();
+  } else {
+    frame_.remainingTicks = scenario_.durationTicks - frame_.elapsedTicks;
+  }
   return frame_;
 }
 
 const AimTrainerFrame& AimTrainer::view() const { return frame_; }
+
+void AimTrainer::consumePresentationEvents() {
+  frame_.pendingFires.clear();
+  frame_.latestFire = {};
+  frame_.fireEventPending = false;
+}
 
 void AimTrainer::markStorageWarning(std::string message) {
   frame_.storageWarning = true;
@@ -159,10 +201,15 @@ std::uint64_t AimTrainer::scenarioFingerprint(const AimScenario& scenario) {
   result = mix(result, weaponIndex(scenario.forcedWeapon));
   result = mix(result, scenario.infiniteAmmo ? 1U : 0U);
   result = mix(result, static_cast<std::uint64_t>(scenario.scoreMode));
+  result = mix(result, scenario.hitScore);
+  result = mix(result, scenario.damageScorePerPoint);
+  result = mix(result, scenario.clearScore);
   result = mix(result, scenario.seed);
+  result = mixString(result, scenario.mapName);
   result = mix(result, scenario.mapIdentity);
   result = mix(result, scenario.balanceIdentity);
   for (bool allowed : scenario.allowedWeapons) result = mix(result, allowed ? 1U : 0U);
+  result = mix(result, scenario.groups.size());
   for (const AimTargetGroup& group : scenario.groups) {
     result = mix(result, static_cast<std::uint64_t>(group.visual));
     result = mix(result, static_cast<std::uint64_t>(group.life));
@@ -180,10 +227,86 @@ std::uint64_t AimTrainer::scenarioFingerprint(const AimScenario& scenario) {
     result = mixFloat(result, group.strafeDirection.x); result = mixFloat(result, group.strafeDirection.y); result = mixFloat(result, group.strafeDirection.z);
     result = mixFloat(result, group.strafeSpeed);
     result = mix(result, group.waypointTicks);
+    result = mix(result, group.fixedSpawns.size());
     for (Vec3 spawn : group.fixedSpawns) {
       result = mixFloat(result, spawn.x); result = mixFloat(result, spawn.y); result = mixFloat(result, spawn.z);
     }
   }
+  return result;
+}
+
+std::uint64_t AimTrainer::balanceFingerprint(
+  const BalanceConfig& balance,
+  const MovementTuning& movement
+) {
+  std::uint64_t result = 1469598103934665603ULL;
+  const auto addFloat = [&result](float value) { result = mixFloat(result, value); };
+  const auto addInt = [&result](auto value) {
+    result = mix(result, static_cast<std::uint64_t>(value));
+  };
+  const auto addLightning = [&](const auto& tuning) {
+    addFloat(tuning.range); addFloat(tuning.damagePerSecond); addFloat(tuning.fireHz);
+    addFloat(tuning.eyeHeight); addFloat(tuning.headshotMultiplier);
+  };
+  addLightning(balance.lightningGun);
+  addFloat(balance.lightningGun.knockbackPerSecond);
+  addLightning(balance.freezeGun);
+  addFloat(balance.freezeGun.freezePerSecond); addFloat(balance.freezeGun.decayPerSecond);
+  addFloat(balance.freezeGun.maxLevel); addFloat(balance.freezeGun.maxSlowFraction);
+  addFloat(balance.icePool.maxRadius); addFloat(balance.icePool.growthPerSecond);
+  addFloat(balance.icePool.lifetimeSeconds); addFloat(balance.icePool.friction);
+  addFloat(balance.icePool.slopeGravityScale); addFloat(balance.icePool.controlScale);
+  addFloat(balance.icePool.mergeDistance);
+  const auto addHitscan = [&](const HitscanTuning& tuning) {
+    addFloat(tuning.range); addInt(tuning.damage); addFloat(tuning.eyeHeight);
+    addFloat(tuning.knockback); addFloat(tuning.headshotMultiplier);
+  };
+  addHitscan(balance.railgun); addFloat(balance.sniperChargeSeconds);
+  addFloat(balance.sniperMaxDamageMultiplier); addInt(balance.railgunCooldownTicks);
+  addHitscan(balance.revolver); addInt(balance.revolverCooldownTicks);
+  addFloat(balance.machineGun.range); addInt(balance.machineGun.damage);
+  addFloat(balance.machineGun.eyeHeight); addFloat(balance.machineGun.knockback);
+  addFloat(balance.machineGun.spreadRadians); addFloat(balance.machineGun.headshotMultiplier);
+  addInt(balance.machineGunCooldownTicks);
+  addFloat(balance.shotgun.range); addInt(balance.shotgun.pelletCount);
+  addInt(balance.shotgun.damagePerPellet); addFloat(balance.shotgun.spreadRadians);
+  addFloat(balance.shotgun.eyeHeight); addFloat(balance.shotgun.knockback);
+  addFloat(balance.shotgun.headshotMultiplier); addInt(balance.shotgunCooldownTicks);
+  addFloat(balance.rocketLauncher.speed); addFloat(balance.rocketLauncher.radius);
+  addFloat(balance.rocketLauncher.directHitboxHalfExtentXY);
+  addFloat(balance.rocketLauncher.directHitboxHalfExtentZ);
+  addInt(balance.rocketLauncher.directDamage); addInt(balance.rocketLauncher.splashDamage);
+  addFloat(balance.rocketLauncher.knockback); addFloat(balance.rocketLauncher.eyeHeight);
+  addInt(balance.rocketLauncher.maxLifetimeTicks); addInt(balance.rocketLauncherCooldownTicks);
+  addFloat(balance.grenadeLauncher.speed); addFloat(balance.grenadeLauncher.verticalBoost);
+  addFloat(balance.grenadeLauncher.gravity); addFloat(balance.grenadeLauncher.bounceDamping);
+  addFloat(balance.grenadeLauncher.restSpeed); addFloat(balance.grenadeLauncher.bounceSoundMinSpeed);
+  addFloat(balance.grenadeLauncher.projectileRadius);
+  addFloat(balance.grenadeLauncher.projectileHitboxRadius);
+  addFloat(balance.grenadeLauncher.radius); addInt(balance.grenadeLauncher.directDamage);
+  addInt(balance.grenadeLauncher.splashDamage); addFloat(balance.grenadeLauncher.knockback);
+  addFloat(balance.grenadeLauncher.eyeHeight); addInt(balance.grenadeLauncher.fuseTicks);
+  addInt(balance.grenadeLauncher.cooldownTicks);
+  addFloat(balance.plasmaGun.speed); addFloat(balance.plasmaGun.radius);
+  addFloat(balance.plasmaGun.directHitboxHalfExtentXY);
+  addFloat(balance.plasmaGun.directHitboxHalfExtentZ); addInt(balance.plasmaGun.damage);
+  addFloat(balance.plasmaGun.knockback); addFloat(balance.plasmaGun.eyeHeight);
+  addInt(balance.plasmaGun.maxLifetimeTicks); addInt(balance.plasmaGun.cooldownTicks);
+  addInt(balance.weaponAmmo.infiniteAmmo ? 1U : 0U);
+  for (const std::int32_t ammo : balance.weaponAmmo.spawnAmmo) addInt(ammo);
+  addInt(balance.weaponPulloutTicks); addInt(balance.jumpPadRetriggerCooldownTicks);
+  addInt(balance.smallHealthPickupAmount); addInt(balance.largeHealthPickupAmount);
+  addInt(balance.smallHealthPickupCooldownTicks); addInt(balance.largeHealthPickupCooldownTicks);
+  addInt(movement.flightEnabled ? 1U : 0U); addFloat(movement.groundAcceleration);
+  addFloat(movement.airAcceleration); addFloat(movement.groundFriction);
+  addFloat(movement.stopSpeed); addFloat(movement.gravity); addFloat(movement.maxGroundSpeed);
+  addFloat(movement.maxAirSpeed); addFloat(movement.jumpImpulse);
+  addInt(movement.airControlEnabled ? 1U : 0U); addFloat(movement.dashTargetSpeed);
+  addFloat(movement.dashMaxSpeed); addFloat(movement.dashAcceleration);
+  addFloat(movement.dashDuration); addFloat(movement.dashCooldown);
+  addFloat(movement.dashGroundHopVelocity); addFloat(movement.dashAirHopVelocity);
+  addFloat(movement.flightAcceleration); addFloat(movement.maxFlightSpeed);
+  addFloat(movement.flightDamping); addFloat(movement.flightGravityCancel);
   return result;
 }
 
@@ -196,8 +319,13 @@ bool AimTrainer::validateScenario(const AimScenario& scenario, std::string& erro
     error = "duration must be between one tick and one hour";
     return false;
   }
-  if (scenario.groups.empty() || scenario.groups.size() > 64U) {
+  if (scenario.groups.empty() || scenario.groups.size() > AimScenario::kMaxGroups) {
     error = "scenario needs 1 to 64 target groups";
+    return false;
+  }
+  if (scenario.hitScore == 0U || scenario.damageScorePerPoint == 0U ||
+      scenario.clearScore == 0U) {
+    error = "score values must be positive";
     return false;
   }
   if (scenario.weaponPolicy == AimWeaponPolicy::Forced &&
@@ -211,11 +339,18 @@ bool AimTrainer::validateScenario(const AimScenario& scenario, std::string& erro
     error = "enable at least one weapon";
     return false;
   }
+  std::size_t targetCount = 0;
   for (const AimTargetGroup& group : scenario.groups) {
-    if (group.count == 0U || group.count > 64U || !finitePositive(group.radius)) {
+    if (group.name.empty()) {
+      error = "target group name is required";
+      return false;
+    }
+    if (group.count == 0U || group.count > AimScenario::kMaxTargetsPerGroup ||
+        !finitePositive(group.radius)) {
       error = "target count and radius must be positive";
       return false;
     }
+    targetCount += group.count;
     if (group.life == AimTargetLife::Health && group.health <= 0) {
       error = "health targets need positive health";
       return false;
@@ -233,6 +368,10 @@ bool AimTrainer::validateScenario(const AimScenario& scenario, std::string& erro
       return false;
     }
   }
+  if (targetCount > AimScenario::kMaxTargets) {
+    error = "scenario has too many targets";
+    return false;
+  }
   return true;
 }
 
@@ -241,10 +380,11 @@ void AimTrainer::resetRun() {
   frame_.phase = AimTrainerPhase::Running;
   frame_.player = startPlayer_;
   frame_.selectedWeapon = scenario_.weaponPolicy == AimWeaponPolicy::Forced
-    ? scenario_.forcedWeapon : Weapon::LightningGun;
+    ? scenario_.forcedWeapon : firstAllowedWeapon(scenario_);
   frame_.remainingTicks = scenario_.durationTicks;
-  weaponConfig_ = {balance_, scenario_.infiniteAmmo, WeaponRuntimeSwitchingMode::Crazy};
+  weaponConfig_ = {balance_, scenario_.infiniteAmmo, WeaponRuntimeSwitchingMode::Ql};
   weapons_ = makeWeaponRuntimeState(weaponConfig_, frame_.selectedWeapon);
+  frame_.ammo = weapons_.ammo;
   targets_.clear();
   randomState_ = static_cast<std::uint32_t>(scenario_.seed) ^
     static_cast<std::uint32_t>(scenario_.seed >> 32U);
@@ -258,6 +398,7 @@ void AimTrainer::resetRun() {
       target.view.visual = scenario_.groups[groupIndex].visual;
       target.view.color = scenario_.groups[groupIndex].color;
       target.view.radius = scenario_.groups[groupIndex].radius;
+      target.spawnOrdinal = index;
       respawnTarget(target);
       targets_.push_back(target);
     }
@@ -308,7 +449,10 @@ void AimTrainer::updateTargetMotion(TargetRuntime& target) {
     ? normalize(group.strafeDirection) * target.strafeDirectionSign
     : normalize(target.waypoint - target.view.position);
   if (length(direction) <= 0.00001F) return;
-  target.view.position += direction * group.strafeSpeed * kFixedTickSeconds;
+  const float movementScale = target.view.visual == AimTargetVisual::Worker
+    ? freezeMovementScale(target.view.worker, balance_.freezeGun)
+    : 1.0F;
+  target.view.position += direction * group.strafeSpeed * movementScale * kFixedTickSeconds;
   const Vec3 unclamped = target.view.position;
   target.view.position.x = std::clamp(target.view.position.x, group.randomMinimum.x, group.randomMaximum.x);
   target.view.position.y = std::clamp(target.view.position.y, group.randomMinimum.y, group.randomMaximum.y);
@@ -354,25 +498,16 @@ void AimTrainer::refreshTargetViews() {
 }
 
 void AimTrainer::applyHitBatch(const WeaponRuntimeTick& tick) {
-  if (tick.acceptedPellets > 0U) {
-    frame_.stats.attempts += tick.acceptedPellets;
-    frame_.stats.pelletAttempts += tick.acceptedPellets;
-    frame_.stats.pelletHits += tick.hitPellets;
-  } else if (tick.acceptedBeamPulses > 0U) {
-    frame_.stats.attempts += tick.acceptedBeamPulses;
-    frame_.stats.beamAttempts += tick.acceptedBeamPulses;
-    frame_.stats.beamHits += tick.hitBeamPulses;
-  } else if (tick.acceptedProjectileLaunches > 0U || tick.damagingProjectileHits > 0U) {
-    frame_.stats.attempts += tick.acceptedProjectileLaunches;
-    frame_.stats.projectileAttempts += tick.acceptedProjectileLaunches;
-    frame_.stats.projectileHits += tick.damagingProjectileHits;
-  } else {
-    frame_.stats.attempts += tick.acceptedShots;
-  }
-  if (tick.acceptedPellets > 0U) frame_.stats.hits += tick.hitPellets;
-  else if (tick.acceptedBeamPulses > 0U) frame_.stats.hits += tick.hitBeamPulses;
-  else if (tick.acceptedProjectileLaunches > 0U || tick.damagingProjectileHits > 0U) frame_.stats.hits += tick.damagingProjectileHits;
-  else frame_.stats.hits += static_cast<std::uint32_t>(tick.hits.size());
+  frame_.stats.pelletAttempts += tick.acceptedPellets;
+  frame_.stats.pelletHits += tick.hitPellets;
+  frame_.stats.beamAttempts += tick.acceptedBeamPulses;
+  frame_.stats.beamHits += tick.hitBeamPulses;
+  frame_.stats.projectileAttempts += tick.acceptedProjectileLaunches;
+  frame_.stats.projectileHits += tick.damagingProjectileHits;
+  frame_.stats.attempts += tick.acceptedPellets + tick.acceptedBeamPulses +
+    tick.acceptedProjectileLaunches + tick.acceptedInstantShots;
+  frame_.stats.hits += tick.hitPellets + tick.hitBeamPulses +
+    tick.damagingProjectileHits + tick.hitInstantShots;
 
   for (const WeaponRuntimeHit& hit : tick.hits) {
     auto target = std::find_if(targets_.begin(), targets_.end(),
@@ -380,6 +515,13 @@ void AimTrainer::applyHitBatch(const WeaponRuntimeTick& tick) {
     if (target == targets_.end() || !target->view.active) continue;
     const AimTargetGroup& group = scenario_.groups[target->view.groupIndex];
     const std::uint32_t damage = static_cast<std::uint32_t>(std::max(0, hit.damage));
+    if (target->view.visual == AimTargetVisual::Worker && hit.freezeApplied > 0.0F) {
+      target->view.worker.freezeLevel = std::clamp(
+        target->view.worker.freezeLevel + hit.freezeApplied,
+        0.0F,
+        std::max(0.0F, balance_.freezeGun.maxLevel)
+      );
+    }
     frame_.stats.damage += damage;
     bool cleared = false;
     if (group.life == AimTargetLife::OneHit) {
@@ -389,12 +531,17 @@ void AimTrainer::applyHitBatch(const WeaponRuntimeTick& tick) {
       cleared = target->view.health <= 0;
     }
     if (scenario_.scoreMode == AimScoreMode::Hit) {
-      frame_.stats.score += hit.pellets > 0U ? hit.pellets : 1U;
+      frame_.stats.score += static_cast<std::uint64_t>(scenario_.hitScore) *
+        hit.scoringHits;
     }
-    if (scenario_.scoreMode == AimScoreMode::Damage) frame_.stats.score += damage;
+    if (scenario_.scoreMode == AimScoreMode::Damage) {
+      frame_.stats.score += static_cast<std::uint64_t>(scenario_.damageScorePerPoint) * damage;
+    }
     if (cleared) {
       ++frame_.stats.clears;
-      if (scenario_.scoreMode == AimScoreMode::Clear) ++frame_.stats.score;
+      if (scenario_.scoreMode == AimScoreMode::Clear) {
+        frame_.stats.score += scenario_.clearScore;
+      }
       target->view.active = false;
       target->respawnTicks = group.respawnDelayTicks;
       if (target->respawnTicks == 0U) respawnTarget(*target);

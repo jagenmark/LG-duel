@@ -49,6 +49,10 @@ struct AimTargetGroup {
 
 struct AimScenario {
   static constexpr std::uint32_t kVersion = 1;
+  static constexpr std::size_t kMaxGroups = 64;
+  static constexpr std::uint32_t kMaxTargetsPerGroup = 64;
+  static constexpr std::size_t kMaxTargets =
+    kMaxGroups * static_cast<std::size_t>(kMaxTargetsPerGroup);
   std::uint32_t version = kVersion;
   std::string name = "60s Orb";
   std::uint32_t durationTicks = 7500;
@@ -60,10 +64,13 @@ struct AimScenario {
   };
   bool infiniteAmmo = true;
   AimScoreMode scoreMode = AimScoreMode::Hit;
+  std::uint32_t hitScore = 1;
+  std::uint32_t damageScorePerPoint = 1;
+  std::uint32_t clearScore = 1;
   std::uint64_t seed = 1;
   std::string mapName = "aim_trainer";
-  std::uint32_t mapIdentity = 0;
-  std::uint32_t balanceIdentity = 0;
+  std::uint64_t mapIdentity = 0;
+  std::uint64_t balanceIdentity = 0;
   std::vector<AimTargetGroup> groups = {AimTargetGroup{}};
 };
 
@@ -124,7 +131,12 @@ struct AimTrainerFrame {
   AimTrainerStats stats = {};
   std::vector<AimTargetView> targets;
   std::vector<AimTrainerProjectileView> projectiles;
+  std::vector<WeaponFireResult> pendingFires;
+  IcePoolArray icePools = {};
   WeaponFireResult latestFire = {};
+  LightningGunResult latestBeam = {};
+  WeaponAmmoArray ammo = {};
+  bool fireEventPending = false;
   bool naturalCompletion = false;
   bool storageWarning = false;
   std::string message;
@@ -146,10 +158,15 @@ public:
   [[nodiscard]] bool start();
   [[nodiscard]] const AimTrainerFrame& tick(const UserCommand& command);
   [[nodiscard]] const AimTrainerFrame& view() const;
+  void consumePresentationEvents();
   void markStorageWarning(std::string message);
   void abort();
 
   [[nodiscard]] static std::uint64_t scenarioFingerprint(const AimScenario& scenario);
+  [[nodiscard]] static std::uint64_t balanceFingerprint(
+    const BalanceConfig& balance,
+    const MovementTuning& movement = {}
+  );
 
 private:
   struct TargetRuntime {

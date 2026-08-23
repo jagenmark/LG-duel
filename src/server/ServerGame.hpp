@@ -323,6 +323,7 @@ private:
   std::uint64_t emergencyPlayerCollisionRepairCount_ = 0;
   std::uint64_t unresolvedPlayerCollisionInvariantCount_ = 0;
   MovementTuning movementTuning_ = {};
+  BalanceConfig balanceConfig_ = {};
   float playerSizeScaleXY_ = 1.0F;
   float playerSizeScaleZ_ = 1.0F;
   float lightningKnockback_ = 1000.0F;

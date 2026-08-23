@@ -7,6 +7,8 @@
 namespace lg {
 namespace {
 
+constexpr float kWeaponRuntimeProjectileEpsilon = 0.0001F;
+
 [[nodiscard]] bool raySphere(
   Vec3 origin,
   Vec3 direction,
@@ -77,6 +79,92 @@ namespace {
   return result;
 }
 
+[[nodiscard]] bool traceProjectileTarget(
+  Vec3 origin,
+  Vec3 direction,
+  const RocketProjectile& projectile,
+  const BalanceConfig& balance,
+  const WeaponRuntimeTarget& target,
+  float maximumDistance,
+  float& distance
+) {
+  if (!target.active) return false;
+  if (target.shape == WeaponRuntimeTargetShape::Sphere) {
+    return raySphere(
+      origin,
+      direction,
+      target.center,
+      target.radius + projectile.projectileHitboxRadius,
+      maximumDistance,
+      distance
+    );
+  }
+  if (
+    projectile.weapon == Weapon::RocketLauncher ||
+    projectile.weapon == Weapon::PlasmaGun
+  ) {
+    return tracePlayerProjectileDirectAabb(
+      origin,
+      direction,
+      target.player,
+      maximumDistance,
+      weaponRuntimeProjectileDirectAabbHalfExtents(
+        projectile.weapon,
+        target.player,
+        balance
+      ),
+      distance
+    );
+  }
+  PlayerState expanded = target.player;
+  expanded.bounds.radius += projectile.projectileHitboxRadius;
+  expanded.bounds.halfHeight += projectile.projectileHitboxRadius;
+  return tracePlayerCylinder(origin, direction, expanded, maximumDistance, distance);
+}
+
+[[nodiscard]] std::size_t nearestProjectileTarget(
+  Vec3 origin,
+  Vec3 direction,
+  const RocketProjectile& projectile,
+  const BalanceConfig& balance,
+  std::span<const WeaponRuntimeTarget> targets,
+  float maximumDistance,
+  float& hitDistance
+) {
+  std::size_t result = targets.size();
+  float bestDistance = maximumDistance;
+  for (std::size_t index = 0; index < targets.size(); ++index) {
+    float candidateDistance = 0.0F;
+    if (!traceProjectileTarget(
+          origin,
+          direction,
+          projectile,
+          balance,
+          targets[index],
+          bestDistance,
+          candidateDistance
+        )) {
+      continue;
+    }
+    result = index;
+    bestDistance = candidateDistance;
+  }
+  hitDistance = bestDistance;
+  return result;
+}
+
+[[nodiscard]] bool splashCanReachSphere(
+  const Arena& arena,
+  Vec3 explosionPosition,
+  Vec3 center
+) {
+  const Vec3 segment = explosionPosition - center;
+  const float distance = length(segment);
+  if (distance <= kWeaponRuntimeProjectileEpsilon) return true;
+  const WorldTrace trace = traceWorld(arena, center, segment / distance, distance);
+  return trace.distance >= distance - kWeaponRuntimeProjectileEpsilon;
+}
+
 [[nodiscard]] float eyeHeightFor(Weapon weapon, const BalanceConfig& balance) {
   switch (weapon) {
   case Weapon::LightningGun: return balance.lightningGun.eyeHeight;
@@ -137,6 +225,37 @@ namespace {
   return 0;
 }
 
+[[nodiscard]] float headshotMultiplierFor(
+  Weapon weapon,
+  const BalanceConfig& balance
+) {
+  switch (weapon) {
+  case Weapon::LightningGun: return balance.lightningGun.headshotMultiplier;
+  case Weapon::FreezeGun: return balance.freezeGun.headshotMultiplier;
+  case Weapon::Railgun: return balance.railgun.headshotMultiplier;
+  case Weapon::Revolver: return balance.revolver.headshotMultiplier;
+  case Weapon::MachineGun: return balance.machineGun.headshotMultiplier;
+  case Weapon::Shotgun: return balance.shotgun.headshotMultiplier;
+  case Weapon::RocketLauncher:
+  case Weapon::GrenadeLauncher:
+  case Weapon::PlasmaGun: return 1.0F;
+  }
+  return 1.0F;
+}
+
+[[nodiscard]] int headshotDamage(
+  int damage,
+  bool headshot,
+  Weapon weapon,
+  const BalanceConfig& balance
+) {
+  return headshot
+    ? std::max(0, static_cast<int>(std::lround(
+        static_cast<float>(damage) * headshotMultiplierFor(weapon, balance)
+      )))
+    : damage;
+}
+
 [[nodiscard]] bool isBeam(Weapon weapon) {
   return weapon == Weapon::LightningGun || weapon == Weapon::FreezeGun;
 }
@@ -144,27 +263,34 @@ namespace {
 void addHit(
   WeaponRuntimeTick& tick,
   const WeaponRuntimeTarget& target,
+  Weapon weapon,
   int damage,
   bool headshot,
-  std::uint16_t pellets = 0
+  float freezeApplied = 0.0F,
+  std::uint16_t pellets = 0,
+  bool direct = false
 ) {
   for (WeaponRuntimeHit& hit : tick.hits) {
     if (hit.targetId == target.id) {
       hit.damage += damage;
+      hit.freezeApplied += freezeApplied;
       hit.pellets = static_cast<std::uint16_t>(hit.pellets + pellets);
+      hit.scoringHits += pellets > 0U ? pellets : 1U;
       hit.headshot = hit.headshot || headshot;
+      hit.direct = hit.direct || direct;
       return;
     }
   }
-  tick.hits.push_back({target.id, damage, pellets, headshot});
-}
-
-[[nodiscard]] bool hasAmmo(
-  const WeaponRuntimeState& state,
-  const WeaponRuntimeConfig& config,
-  Weapon weapon
-) {
-  return hasWeaponRuntimeAmmo(state.ammo, weapon, config.infiniteAmmo);
+  tick.hits.push_back({
+    target.id,
+    weapon,
+    damage,
+    freezeApplied,
+    pellets,
+    pellets > 0U ? pellets : 1U,
+    headshot,
+    direct,
+  });
 }
 
 void consumeAmmo(
@@ -182,42 +308,48 @@ void addProjectile(
   const UserCommand& command,
   Weapon weapon
 ) {
-  const float eyeHeight = eyeHeightFor(weapon, balance);
-  float speed = 0.0F;
-  float radius = 0.0F;
-  if (weapon == Weapon::RocketLauncher) {
-    speed = balance.rocketLauncher.speed;
-    radius = balance.rocketLauncher.radius;
-  } else if (weapon == Weapon::GrenadeLauncher) {
-    speed = balance.grenadeLauncher.speed;
-    radius = balance.grenadeLauncher.projectileRadius;
-  } else {
-    speed = balance.plasmaGun.speed;
-    radius = balance.plasmaGun.radius;
-  }
-  RocketProjectile projectile;
-  projectile.active = true;
-  projectile.sequence = state.nextProjectileSequence++;
-  projectile.weapon = weapon;
-  projectile.position = weaponMuzzlePosition(attacker, eyeHeight);
-  projectile.previousPosition = projectile.position;
-  projectile.velocity = cameraForward(command.viewYawRadians, command.viewPitchRadians) * speed;
-  projectile.projectileRadius = radius;
-  state.projectiles.push_back(projectile);
+  state.projectiles.push_back(makeWeaponRuntimeProjectile(
+    0U, state.nextProjectileSequence++, weapon, attacker, command, balance
+  ));
 }
 
 void advanceProjectiles(
   WeaponRuntimeState& state,
   const WeaponRuntimeConfig& config,
+  PlayerState& attacker,
   const Arena& arena,
   std::span<const WeaponRuntimeTarget> targets,
   float fixedDt,
   WeaponRuntimeTick& result
 ) {
+  const auto radiusFor = [&config](Weapon weapon) {
+    if (weapon == Weapon::GrenadeLauncher) return config.balance.grenadeLauncher.radius;
+    if (weapon == Weapon::PlasmaGun) return config.balance.plasmaGun.radius;
+    return config.balance.rocketLauncher.radius;
+  };
+  const auto directDamageFor = [&config](Weapon weapon) {
+    if (weapon == Weapon::GrenadeLauncher) return config.balance.grenadeLauncher.directDamage;
+    if (weapon == Weapon::PlasmaGun) return config.balance.plasmaGun.damage;
+    return config.balance.rocketLauncher.directDamage;
+  };
+  const auto splashDamageFor = [&config](Weapon weapon) {
+    if (weapon == Weapon::GrenadeLauncher) return config.balance.grenadeLauncher.splashDamage;
+    if (weapon == Weapon::PlasmaGun) return config.balance.plasmaGun.damage;
+    return config.balance.rocketLauncher.splashDamage;
+  };
+  const auto knockbackFor = [&config](Weapon weapon) {
+    if (weapon == Weapon::GrenadeLauncher) return config.balance.grenadeLauncher.knockback;
+    if (weapon == Weapon::PlasmaGun) return config.balance.plasmaGun.knockback;
+    return config.balance.rocketLauncher.knockback;
+  };
   for (RocketProjectile& projectile : state.projectiles) {
     if (!projectile.active) continue;
     projectile.previousPosition = projectile.position;
-    if (projectile.weapon == Weapon::GrenadeLauncher) {
+    const bool grenade = projectile.weapon == Weapon::GrenadeLauncher;
+    if (grenade && projectile.resting) {
+      ++projectile.ageTicks;
+      if (projectile.ageTicks < config.balance.grenadeLauncher.fuseTicks) continue;
+    } else if (grenade) {
       projectile.velocity.z -= config.balance.grenadeLauncher.gravity * fixedDt;
     }
     const Vec3 travel = projectile.velocity * fixedDt;
@@ -225,30 +357,104 @@ void advanceProjectiles(
     const Vec3 direction = distance > 0.00001F ? travel / distance : Vec3{};
     const WorldTrace world = traceWorld(arena, projectile.position, direction, distance);
     float hitDistance = world.distance;
-    const float maximumTargetDistance = hitDistance;
-    bool headshot = false;
-    const std::size_t targetIndex = nearestTarget(
-      projectile.position, direction, targets, maximumTargetDistance, hitDistance, headshot
-    );
-    if (targetIndex < targets.size()) {
-      const int damage = damageFor(projectile.weapon, config.balance);
-      addHit(result, targets[targetIndex], damage, headshot);
-      ++result.damagingProjectileHits;
-      projectile.active = false;
-      continue;
+    const bool directEnabled = !grenade || projectile.projectileHitboxRadius > 0.0F;
+    const std::size_t directTarget = directEnabled
+      ? nearestProjectileTarget(
+          projectile.position,
+          direction,
+          projectile,
+          config.balance,
+          targets,
+          hitDistance,
+          hitDistance
+        )
+      : targets.size();
+    bool explode = directTarget < targets.size();
+    Vec3 explosionPosition = explode
+      ? projectile.position + direction * hitDistance
+      : projectile.position + travel;
+    if (!explode && world.hit) {
+      explosionPosition = world.end;
+      if (grenade) {
+        const WeaponRuntimeGrenadeBounce bounce = bounceWeaponRuntimeGrenade(
+          projectile.velocity, world.normal, config.balance.grenadeLauncher
+        );
+        projectile.velocity = bounce.velocity;
+        projectile.resting = bounce.resting;
+        projectile.position = world.end + world.normal * 0.0002F;
+        ++projectile.ageTicks;
+        if (projectile.ageTicks < config.balance.grenadeLauncher.fuseTicks) continue;
+      }
+      explode = true;
     }
-    if (world.hit) {
-      projectile.active = false;
-      continue;
-    }
-    projectile.position += travel;
     ++projectile.ageTicks;
-    const std::uint32_t maxLife = projectile.weapon == Weapon::PlasmaGun
-      ? config.balance.plasmaGun.maxLifetimeTicks
-      : projectile.weapon == Weapon::RocketLauncher
-        ? config.balance.rocketLauncher.maxLifetimeTicks
-        : config.balance.grenadeLauncher.fuseTicks;
-    if (projectile.ageTicks >= maxLife) projectile.active = false;
+    explode = explode ||
+      projectile.ageTicks >= weaponRuntimeProjectileMaxLifetime(projectile.weapon, config.balance);
+    if (!explode) {
+      projectile.position += travel;
+      continue;
+    }
+
+    const float radius = radiusFor(projectile.weapon);
+    const int splashDamage = splashDamageFor(projectile.weapon);
+    std::uint32_t damagingTargets = 0;
+    for (std::size_t index = 0; index < targets.size(); ++index) {
+      const WeaponRuntimeTarget& target = targets[index];
+      if (!target.active) continue;
+      const float distanceToTarget = target.shape == WeaponRuntimeTargetShape::Sphere
+        ? std::max(0.0F, length(target.center - explosionPosition) - target.radius)
+        : weaponRuntimePlayerCylinderDistance(explosionPosition, target.player);
+      if (distanceToTarget > radius && index != directTarget) continue;
+      if (
+        index != directTarget &&
+        !(target.shape == WeaponRuntimeTargetShape::Sphere
+          ? splashCanReachSphere(arena, explosionPosition, target.center)
+          : weaponRuntimeSplashCanReachPlayer(arena, explosionPosition, target.player))
+      ) {
+        continue;
+      }
+      const float falloff = 1.0F - distanceToTarget / std::max(0.001F, radius);
+      int damage = static_cast<int>(std::ceil(static_cast<float>(splashDamage) * falloff));
+      if (index == directTarget) damage = std::max(damage, directDamageFor(projectile.weapon));
+      if (damage <= 0) continue;
+      addHit(
+        result,
+        target,
+        projectile.weapon,
+        damage,
+        false,
+        0.0F,
+        0U,
+        index == directTarget
+      );
+      ++damagingTargets;
+    }
+    result.damagingProjectileHits += damagingTargets;
+
+    const float selfDistance = weaponRuntimePlayerCylinderDistance(
+      explosionPosition,
+      attacker
+    );
+    if (
+      selfDistance <= radius &&
+      attacker.health > 0 &&
+      weaponRuntimeSplashCanReachPlayer(arena, explosionPosition, attacker)
+    ) {
+      const float falloff = 1.0F - selfDistance / std::max(0.001F, radius);
+      const int nominal = static_cast<int>(std::ceil(
+        static_cast<float>(splashDamage) * falloff
+      ));
+      const int selfDamage =
+        (nominal * static_cast<int>(config.selfDamagePercent) + 50) / 100;
+      attacker.health = std::max(0, attacker.health - selfDamage);
+      Vec3 knockbackDirection = normalize(attacker.position - explosionPosition);
+      if (length(knockbackDirection) <= 0.0001F) {
+        knockbackDirection = normalize(projectile.velocity);
+      }
+      attacker.velocity += knockbackDirection * knockbackFor(projectile.weapon) *
+        (static_cast<float>(nominal) / static_cast<float>(std::max(1, splashDamage)));
+    }
+    projectile.active = false;
   }
   state.projectiles.erase(
     std::remove_if(state.projectiles.begin(), state.projectiles.end(),
@@ -277,6 +483,15 @@ bool canSwitchWeaponRuntime(
     currentWeaponCooldownTicks == 0U;
 }
 
+std::uint32_t weaponRuntimeSwitchBlockingCooldown(
+  Weapon weapon,
+  std::uint32_t cooldownTicks
+) {
+  // Normal play lets Plasma Gun switch at once in QL mode while its short
+  // refire timer keeps running. Local modes use the same switch rule.
+  return weapon == Weapon::PlasmaGun ? 0U : cooldownTicks;
+}
+
 bool hasWeaponRuntimeAmmo(
   const WeaponAmmoArray& ammo,
   Weapon weapon,
@@ -297,6 +512,242 @@ bool consumeWeaponRuntimeAmmo(
   return true;
 }
 
+std::uint32_t weaponRuntimeCooldownTicks(
+  Weapon weapon,
+  const BalanceConfig& balance
+) {
+  return cooldownFor(weapon, balance);
+}
+
+WeaponRuntimeSwitchResult requestWeaponRuntimeSwitch(
+  Weapon selectedWeapon,
+  Weapon requestedWeapon,
+  WeaponRuntimeSwitchingMode switchingMode,
+  std::uint32_t selectedWeaponCooldownTicks,
+  std::uint32_t currentPulloutTicks,
+  std::uint32_t pulloutDurationTicks
+) {
+  WeaponRuntimeSwitchResult result{selectedWeapon, currentPulloutTicks, false};
+  if (requestedWeapon == selectedWeapon ||
+      !canSwitchWeaponRuntime(switchingMode, selectedWeaponCooldownTicks)) {
+    return result;
+  }
+  result.selectedWeapon = requestedWeapon;
+  result.switched = true;
+  result.pulloutTicks = switchingMode == WeaponRuntimeSwitchingMode::Ql
+    ? pulloutDurationTicks : 0U;
+  return result;
+}
+
+bool canFireWeaponRuntime(
+  WeaponRuntimeSwitchingMode switchingMode,
+  std::uint32_t pulloutTicks,
+  const WeaponAmmoArray& ammo,
+  Weapon weapon,
+  bool infiniteAmmo
+) {
+  return (switchingMode != WeaponRuntimeSwitchingMode::Ql || pulloutTicks == 0U) &&
+    hasWeaponRuntimeAmmo(ammo, weapon, infiniteAmmo);
+}
+
+void consumeWeaponRuntimeBeamAmmo(
+  WeaponAmmoArray& ammo,
+  Weapon weapon,
+  bool infiniteAmmo,
+  double& ammoCredit,
+  float fireHz,
+  float fixedDt
+) {
+  if (infiniteAmmo) return;
+  std::int32_t& amount = ammo[weaponIndex(weapon)];
+  if (amount <= 0) return;
+  const double rate = static_cast<double>(std::max(1.0F, fireHz));
+  ammoCredit = std::min(ammoCredit, rate);
+  const int requested = static_cast<int>(std::floor(ammoCredit));
+  if (requested > 0) {
+    const int consumed = std::min(requested, amount);
+    amount -= consumed;
+    ammoCredit -= static_cast<double>(consumed);
+  }
+  ammoCredit += rate * static_cast<double>(fixedDt);
+}
+
+RocketProjectile makeWeaponRuntimeProjectile(
+  std::uint8_t owner,
+  std::uint32_t sequence,
+  Weapon weapon,
+  const PlayerState& attacker,
+  const UserCommand& command,
+  const BalanceConfig& balance
+) {
+  const bool grenade = weapon == Weapon::GrenadeLauncher;
+  const bool plasma = weapon == Weapon::PlasmaGun;
+  const float speed = grenade ? balance.grenadeLauncher.speed :
+    plasma ? balance.plasmaGun.speed : balance.rocketLauncher.speed;
+  RocketProjectile projectile;
+  projectile.active = true;
+  projectile.owner = owner;
+  projectile.sequence = sequence == 0U ? 1U : sequence;
+  projectile.weapon = weapon;
+  projectile.position = weaponMuzzlePosition(attacker, eyeHeightFor(weapon, balance));
+  projectile.previousPosition = projectile.position;
+  projectile.projectileRadius = grenade ? balance.grenadeLauncher.projectileRadius : 0.0F;
+  projectile.projectileHitboxRadius = grenade
+    ? balance.grenadeLauncher.projectileHitboxRadius : 0.0F;
+  projectile.velocity = cameraForward(
+    command.viewYawRadians, command.viewPitchRadians
+  ) * speed;
+  if (grenade) projectile.velocity.z += balance.grenadeLauncher.verticalBoost;
+  return projectile;
+}
+
+std::uint32_t weaponRuntimeProjectileMaxLifetime(
+  Weapon weapon,
+  const BalanceConfig& balance
+) {
+  if (weapon == Weapon::GrenadeLauncher) return balance.grenadeLauncher.fuseTicks;
+  if (weapon == Weapon::PlasmaGun) return balance.plasmaGun.maxLifetimeTicks;
+  return balance.rocketLauncher.maxLifetimeTicks;
+}
+
+WeaponRuntimeGrenadeBounce bounceWeaponRuntimeGrenade(
+  Vec3 velocity,
+  Vec3 normal,
+  const GrenadeLauncherTuning& tuning
+) {
+  if (dot(velocity, normal) > 0.0F) normal *= -1.0F;
+  const float normalVelocity = dot(velocity, normal);
+  WeaponRuntimeGrenadeBounce result;
+  result.impactSpeed = std::fabs(normalVelocity);
+  result.velocity = normalVelocity < 0.0F
+    ? (velocity - normal * (2.0F * normalVelocity)) * tuning.bounceDamping
+    : velocity * tuning.bounceDamping;
+  result.resting = normal.z > 0.5F && length(result.velocity) <= tuning.restSpeed;
+  if (result.resting) result.velocity = {};
+  return result;
+}
+
+float weaponRuntimePlayerCylinderDistance(Vec3 point, const PlayerState& player) {
+  const float radial = std::max(
+    0.0F,
+    std::hypot(point.x - player.position.x, point.y - player.position.y) -
+      player.bounds.radius
+  );
+  const float vertical = std::max(
+    0.0F,
+    std::fabs(point.z - player.position.z) - player.bounds.halfHeight
+  );
+  return std::hypot(radial, vertical);
+}
+
+Vec3 weaponRuntimeProjectileDirectAabbHalfExtents(
+  Weapon weapon,
+  const PlayerState& target,
+  const BalanceConfig& balance
+) {
+  constexpr CollisionBounds defaultBounds = {};
+  const float scaleXY = target.bounds.radius /
+    std::max(0.0001F, defaultBounds.radius);
+  const float scaleZ = target.bounds.halfHeight /
+    std::max(0.0001F, defaultBounds.halfHeight);
+  const float baseXY = weapon == Weapon::PlasmaGun
+    ? balance.plasmaGun.directHitboxHalfExtentXY
+    : balance.rocketLauncher.directHitboxHalfExtentXY;
+  const float baseZ = weapon == Weapon::PlasmaGun
+    ? balance.plasmaGun.directHitboxHalfExtentZ
+    : balance.rocketLauncher.directHitboxHalfExtentZ;
+  return {baseXY * scaleXY, baseXY * scaleXY, baseZ * scaleZ};
+}
+
+bool weaponRuntimePointInsidePlayerDirectAabb(
+  Vec3 point,
+  const PlayerState& player,
+  Vec3 halfExtents
+) {
+  const Vec3 relative = point - player.position;
+  return
+    std::fabs(relative.x) <= halfExtents.x + kWeaponRuntimeProjectileEpsilon &&
+    std::fabs(relative.y) <= halfExtents.y + kWeaponRuntimeProjectileEpsilon &&
+    std::fabs(relative.z) <= halfExtents.z + kWeaponRuntimeProjectileEpsilon;
+}
+
+bool weaponRuntimeSplashCanReachPlayer(
+  const Arena& arena,
+  Vec3 explosionPosition,
+  const PlayerState& player
+) {
+  const float sideOffset = player.bounds.radius * 0.75F;
+  const std::array<Vec3, 5> targetPoints = {{
+    player.position,
+    player.position + Vec3{sideOffset, 0.0F, 0.0F},
+    player.position + Vec3{-sideOffset, 0.0F, 0.0F},
+    player.position + Vec3{0.0F, sideOffset, 0.0F},
+    player.position + Vec3{0.0F, -sideOffset, 0.0F},
+  }};
+  for (const Vec3 targetPoint : targetPoints) {
+    const Vec3 segment = explosionPosition - targetPoint;
+    const float distance = length(segment);
+    if (distance <= kWeaponRuntimeProjectileEpsilon) return true;
+    const WorldTrace trace = traceWorld(arena, targetPoint, segment / distance, distance);
+    if (trace.distance >= distance - kWeaponRuntimeProjectileEpsilon) return true;
+  }
+  return false;
+}
+
+void decayWeaponRuntimeIcePools(IcePoolArray& pools, float fixedDt) {
+  for (IcePool& pool : pools) {
+    if (!pool.active) continue;
+    pool.lifetimeSeconds -= fixedDt;
+    if (pool.lifetimeSeconds <= 0.0F || pool.radius <= 0.0F) pool = {};
+  }
+}
+
+void growWeaponRuntimeIcePool(
+  IcePoolArray& pools,
+  Vec3 center,
+  Vec3 normal,
+  const IcePoolTuning& tuning,
+  float fixedDt
+) {
+  if (tuning.maxRadius <= 0.0F || tuning.growthPerSecond <= 0.0F ||
+      tuning.lifetimeSeconds <= 0.0F) {
+    return;
+  }
+  IcePool* chosen = nullptr;
+  IcePool* reusable = nullptr;
+  for (IcePool& pool : pools) {
+    if (!pool.active) {
+      if (reusable == nullptr) reusable = &pool;
+      continue;
+    }
+    const Vec3 delta = center - pool.center;
+    const float planeDistance = dot(delta, pool.normal);
+    const Vec3 tangentDelta = delta - pool.normal * planeDistance;
+    if (std::fabs(planeDistance) <= 0.5F &&
+        length(tangentDelta) <= pool.radius + tuning.mergeDistance) {
+      chosen = &pool;
+      break;
+    }
+  }
+  if (chosen == nullptr) {
+    if (reusable == nullptr) {
+      reusable = &pools.front();
+      for (IcePool& pool : pools) {
+        if (pool.lifetimeSeconds < reusable->lifetimeSeconds) reusable = &pool;
+      }
+    }
+    *reusable = {true, center, normal, 0.0F, tuning.lifetimeSeconds};
+    chosen = reusable;
+  }
+  chosen->normal = normalize(chosen->normal + normal);
+  chosen->lifetimeSeconds = tuning.lifetimeSeconds;
+  chosen->radius = std::min(
+    tuning.maxRadius,
+    chosen->radius + (tuning.maxRadius - chosen->radius) *
+      tuning.growthPerSecond * fixedDt
+  );
+}
+
 void advanceWeaponRuntimeCooldowns(std::span<std::uint32_t> cooldowns) {
   for (std::uint32_t& cooldown : cooldowns) {
     if (cooldown > 0U) --cooldown;
@@ -306,7 +757,7 @@ void advanceWeaponRuntimeCooldowns(std::span<std::uint32_t> cooldowns) {
 WeaponRuntimeTick tickWeaponRuntime(
   WeaponRuntimeState& state,
   const WeaponRuntimeConfig& config,
-  const PlayerState& attacker,
+  PlayerState& attacker,
   const UserCommand& command,
   const Arena& arena,
   std::span<const WeaponRuntimeTarget> targets,
@@ -314,11 +765,23 @@ WeaponRuntimeTick tickWeaponRuntime(
 ) {
   WeaponRuntimeTick result;
   advanceWeaponRuntimeCooldowns(state.cooldownTicks);
-  if (command.weapon != state.selectedWeapon && canSwitchWeaponRuntime(
-        config.switchingMode,
-        state.cooldownTicks[weaponIndex(state.selectedWeapon)]
-      )) {
-    state.selectedWeapon = command.weapon;
+  if (state.pulloutTicks > 0U) --state.pulloutTicks;
+  const Weapon previousWeapon = state.selectedWeapon;
+  const WeaponRuntimeSwitchResult switchResult = requestWeaponRuntimeSwitch(
+    state.selectedWeapon, command.weapon, config.switchingMode,
+    weaponRuntimeSwitchBlockingCooldown(
+      state.selectedWeapon,
+      state.cooldownTicks[weaponIndex(state.selectedWeapon)]
+    ),
+    state.pulloutTicks,
+    config.balance.weaponPulloutTicks
+  );
+  state.selectedWeapon = switchResult.selectedWeapon;
+  state.pulloutTicks = switchResult.pulloutTicks;
+  if (switchResult.switched && isBeam(previousWeapon)) {
+    const std::size_t previousBeam = previousWeapon == Weapon::LightningGun ? 0U : 1U;
+    state.beamShotCredit[previousBeam] = 1.0;
+    state.beamDamageCredit[previousBeam] = 0.0;
   }
   const Weapon weapon = state.selectedWeapon;
   result.fire.weapon = weapon;
@@ -329,8 +792,29 @@ WeaponRuntimeTick tickWeaponRuntime(
     arena, result.fire.start, direction, rangeFor(weapon, config.balance)
   );
   result.fire.end = world.end;
-  if (!command.attack || attacker.health <= 0 || !hasAmmo(state, config, weapon)) {
-    advanceProjectiles(state, config, arena, targets, fixedDt, result);
+  if (weapon == Weapon::Railgun && command.zoomed && attacker.health > 0) {
+    state.sniperAdsFraction = std::min(
+      1.0F, state.sniperAdsFraction + fixedDt / kSniperAdsSeconds
+    );
+    if (state.sniperAdsFraction >= 1.0F) {
+      state.sniperChargeFraction = std::min(
+        1.0F,
+        state.sniperChargeFraction + fixedDt /
+          std::max(0.05F, config.balance.sniperChargeSeconds)
+      );
+    }
+  } else {
+    state.sniperAdsFraction = 0.0F;
+    state.sniperChargeFraction = 0.0F;
+  }
+  if (!command.attack || attacker.health <= 0 || !canFireWeaponRuntime(
+        config.switchingMode, state.pulloutTicks, state.ammo, weapon, config.infiniteAmmo
+      )) {
+    if (isBeam(weapon)) {
+      const std::size_t beamIndex = weapon == Weapon::LightningGun ? 0U : 1U;
+      state.beamShotCredit[beamIndex] = 1.0;
+    }
+    advanceProjectiles(state, config, attacker, arena, targets, fixedDt, result);
     return result;
   }
 
@@ -339,11 +823,9 @@ WeaponRuntimeTick tickWeaponRuntime(
     const float fireHz = weapon == Weapon::LightningGun
       ? config.balance.lightningGun.fireHz
       : config.balance.freezeGun.fireHz;
-    state.beamShotCredit[beamIndex] = std::min(
-      state.beamShotCredit[beamIndex] + std::max(1.0F, fireHz) * fixedDt,
-      static_cast<double>(std::max(1.0F, fireHz))
-    );
-    result.fire.fired = true;
+    result.beam.start = result.fire.start;
+    result.beam.end = result.fire.end;
+    result.beam.active = true;
     float hitDistance = world.distance;
     const float maximumTargetDistance = hitDistance;
     bool headshot = false;
@@ -354,22 +836,76 @@ WeaponRuntimeTick tickWeaponRuntime(
       result.fire.hit = true;
       result.fire.end = result.fire.start + direction * hitDistance;
       result.fire.headshot = headshot;
+      result.beam.end = result.fire.end;
+      result.beam.hit = true;
+      result.beam.headshot = headshot;
     }
-    if (state.beamShotCredit[beamIndex] >= 1.0) {
-      state.beamShotCredit[beamIndex] -= 1.0;
-      ++result.acceptedBeamPulses;
-      if (targetIndex < targets.size()) {
+    ++result.acceptedBeamPulses;
+    if (targetIndex < targets.size()) {
+      ++result.hitBeamPulses;
+      state.beamShotCredit[beamIndex] = std::min(
+        state.beamShotCredit[beamIndex],
+        static_cast<double>(std::max(1.0F, fireHz))
+      );
+      const int shotsApplied = static_cast<int>(std::floor(
+        state.beamShotCredit[beamIndex]
+      ));
+      if (shotsApplied > 0) {
+        state.beamShotCredit[beamIndex] -= shotsApplied;
+        state.beamShotCredit[beamIndex] +=
+          static_cast<double>(std::max(1.0F, fireHz)) *
+          static_cast<double>(fixedDt);
         const float damagePerSecond = weapon == Weapon::LightningGun
           ? config.balance.lightningGun.damagePerSecond
           : config.balance.freezeGun.damagePerSecond;
-        state.beamDamageCredit[beamIndex] += damagePerSecond / std::max(1.0F, fireHz);
-        const int damage = static_cast<int>(std::floor(state.beamDamageCredit[beamIndex]));
+        state.beamDamageCredit[beamIndex] +=
+          static_cast<double>(shotsApplied) *
+          static_cast<double>(damagePerSecond) /
+          static_cast<double>(std::max(1.0F, fireHz));
+        int damage = static_cast<int>(std::floor(state.beamDamageCredit[beamIndex]));
         state.beamDamageCredit[beamIndex] -= damage;
-        addHit(result, targets[targetIndex], damage, headshot);
-        ++result.hitBeamPulses;
+        damage = headshotDamage(damage, headshot, weapon, config.balance);
+        const float freezeApplied = weapon == Weapon::FreezeGun
+          ? config.balance.freezeGun.freezePerSecond *
+            static_cast<float>(shotsApplied) / std::max(1.0F, fireHz)
+          : 0.0F;
+        addHit(
+          result,
+          targets[targetIndex],
+          weapon,
+          damage,
+          headshot,
+          freezeApplied
+        );
+        result.beam.damageApplied = damage;
+        result.beam.freezeApplied = freezeApplied;
+      }
+    } else {
+      state.beamShotCredit[beamIndex] = std::min(
+        1.0,
+        state.beamShotCredit[beamIndex] +
+          static_cast<double>(std::max(1.0F, fireHz)) *
+          static_cast<double>(fixedDt)
+      );
+      if (
+        weapon == Weapon::FreezeGun &&
+        world.hit &&
+        world.normal.z >= kMinWalkNormal
+      ) {
+        growWeaponRuntimeIcePool(
+          state.icePools,
+          world.end,
+          normalize(world.normal),
+          config.balance.icePool,
+          fixedDt
+        );
       }
     }
-    advanceProjectiles(state, config, arena, targets, fixedDt, result);
+    consumeWeaponRuntimeBeamAmmo(
+      state.ammo, weapon, config.infiniteAmmo, state.beamAmmoCredit[beamIndex],
+      fireHz, fixedDt
+    );
+    advanceProjectiles(state, config, attacker, arena, targets, fixedDt, result);
     return result;
   }
 
@@ -379,21 +915,21 @@ WeaponRuntimeTick tickWeaponRuntime(
       result.fire.fired = true;
       ++result.acceptedShots;
       ++result.acceptedProjectileLaunches;
-      state.cooldownTicks[weaponIndex(weapon)] = cooldownFor(weapon, config.balance);
+      state.cooldownTicks[weaponIndex(weapon)] = weaponRuntimeCooldownTicks(weapon, config.balance);
       consumeAmmo(state, config, weapon);
       addProjectile(state, config.balance, attacker, command, weapon);
     }
-    advanceProjectiles(state, config, arena, targets, fixedDt, result);
+    advanceProjectiles(state, config, attacker, arena, targets, fixedDt, result);
     return result;
   }
 
   if (state.cooldownTicks[weaponIndex(weapon)] != 0U) {
-    advanceProjectiles(state, config, arena, targets, fixedDt, result);
+    advanceProjectiles(state, config, attacker, arena, targets, fixedDt, result);
     return result;
   }
   result.fire.fired = true;
   ++result.acceptedShots;
-  state.cooldownTicks[weaponIndex(weapon)] = cooldownFor(weapon, config.balance);
+  state.cooldownTicks[weaponIndex(weapon)] = weaponRuntimeCooldownTicks(weapon, config.balance);
   consumeAmmo(state, config, weapon);
 
   if (weapon == Weapon::Shotgun) {
@@ -424,26 +960,65 @@ WeaponRuntimeTick tickWeaponRuntime(
       if (targetIndex >= targets.size()) continue;
       ++result.hitPellets;
       ++result.fire.pelletHitCount;
+      if (headshot) ++result.fire.pelletHeadshotCount;
       result.fire.hit = true;
-      addHit(result, targets[targetIndex], config.balance.shotgun.damagePerPellet, headshot, 1U);
+      addHit(
+        result, targets[targetIndex], weapon,
+        headshotDamage(config.balance.shotgun.damagePerPellet, headshot, weapon, config.balance),
+        headshot, 0.0F, 1U
+      );
     }
   } else {
-    float hitDistance = world.distance;
+    ++result.acceptedInstantShots;
+    const Vec3 instantDirection = weapon == Weapon::MachineGun
+      ? machineGunShotDirection(
+          direction,
+          config.balance.machineGun.spreadRadians,
+          command.sequence
+        )
+      : direction;
+    const WorldTrace instantWorld = weapon == Weapon::MachineGun
+      ? traceWorld(
+          arena,
+          result.fire.start,
+          instantDirection,
+          config.balance.machineGun.range
+        )
+      : world;
+    result.fire.end = instantWorld.end;
+    float hitDistance = instantWorld.distance;
     const float maximumTargetDistance = hitDistance;
     bool headshot = false;
     const std::size_t targetIndex = nearestTarget(
-      result.fire.start, direction, targets, maximumTargetDistance, hitDistance, headshot
+      result.fire.start,
+      instantDirection,
+      targets,
+      maximumTargetDistance,
+      hitDistance,
+      headshot
     );
     if (targetIndex < targets.size()) {
-      const int damage = damageFor(weapon, config.balance);
+      int damage = damageFor(weapon, config.balance);
+      if (weapon == Weapon::Railgun) {
+        damage = std::max(1, static_cast<int>(std::lround(
+          static_cast<float>(damage) *
+          (1.0F + (config.balance.sniperMaxDamageMultiplier - 1.0F) *
+            state.sniperChargeFraction)
+        )));
+      }
       result.fire.hit = true;
       result.fire.headshot = headshot;
-      result.fire.end = result.fire.start + direction * hitDistance;
-      result.fire.damageApplied = damage;
-      addHit(result, targets[targetIndex], damage, headshot);
+      result.fire.end = result.fire.start + instantDirection * hitDistance;
+      result.fire.damageApplied = headshotDamage(damage, headshot, weapon, config.balance);
+      addHit(
+        result, targets[targetIndex], weapon,
+        headshotDamage(damage, headshot, weapon, config.balance), headshot, 0.0F
+      );
+      ++result.hitInstantShots;
     }
+    if (weapon == Weapon::Railgun) state.sniperChargeFraction = 0.0F;
   }
-  advanceProjectiles(state, config, arena, targets, fixedDt, result);
+  advanceProjectiles(state, config, attacker, arena, targets, fixedDt, result);
   return result;
 }
 

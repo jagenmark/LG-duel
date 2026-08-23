@@ -77,6 +77,9 @@ using dev::JsonValue;
   value.object["allowed_weapons"] = std::move(allowed);
   value.object["infinite_ammo"] = JsonValue::booleanValue(scenario.infiniteAmmo);
   value.object["score_mode"] = number(static_cast<std::uint8_t>(scenario.scoreMode));
+  value.object["hit_score"] = number(scenario.hitScore);
+  value.object["damage_score_per_point"] = number(scenario.damageScorePerPoint);
+  value.object["clear_score"] = number(scenario.clearScore);
   value.object["seed"] = number(scenario.seed);
   value.object["map_name"] = JsonValue::stringValue(scenario.mapName);
   value.object["map_identity"] = number(scenario.mapIdentity);
@@ -115,6 +118,49 @@ using dev::JsonValue;
   return value < count;
 }
 
+[[nodiscard]] bool validStoredScenario(const AimScenario& scenario) {
+  if (scenario.name.empty() || scenario.durationTicks == 0U ||
+      scenario.groups.empty() || scenario.groups.size() > AimScenario::kMaxGroups ||
+      scenario.hitScore == 0U || scenario.damageScorePerPoint == 0U ||
+      scenario.clearScore == 0U) {
+    return false;
+  }
+  if (
+    scenario.weaponPolicy == AimWeaponPolicy::All &&
+    std::none_of(
+      scenario.allowedWeapons.begin(),
+      scenario.allowedWeapons.end(),
+      [](bool allowed) { return allowed; }
+    )
+  ) {
+    return false;
+  }
+  std::size_t targetCount = 0U;
+  for (const AimTargetGroup& group : scenario.groups) {
+    if (group.name.empty() || group.count == 0U ||
+        group.count > AimScenario::kMaxTargetsPerGroup ||
+        !std::isfinite(group.radius) || group.radius <= 0.0F ||
+        (group.life == AimTargetLife::Health && group.health <= 0) ||
+        (group.spawnMode == AimSpawnMode::FixedList && group.fixedSpawns.empty()) ||
+        !std::isfinite(group.strafeSpeed) || group.strafeSpeed < 0.0F ||
+        group.waypointTicks == 0U) {
+      return false;
+    }
+    if (
+      group.spawnMode == AimSpawnMode::BoundedRandom &&
+      (
+        group.randomMinimum.x > group.randomMaximum.x ||
+        group.randomMinimum.y > group.randomMaximum.y ||
+        group.randomMinimum.z > group.randomMaximum.z
+      )
+    ) {
+      return false;
+    }
+    targetCount += group.count;
+  }
+  return targetCount <= AimScenario::kMaxTargets;
+}
+
 [[nodiscard]] std::optional<AimScenario> readScenario(const JsonValue& value) {
   if (!requireObject(value)) return std::nullopt;
   AimScenario scenario;
@@ -126,6 +172,9 @@ using dev::JsonValue;
   const auto forced = readNatural(value, "forced_weapon");
   const auto infiniteAmmo = dev::boolMember(value, "infinite_ammo");
   const auto scoreMode = readNatural(value, "score_mode");
+  const auto hitScore = readNatural(value, "hit_score").value_or(1U);
+  const auto damageScore = readNatural(value, "damage_score_per_point").value_or(1U);
+  const auto clearScore = readNatural(value, "clear_score").value_or(1U);
   const auto seed = readNatural(value, "seed");
   const auto mapName = dev::stringMember(value, "map_name");
   const auto mapIdentity = readNatural(value, "map_identity");
@@ -135,6 +184,8 @@ using dev::JsonValue;
   if (!version || *version != AimScenario::kVersion || !name || !duration || !movement ||
       !weaponPolicy || !forced || !infiniteAmmo || !scoreMode || !seed || !mapName ||
       !mapIdentity || !balanceIdentity || !allowed || !groups ||
+      *duration > 450000U || hitScore > 1000000U || damageScore > 1000000U ||
+      clearScore > 1000000U ||
       allowed->type != JsonValue::Type::Array || allowed->array.size() != kWeaponCount ||
       groups->type != JsonValue::Type::Array ||
       !enumValue(*movement, 2) || !enumValue(*weaponPolicy, 2) ||
@@ -147,10 +198,13 @@ using dev::JsonValue;
   scenario.forcedWeapon = static_cast<Weapon>(*forced);
   scenario.infiniteAmmo = *infiniteAmmo;
   scenario.scoreMode = static_cast<AimScoreMode>(*scoreMode);
+  scenario.hitScore = static_cast<std::uint32_t>(hitScore);
+  scenario.damageScorePerPoint = static_cast<std::uint32_t>(damageScore);
+  scenario.clearScore = static_cast<std::uint32_t>(clearScore);
   scenario.seed = *seed;
   scenario.mapName = *mapName;
-  scenario.mapIdentity = static_cast<std::uint32_t>(*mapIdentity);
-  scenario.balanceIdentity = static_cast<std::uint32_t>(*balanceIdentity);
+  scenario.mapIdentity = *mapIdentity;
+  scenario.balanceIdentity = *balanceIdentity;
   for (std::size_t index = 0; index < kWeaponCount; ++index) {
     if (allowed->array[index].type != JsonValue::Type::Boolean) return std::nullopt;
     scenario.allowedWeapons[index] = allowed->array[index].boolean;
@@ -179,6 +233,8 @@ using dev::JsonValue;
         !health || !respawn || !spawns || !randomMinimum || !randomMaximum || !strafeDirection ||
         !strafeSpeed || !waypoint || !enumValue(*visual, 2) || !enumValue(*life, 3) ||
         !enumValue(*spawnMode, 2) || !enumValue(*motion, 3) ||
+        *count > AimScenario::kMaxTargetsPerGroup || *respawn > 450000U ||
+        *waypoint > 450000U || *health < 1.0 || *health > 100000.0 ||
         color->type != JsonValue::Type::Array || color->array.size() != 3U ||
         spawns->type != JsonValue::Type::Array) return std::nullopt;
     const auto min = readVec(*randomMinimum);
@@ -212,7 +268,9 @@ using dev::JsonValue;
     }
     scenario.groups.push_back(std::move(group));
   }
-  return scenario;
+  return validStoredScenario(scenario)
+    ? std::optional<AimScenario>(std::move(scenario))
+    : std::nullopt;
 }
 
 [[nodiscard]] JsonValue resultJson(const AimTrainerResult& result) {
@@ -258,6 +316,34 @@ using dev::JsonValue;
   return std::nullopt;
 }
 
+[[nodiscard]] std::optional<JsonValue> readFileWithBackup(
+  const std::filesystem::path& path,
+  std::string& warning,
+  bool& recovered
+) {
+  recovered = false;
+  std::string primaryWarning;
+  const auto primary = readFile(path, primaryWarning);
+  if (primary) return primary;
+  const std::filesystem::path backup = path.string() + ".bak";
+  if (!std::filesystem::exists(backup)) {
+    warning = std::move(primaryWarning);
+    return std::nullopt;
+  }
+  std::string backupWarning;
+  const auto saved = readFile(backup, backupWarning);
+  if (!saved) {
+    warning = primaryWarning.empty() ? std::move(backupWarning) :
+      primaryWarning + "; backup: " + backupWarning;
+    return std::nullopt;
+  }
+  recovered = true;
+  warning = primaryWarning.empty()
+    ? path.filename().string() + ": recovered backup"
+    : primaryWarning + "; recovered backup";
+  return saved;
+}
+
 [[nodiscard]] AimTrainerStoreReply writeFile(const std::filesystem::path& path, const JsonValue& value) {
   std::error_code error;
   std::filesystem::create_directories(path.parent_path(), error);
@@ -269,11 +355,36 @@ using dev::JsonValue;
     output << dev::writeJson(value) << '\n';
     if (!output) return {false, "could not finish " + path.filename().string()};
   }
+  const std::filesystem::path backup = path.string() + ".bak";
+  if (std::filesystem::exists(path)) {
+    std::filesystem::copy_file(
+      path, backup, std::filesystem::copy_options::overwrite_existing, error
+    );
+    if (error) {
+      std::filesystem::remove(temporary, error);
+      return {false, "could not back up " + path.filename().string()};
+    }
+    std::filesystem::remove(path, error);
+    if (error) {
+      std::filesystem::remove(temporary, error);
+      return {false, "could not replace " + path.filename().string()};
+    }
+  }
   std::filesystem::rename(temporary, path, error);
   if (error) {
-    std::filesystem::remove(temporary, error);
+    std::error_code ignored;
+    if (std::filesystem::exists(backup)) {
+      std::filesystem::copy_file(
+        backup, path, std::filesystem::copy_options::overwrite_existing, ignored
+      );
+    }
+    std::filesystem::remove(temporary, ignored);
     return {false, "could not replace " + path.filename().string()};
   }
+  std::filesystem::copy_file(
+    path, backup, std::filesystem::copy_options::overwrite_existing, error
+  );
+  if (error) return {true, "saved but could not refresh backup " + path.filename().string()};
   return {true, {}};
 }
 
@@ -319,32 +430,49 @@ AimTrainerPresetList AimTrainerStore::loadPresets() const {
   AimTrainerPresetList result;
   result.presets = builtInPresets();
   std::string warning;
-  const auto root = readFile(presetsPath(), warning);
-  if (!root) { result.warning = std::move(warning); return result; }
+  bool recovered = false;
+  const auto root = readFileWithBackup(presetsPath(), warning, recovered);
+  if (!root) {
+    result.warning = std::move(warning);
+    result.safeToWrite = result.warning.empty();
+    return result;
+  }
   const auto version = readNatural(*root, "storage_version");
   const JsonValue* presets = root->find("presets");
   if (!version || *version != kStorageVersion || !presets || presets->type != JsonValue::Type::Array) {
     result.warning = "presets.json: unsupported storage format";
+    result.safeToWrite = false;
     return result;
   }
   for (const JsonValue& item : presets->array) {
     const auto scenario = readScenario(item);
-    if (!scenario) { result.warning = "presets.json: skipped invalid preset"; continue; }
+    if (!scenario) {
+      result.warning = "presets.json: skipped invalid preset";
+      result.safeToWrite = false;
+      continue;
+    }
     const auto duplicate = std::find_if(result.presets.begin(), result.presets.end(),
       [&scenario](const AimScenario& existing) { return existing.name == scenario->name; });
     if (duplicate == result.presets.end()) result.presets.push_back(*scenario);
+    else *duplicate = *scenario;
   }
+  if (recovered && result.warning.empty()) result.warning = std::move(warning);
   return result;
 }
 
 AimTrainerStoreReply AimTrainerStore::savePreset(const AimScenario& scenario, bool overwrite) {
   if (scenario.name.empty()) return {false, "preset name is required"};
   AimTrainerPresetList loaded = loadPresets();
+  if (!loaded.safeToWrite) {
+    return {false, loaded.warning + "; refusing to erase recoverable presets"};
+  }
   std::vector<AimScenario> saved;
   const std::vector<AimScenario> builtins = builtInPresets();
   for (const AimScenario& current : loaded.presets) {
-    const bool builtin = std::any_of(builtins.begin(), builtins.end(),
+    const auto builtinMatch = std::find_if(builtins.begin(), builtins.end(),
       [&current](const AimScenario& value) { return current.name == value.name; });
+    const bool builtin = builtinMatch != builtins.end() &&
+      AimTrainer::scenarioFingerprint(current) == AimTrainer::scenarioFingerprint(*builtinMatch);
     if (!builtin) saved.push_back(current);
   }
   auto match = std::find_if(saved.begin(), saved.end(),
@@ -353,21 +481,32 @@ AimTrainerStoreReply AimTrainerStore::savePreset(const AimScenario& scenario, bo
   if (match == saved.end()) saved.push_back(scenario); else *match = scenario;
   JsonValue values = JsonValue::arrayValue();
   for (const AimScenario& current : saved) values.array.push_back(scenarioJson(current));
-  return writeFile(presetsPath(), document("presets", std::move(values)));
+  AimTrainerStoreReply reply = writeFile(presetsPath(), document("presets", std::move(values)));
+  if (reply.ok && std::any_of(builtins.begin(), builtins.end(),
+        [&scenario](const AimScenario& value) { return value.name == scenario.name; })) {
+    reply.warning = "saved a local override of built-in preset '" + scenario.name + "'";
+  }
+  return reply;
 }
 
 AimTrainerStoreReply AimTrainerStore::deletePreset(const std::string& name) {
-  for (const AimScenario& builtin : builtInPresets()) {
-    if (builtin.name == name) return {false, "built-in presets cannot be deleted"};
-  }
   AimTrainerPresetList loaded = loadPresets();
+  if (!loaded.safeToWrite) {
+    return {false, loaded.warning + "; refusing to erase recoverable presets"};
+  }
   std::vector<AimScenario> saved;
   bool removed = false;
   const std::vector<AimScenario> builtins = builtInPresets();
   for (const AimScenario& scenario : loaded.presets) {
-    const bool builtin = std::any_of(builtins.begin(), builtins.end(),
+    const auto builtinMatch = std::find_if(builtins.begin(), builtins.end(),
       [&scenario](const AimScenario& value) { return scenario.name == value.name; });
-    if (builtin) continue;
+    const bool builtin = builtinMatch != builtins.end() &&
+      AimTrainer::scenarioFingerprint(scenario) ==
+        AimTrainer::scenarioFingerprint(*builtinMatch);
+    if (builtin) {
+      if (scenario.name == name) return {false, "built-in presets cannot be deleted"};
+      continue;
+    }
     if (scenario.name == name) { removed = true; continue; }
     saved.push_back(scenario);
   }
@@ -379,7 +518,8 @@ AimTrainerStoreReply AimTrainerStore::deletePreset(const std::string& name) {
 
 std::vector<AimTrainerResult> AimTrainerStore::leaderboard(std::uint64_t fingerprint, std::string* warning) const {
   std::string localWarning;
-  const auto root = readFile(resultsPath(), localWarning);
+  bool recovered = false;
+  const auto root = readFileWithBackup(resultsPath(), localWarning, recovered);
   std::vector<AimTrainerResult> results;
   if (!root) { if (warning) *warning = std::move(localWarning); return results; }
   const auto version = readNatural(*root, "storage_version");
@@ -403,7 +543,8 @@ std::vector<AimTrainerResult> AimTrainerStore::leaderboard(std::uint64_t fingerp
 AimTrainerStoreReply AimTrainerStore::recordNaturalResult(const AimTrainerResult& result) {
   if (!result.ranked) return {true, {}};
   std::string warning;
-  const auto root = readFile(resultsPath(), warning);
+  bool recovered = false;
+  const auto root = readFileWithBackup(resultsPath(), warning, recovered);
   JsonValue records = JsonValue::arrayValue();
   if (root) {
     const auto version = readNatural(*root, "storage_version");
