@@ -26,7 +26,16 @@ In **Settings > Branches > Branch protection rules**, add or edit the rule for
    - `windows-build-and-tests`
    - `deterministic-scenarios`
    - `protocol-and-packet-budgets`
+   - `linux-sanitizers`
 8. **Require conversation resolution before merging**.
+
+`deterministic-scenarios` and `protocol-and-packet-budgets` are lightweight
+required-check gates over results produced from the existing Linux build. This
+preserves their branch-protection identities without repeating checkout,
+configuration, and compilation. `linux-sanitizers` is an independent required
+check so moving the focused sanitizer build off the main Linux critical path
+does not silently weaken protection.
+
 9. **Do not allow bypassing the above settings**.
 10. Turn off force pushes and branch deletion.
 
@@ -88,9 +97,10 @@ must report GPU timings, captures, and GPU-only metrics as `UNAVAILABLE`. A
 fallback renderer run does not count as GPU proof. Submit and present timing do
 not measure display scan-out or full input-to-photon delay.
 
-The Linux job also runs a small AddressSanitizer and UndefinedBehaviorSanitizer
-set without SDL or a GPU. This set supports the main checks; it does not replace
-the full CTest run.
+The independent `linux-sanitizers` job runs a small AddressSanitizer and
+UndefinedBehaviorSanitizer set without SDL or a GPU. It executes in parallel,
+writes structured step outcomes even when setup or compilation fails, and does
+not replace the full Linux CTest run.
 
 ## Full benchmark
 
