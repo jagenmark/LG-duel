@@ -608,6 +608,31 @@ int main() {
   }
 
   {
+    lg::LightningGunResult beam;
+    beam.active = true;
+    constexpr lg::ScreenPoint visibleMuzzle = {508.0F, 626.0F};
+    const lg::DrawList2D overlay = lg::buildPerspectiveWeaponOverlay(
+      1280,
+      720,
+      beam,
+      lg::Weapon::LightningGun,
+      lg::Weapon::LightningGun,
+      1.0F,
+      settings,
+      visibleMuzzle
+    );
+    const auto* line = overlay.overlayCommands.empty()
+      ? nullptr
+      : std::get_if<lg::Line2D>(&overlay.overlayCommands.front());
+    failures += expect(
+      line != nullptr &&
+        line->start.x == visibleMuzzle.x &&
+        line->start.y == visibleMuzzle.y,
+      "first-person lightning beam should begin at its supplied visible muzzle"
+    );
+  }
+
+  {
     const lg::DrawList2D idleOverlay = lg::buildPerspectiveWeaponOverlay(
       1280,
       720,
@@ -660,12 +685,24 @@ int main() {
     bool foundStableCore = false;
     bool foundSheath = false;
     bool foundVapor = false;
+    bool allBeamLinesOnAxis = true;
+    constexpr float endX = 640.0F;
+    constexpr float endY = 360.0F;
+    const float axisX = endX - muzzle.x;
+    const float axisY = endY - muzzle.y;
+    const auto pointOnAxis = [&](lg::ScreenPoint point) {
+      return std::fabs(
+        axisX * (point.y - muzzle.y) - axisY * (point.x - muzzle.x)
+      ) < 0.01F;
+    };
     for (const lg::DrawCommand2D& command : freezeOverlay.overlayCommands) {
       if (const auto* line = std::get_if<lg::Line2D>(&command)) {
+        allBeamLinesOnAxis = allBeamLinesOnAxis &&
+          pointOnAxis(line->start) && pointOnAxis(line->end);
         foundStableCore = foundStableCore ||
           (
             line->start.x == muzzle.x && line->start.y == muzzle.y &&
-            line->end.x == 640.0F && line->end.y == 360.0F &&
+            line->end.x == endX && line->end.y == endY &&
             line->color.red == 238 && line->color.alpha == 245
           );
         foundSheath = foundSheath || line->width > freezeSettings.beamWidth * 4.0F;
@@ -674,8 +711,47 @@ int main() {
       }
     }
     failures += expect(
-      foundStableCore && foundSheath && foundVapor,
-      "freeze beam should preserve its exact core beneath sheath, distortion, and vapor layers"
+      foundStableCore && foundSheath && foundVapor && allBeamLinesOnAxis,
+      "every local Freeze beam line should stay on the current muzzle-to-center axis"
+    );
+  }
+
+  {
+    lg::LightningGunResult freezeBeam;
+    freezeBeam.active = true;
+    freezeBeam.end = {8.0F, 0.0F, 0.65F};
+    lg::RenderSettings freezeSettings = settings;
+    freezeSettings.freezeGunFiringAmount = 1.0F;
+    constexpr lg::ScreenPoint visibleMuzzle = {472.0F, 602.0F};
+    const lg::DrawList2D freezeOverlay = lg::buildPerspectiveWeaponOverlay(
+      1280,
+      720,
+      freezeBeam,
+      lg::Weapon::FreezeGun,
+      lg::Weapon::FreezeGun,
+      1.0F,
+      freezeSettings,
+      visibleMuzzle
+    );
+    bool foundCurrentCore = false;
+    for (const lg::DrawCommand2D& command : freezeOverlay.overlayCommands) {
+      if (const auto* line = std::get_if<lg::Line2D>(&command)) {
+        foundCurrentCore = foundCurrentCore ||
+          (
+            line->start.x == visibleMuzzle.x &&
+            line->start.y == visibleMuzzle.y &&
+            line->end.x == 640.0F &&
+            line->end.y == 360.0F &&
+            line->color.red == 238 &&
+            line->color.green == 253 &&
+            line->color.blue == 255 &&
+            line->color.alpha == 245
+          );
+      }
+    }
+    failures += expect(
+      foundCurrentCore,
+      "local Freeze should run from its current muzzle to the screen center"
     );
   }
 
