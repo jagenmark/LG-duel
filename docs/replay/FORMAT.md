@@ -2,35 +2,36 @@
 
 ## Versioning contract
 
-`.lgdemo` is the saved-demo container. Format version 5 is the only
-accepted format in `lg::replay`. Versions 1 through 4 are historical only and the
-decoder rejects them. The v5 wire contract is fixed by `ReplayCodec`:
+`.lgdemo` is the saved-demo container. Format version 6 is the only
+accepted format in `lg::replay`. Versions 1 through 5 are historical only and the
+decoder rejects them. The v6 wire contract is fixed by `ReplayCodec`:
 
 - magic bytes: `LGDM`;
-- format version: `5` (`kReplayFormatVersion`);
+- format version: `6` (`kReplayFormatVersion`);
 - fixed tick rate: `125` (`kReplayTickRate`);
 - byte order: little endian for every fixed-width value;
-- saved-file cap: 512 MiB; chunk cap: 8 MiB; tick cap: 4,194,304; checkpoint cap:
-  4,096; and lag-history cap: 256 frames; and
+- saved-file cap: 512 MiB; decoded native resident cap: 512 MiB; chunk cap:
+  8 MiB; tick cap: 4,194,304; checkpoint cap: 4,096; lag-history cap: 256
+  frames; and
 - chunk checksum: CRC-32 of the payload.
 
-Version 5 uses explicit field order, fixed-width values, and a declared byte
+Version 6 uses explicit field order, fixed-width values, and a declared byte
 order. It never writes C++ struct memory to disk. Padding, host endianness, ABI
 layout, pointer size, and enum size must not affect a file.
 
-Version 5 stores each player score as a signed 16-bit value. This keeps negative
+Version 6 stores each player score as a signed 16-bit value. This keeps negative
 Free For All scores and their exact two-byte form across checkpoints.
 
-Version 5 also stores the global sequence and next-slot cursor for each frag,
+Version 6 also stores the global sequence and next-slot cursor for each frag,
 projectile-explosion, and grenade-bounce stream. A restored server can emit the
 next record in the same slot and sequence order, including across sequence wrap.
 
 An old file need not play on a newer build. The current reader does not decode
-versions 1 through 4. It fails before restoring any state and says why.
+versions 1 through 5. It fails before restoring any state and says why.
 
 ## Preamble and metadata
 
-The 16-byte preamble contains these fields in v5 order:
+The 16-byte preamble contains these fields in v6 order:
 
 1. `LGDM` magic;
 2. 16-bit format version;
@@ -40,30 +41,37 @@ The 16-byte preamble contains these fields in v5 order:
 
 The following bounded metadata payload repeats its flags and then stores, in
 order: protocol revision, build fingerprint, gameplay configuration hash,
-initial server tick, map revision, map name, map content hash, game mode, match
-rules, visibility policy, and fixed-slot player metadata. Player metadata holds
-slot, occupied marker, bot marker, team, and bounded name.
+replay simulation revision, initial server tick, map revision, map name, map
+content hash, game mode, match rules, visibility policy, stop reason,
+configuration revision, the complete `ReplayGameplayConfig`, and fixed-slot
+player metadata. Player metadata holds slot, occupied marker, bot marker, team,
+and bounded name.
 
-Strings and metadata lists carry a length and a stated maximum. The current v5
-stores a gameplay configuration hash, not a complete configuration payload.
-Playback requires the caller to configure an equivalent server and rejects a
-mismatched hash.
+Strings and metadata lists carry a length and a stated maximum. V6 stores every
+authoritative balance/runtime configuration field with explicit fixed-width
+encoding. The canonical config hash covers those encoded fields. Playback
+applies the payload to its replay-only server and rejects a hash mismatch.
+The reader also requires `kReplayProtocolRevision` and
+`kReplayBuildFingerprint`; it rejects unsupported protocol, build, or simulation
+revisions before replacing the destination replay.
 
 ## Chunks
 
-After metadata, the file contains length-delimited chunks. Each v5 chunk holds a
+After metadata, the file contains length-delimited chunks. Each v6 chunk holds a
 one-byte type, a 32-bit payload length, a 32-bit CRC-32, and the payload. It has
-no v5 chunk flags, compression, expansion length, index, or completion record.
-The four chunk types are:
+no v6 chunk flags, compression, expansion length, index, or completion record.
+The five chunk types are:
 
 - `TickInputs`, one resolved input frame at a tick;
 - `Checkpoint`, including the initial and any periodic bot-free checkpoint;
 - `StateHash`, a canonical hash at a tick; and
-- `LethalEvent`, lethal metadata when a producer supplies it.
+- `LethalEvent`, lethal metadata with generation, sequence, cause, and projectile sequence;
+- `AuthorityBoundary`, a pre-simulation checkpoint plus the authority/config
+  state needed for a roster, rule, mode, reset, or configuration change.
 
 ### Sparse tick inputs
 
-A v5 `TickInputs` payload starts with its 32-bit tick and a 16-bit present-slot
+A v6 `TickInputs` payload starts with its 32-bit tick and a 16-bit present-slot
 mask. It then encodes a `ReplaySlotInput` only for each set bit, in ascending
 slot order. A clear bit has no input payload; decoding leaves that slot at its
 default state with `present == false`.
@@ -73,13 +81,14 @@ default-only: validation rejects non-default command, edge, or timing data for
 an absent slot instead of silently treating it as an actor. This keeps an empty
 slot from carrying stale input across a disconnect or restore.
 
-V5 has no distinct dynamic roster, name, team, ready, phase, rule, map, or
-configuration-change chunk. The core recorder also does not yet supply lethal
-events. Those parts of the planned recording contract remain pending.
+Authority boundaries apply before simulation of their tick. Periodic
+checkpoints remain seek aids; playback does not apply them as control changes.
+Map changes end the current replay generation and do not create a cross-map
+boundary in one demo.
 
 The writer emits records by type. Tick inputs, checkpoints, hashes, and lethal
 events each keep their own valid tick order. A checkpoint’s tick and every input
-tick must not precede the initial tick. V5 does not compress records.
+tick must not precede the initial tick. V6 does not compress records.
 
 ## Strict reader rules
 
@@ -102,8 +111,12 @@ destination `ReplayDemo`. It must reject:
   that the version cannot read.
 
 Validation happens before allocation where possible. Bounded allocations and
-count checks come before decode loops. The decoder does not repair corrupt data,
-skip unknown required records, or apply the valid prefix of a bad checkpoint.
+count checks come before decode loops. Every native replay record and nested
+checkpoint-history allocation is charged to a checked decoded-resident budget;
+a compact file is rejected before it can expand beyond that cap. Allocation
+failures return a clean decode error without mutating the destination. The
+decoder does not repair corrupt data, skip unknown required records, or apply
+the valid prefix of a bad checkpoint.
 
 ## File helpers
 
@@ -119,22 +132,58 @@ The saved `.lgdemo` cap is 512 MiB. The recorder’s native resident cap is also
 cleanly before it exceeds its configured cap and preserves no partial final
 recording.
 
-No app command, console control, automatic match recording setting, or
-background save/load job calls these helpers yet. The helpers therefore do not
-make saved demos a player-facing feature.
+Local demo commands and the remote killcam use `ReplayStorage` and
+`ReplayIoService` outside the simulation tick. `ReplayFile` remains a bounded
+file helper; `ServerGame::tick` and render do not call it.
+
+## Remote transfer envelope
+
+The remote killcam does not define a second replay file format. It transfers
+the bytes of a validated v6 `ReplayDemo` through the normal network packet
+framing. The envelope uses protocol version 62 and
+`PacketType::ReplayTransfer`, with a typed subtype for `Begin`, `Chunk`, `Ack`,
+or `Cancel`.
+
+`ConnectAccept` establishes the current connection session. `Begin` carries
+the transfer ID, replay generation, lethal sequence, authenticated session ID,
+chunk count, byte count, and the 32-byte SHA-256 of the complete `.lgdemo`
+payload. Each `Chunk` carries the same transfer, generation, and session IDs,
+its index/count, payload length, payload, and CRC-32. `Ack` identifies one
+chunk (or the reserved Begin acknowledgement index); `Cancel` carries a bounded
+reason. Decoders reject trailing bytes, invalid IDs, invalid counts, wrong
+payload lengths, and datagrams above the wire cap.
+
+The normal packet, including its header, is at most 1,200 bytes. A chunk has a
+maximum payload of 1,165 bytes, a transfer has a maximum of 512 chunks, and a
+segment has a maximum of 512 KiB. The receiver permits duplicate and
+out-of-order chunks but completes only when every index is present, the byte
+count matches, every CRC-32 matches, and the whole payload matches the Begin
+SHA-256. It retains a one-second completion tombstone so a retransmitted final
+chunk receives another ACK if the original terminal ACK was lost. Idle and
+overall timeouts, disconnects, session changes, generation changes, cancel, and
+map/content checks clear incomplete data.
+
+The server sends Begin/Chunk messages after a post-tick coordinator check and
+sends an authenticated Cancel when an active transfer is reset. The client
+sends Ack or Cancel through the authenticated session; it ignores Cancel
+packets whose session, transfer ID, or generation does not match its active
+transfer and fails on a matching Cancel. Transfer bytes never enter ordinary
+gameplay snapshots and no transfer file is written on `ServerGame::tick` or
+render. A completed payload goes through the existing `ReplayIoService` decode
+job and `ReplayRuntime` path. Transfer Begin identity and the authoritative death
+snapshot are bound independently, so Begin-before-snapshot reordering does not
+record an alive state or reject the later valid killcam. Replay presentation
+uses transport Ping/Pong rather than a default gameplay command as keepalive.
 
 ## Compatibility and clean failure
 
-The decoder checks the format version and tick rate. Checkpoint restore validates
-the complete checkpoint before it changes server state. It checks map
-name/content hash/revision, gameplay configuration hash, game mode, player
-occupancy, lag history, and bounded spawn state. Any mismatch ends playback
-cleanly with a specific diagnostic, such as `replay version is incompatible` or
-`replay checkpoint does not match the loaded map or metadata`.
-
-Metadata stores protocol revision and build fingerprint. Current checkpoint
-restore does not yet reject them itself; broader build/protocol compatibility
-policy remains pending.
+The decoder checks the format, tick rate, protocol revision, build fingerprint,
+and simulation revision. Checkpoint restore validates the complete checkpoint
+before it changes server state. It checks map name/content hash/revision,
+gameplay configuration hash, game mode, player occupancy, lag history, and
+bounded spawn state. Any mismatch ends playback cleanly with a specific
+diagnostic, such as `replay simulation revision is incompatible` or `replay
+build fingerprint is incompatible`.
 
 If the verifier finds a state-hash mismatch after a valid load, it reports a
 **divergent demo** rather than treating it as file corruption. It stops at the
@@ -143,8 +192,9 @@ does not continue with an unverified state.
 
 ## Required format coverage
 
-`lg_duel_replay_codec_tests` covers v5 round trips, truncation with no partial
+`lg_duel_replay_codec_tests` covers v6 round trips, full custom configuration,
+authority boundaries, lethal provenance/sequence, truncation with no partial
 apply, checksum corruption, wrong magic, non-finite command data, invalid
 projectile owner, missing lag history, out-of-range spawn cursor, out-of-order
-tick input, and trailing data. Version, sparse absent-slot, length, count, enum,
-and other malformed-input cases remain required follow-up coverage.
+tick input, and trailing data. Version, sparse absent-slot, length, count, and
+enum validation remain part of the strict reader contract.

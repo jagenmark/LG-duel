@@ -95,4 +95,29 @@ bool LoopbackTransport::receiveChatHistory(ChatHistoryChunk& chunk) {
   return decodeChatHistoryChunk(wire, chunk);
 }
 
+bool LoopbackTransport::sendReplayTransferMessage(
+    const replay::ReplayTransferMessage& message) {
+  WirePacket wire;
+  if (!encodeReplayTransferPacket(message, wire)) {
+    return false;
+  }
+  if (replayTransfer_.size() >= kMaxQueuedReplayTransferMessages) {
+    replayTransfer_.pop_front();
+  }
+  replayTransfer_.push_back(std::move(wire));
+  return true;
+}
+
+bool LoopbackTransport::receiveReplayTransferMessage(
+    replay::ReplayTransferMessage& message) {
+  while (!replayTransfer_.empty()) {
+    WirePacket wire = std::move(replayTransfer_.front());
+    replayTransfer_.pop_front();
+    if (decodeReplayTransferPacket(wire, message)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace lg

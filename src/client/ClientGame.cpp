@@ -208,6 +208,18 @@ void ClientGame::sendCommand(
   }
 }
 
+void ClientGame::sendKeepalive(
+  std::uint32_t sequence,
+  bool usePresentedServerTick
+) {
+  // UdpClientTransport already maintains the authenticated connection with
+  // Ping/Pong while replay presentation suppresses fixed gameplay ticks.
+  // Sending a default UserCommand here would overwrite live aim, weapon, and
+  // movement state on the authoritative server.
+  (void)sequence;
+  (void)usePresentedServerTick;
+}
+
 void ClientGame::receiveSnapshots() {
   auto receivedStorage = std::make_unique<ServerSnapshot>();
   ServerSnapshot& received = *receivedStorage;

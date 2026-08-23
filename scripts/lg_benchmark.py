@@ -740,13 +740,16 @@ def build_environment_metadata(build_dir: Path) -> dict[str, Any]:
 
 def source_protocol_version(repo_root: Path = REPO_ROOT) -> int | None:
     """Read the wire version used by headless tools that have no live status."""
-    header = repo_root / "src" / "net" / "NetCodec.hpp"
-    try:
-        text = header.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    match = re.search(r"\bkProtocolVersion\s*=\s*(\d+)", text)
-    return int(match.group(1)) if match else None
+    for name in ("NetProtocol.hpp", "NetCodec.hpp"):
+        header = repo_root / "src" / "net" / name
+        try:
+            text = header.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = re.search(r"\bkProtocolVersion\s*=\s*(\d+)", text)
+        if match:
+            return int(match.group(1))
+    return None
 
 
 def source_fixed_tick_rate(repo_root: Path = REPO_ROOT) -> float | None:

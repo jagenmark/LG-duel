@@ -220,13 +220,14 @@ int main() {
     failures += expect(lg::decodeConnectRequest(wire, decodedRequest), "connect request should decode");
     failures += expect(decodedRequest.clientNonce == 12345, "connect nonce should round trip");
 
-    lg::ConnectAccept accept{12345, 3, 1, 77};
+    lg::ConnectAccept accept{12345, 3, 1, 77, 9};
     lg::ConnectAccept decodedAccept;
     failures += expect(lg::encodeConnectAccept(accept, wire), "connect accept should encode");
     failures += expect(lg::decodeConnectAccept(wire, decodedAccept), "connect accept should decode");
     failures += expect(decodedAccept.playerIndex == 1, "assigned player should round trip");
     failures += expect(decodedAccept.clientIndex == 3, "client slot should round trip");
     failures += expect(decodedAccept.serverTick == 77, "accept server tick should round trip");
+    failures += expect(decodedAccept.sessionId == 9, "accept session should round trip");
 
     lg::PingPacket ping{88};
     lg::PingPacket decodedPing;

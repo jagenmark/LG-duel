@@ -60,6 +60,13 @@ public:
     bool wantsScoreboardStats = false,
     bool requestSpectator = false
   );
+  // Send a monotonic neutral packet without changing action-edge or
+  // prediction state. Replay presentation uses this to keep the live session
+  // authenticated while fixed-tick input is paused.
+  void sendKeepalive(
+    std::uint32_t sequence,
+    bool usePresentedServerTick = true
+  );
   void receiveSnapshots();
   void advanceInterpolation(
     float elapsedSeconds,

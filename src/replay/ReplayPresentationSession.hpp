@@ -53,6 +53,9 @@ public:
   [[nodiscard]] bool advance(double elapsedSeconds);
   void abort(ReplayPresentationStopReason reason);
   [[nodiscard]] const ReplayPresentationState &state() const;
+  // Fraction of a fixed tick accumulated by advance(). It is presentation
+  // state only; the playback runner still advances on whole ticks.
+  [[nodiscard]] double fractionalTick() const { return pendingTicks_; }
 
 private:
   void updateProgress();

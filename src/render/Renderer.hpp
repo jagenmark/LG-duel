@@ -459,6 +459,14 @@ struct HudRenderState {
   std::vector<std::string> topRightLines;
   std::vector<std::string> centerLines;
   std::vector<std::string> bottomCenterLines;
+  struct KillcamOverlay {
+    bool active = false;
+    std::string killer;
+    std::string weapon;
+    std::string cause;
+    std::string prompt = "SPACE/ESC: SKIP";
+    float progress = 0.0F;
+  } killcam;
   McGuffinNavigationTarget mcguffinNavigation;
   std::string fpsText;
   std::string speedText;

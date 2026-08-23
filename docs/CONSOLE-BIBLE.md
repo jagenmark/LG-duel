@@ -558,7 +558,37 @@ the newest message.
 | `spectate_next` | none | Follows the next eligible player. Death spectating is restricted to living teammates; dedicated spectators cycle every living active player. Mouse1 performs the same contextual action without changing its normal `+attack` bind. |
 | `spectate_prev` | none | Follows the previous eligible player. Death spectating is restricted to living teammates; dedicated spectators cycle every living active player. Mouse2 performs the same contextual action without changing its normal `+zoom` bind. |
 
-### 4.4 Konsolens redigeringsinput
+### 4.4 Local demos and remote killcams
+
+The client commands below act on files in the client's local demo directory.
+They do not start or stop a server recording. A remote killcam comes from the
+connected server and uses the same replay view without becoming a local demo.
+
+| Command | Arguments | Function |
+|---|---|---|
+| `demo_play <name>` | one local demo name | Loads and plays a saved local demo. The client must disconnect first. |
+| `demo_stop` | none | Stops local demo playback. On the server, the command has a different meaning: it stops and saves the current recording. |
+| `demo_pause` | none | Pauses local playback. |
+| `demo_resume` | none | Resumes local playback. |
+| `demo_togglepause` | none | Toggles the local pause state. |
+| `demo_step [ticks]` | optional non-zero signed tick count; default `1` | Moves a paused local demo by the given tick count. |
+| `demo_seek <seconds\|tick:n>` | seconds, `tick:n`, `tick=n`, or `@n` | Seeks the local demo. |
+| `demo_speed <value>` | `0.25..4` | Sets local playback speed. |
+| `demo_camera <mode>` | `first`, `chase`, or `free` | Sets the local replay camera. |
+| `demo_follow <slot>` | `1..16` | Selects the player body used by the local replay camera. |
+| `demo_list` | none | Lists files in the client's local demo directory after the background scan ends. |
+| `demo_delete <name>` | one local demo name | Deletes a file from the client's local demo directory in the background. |
+| `demo_status` | none | Shows local playback, remote killcam transfer/playback, and demo file-job state. |
+| `killcam_skip` | none | Cancels the current remote killcam transfer, decode, or playback. |
+
+While a remote killcam transfer, decode, or playback is active, the client
+rejects every local playback command from `demo_play` through `demo_follow`,
+plus `demo_list` and `demo_delete`. `demo_status` stays available because it is
+read-only. Only `killcam_skip` can stop that remote flow. A remote killcam also
+ends if the client disconnects, changes session, gets a different player body,
+becomes a spectator, or leaves the match state in which the kill happened.
+
+### 4.5 Konsolens redigeringsinput
 
 | Input | Funktion |
 |---|---|
@@ -711,6 +741,19 @@ automatiskt.
 | `sv_mcg_pickup_radius` | float | `0.9` | `0.1..5` world units | LG Duel geometry | Ground-objective touch radius. |
 | `sv_matchend` | float | `5` | `0..60` sekunder | Ingen direkt | Delay efter matchvinst innan reset till ready-up. |
 | `sv_showopponenthealth` | bool | `1` | bool | Ingen Q3-standard | Visar motståndarens HP-bar för båda klienterna. |
+| `sv_demo_autorecord` | bool | `0` | bool | None | Starts one server-side demo file when a match first enters Live. The recording continues through round-end and later round countdowns, then stops and saves at the true match end. Disabling it, `demo_stop`, or resetting the match stops the active file without starting another one in the same match. |
+| `sv_demo_checkpoint_ticks` | int | `250` | `1..4096` ticks | None | Checkpoint interval for saved server demos. |
+| `sv_demo_hash_ticks` | int | `125` | `1..4096` ticks | None | State-hash interval used to check saved demo playback. |
+| `sv_demo_max_file_mb` | int | `512` | `1..512` MiB | None | Maximum encoded size of one saved server demo. |
+| `sv_demo_max_resident_mb` | int | `512` | `1..512` MiB | None | Maximum memory held by the active saved-demo recorder. |
+| `sv_killcam` | bool | `1` | bool | None | Enables server-built remote killcams for duel deaths. |
+| `sv_killcam_before_seconds` | float | `3` | `0.1..30` seconds | None | Time kept before the lethal tick in a remote killcam. |
+| `sv_killcam_after_seconds` | float | `0` | `0..10` seconds | None | Time kept after the lethal tick. The server waits until every requested post-kill tick has been recorded before it builds the segment. |
+| `sv_killcam_transfer_timeout_ms` | int | `5000` | `100..30000` ms | None | Time allowed for a remote killcam transfer. |
+| `sv_killcam_max_segment_kb` | int | `512` | `1..512` KiB | None | Maximum encoded size of one remote killcam segment. |
+| `sv_killcam_packets_per_tick` | int | `2` | `1..64` packets | None | Maximum remote killcam data packets sent in one server tick. |
+| `sv_replay_rolling_seconds` | float | `12` | `3..80` seconds | None | Time kept in the server's rolling replay window for killcam extraction. |
+| `sv_replay_rolling_max_mb` | int | `16` | `1..64` MiB | None | Maximum memory used by the server's rolling replay window. |
 
 ### Serverkommandon
 
@@ -723,6 +766,12 @@ Servern stöder även samtliga inbyggda kommandon i avsnitt 4.1.
 | `mcguffin_debug` | Prints authoritative McGuffin state and timers. |
 | `spawn_debug` | Prints the latest authoritative team-spawn scoring decision. |
 | `bot_weapon [mg\|sg\|gl\|rl\|lg\|sr\|pg\|fg\|re\|1..9]` | Shows or changes the authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). `rg` remains an alias. |
+| `demo_record [name]` | Starts a manual recording in the server's local demo directory. The server makes a safe time-based name when no name is given. |
+| `demo_stop` | Stops the current server recording and queues its file save. This does not control client playback. |
+| `demo_status` | Shows the server recorder, file-save job, and last file-job result. |
+| `demo_list` | Scans and lists files in the server's local demo directory in the background. |
+| `demo_delete <name>` | Deletes a file from the server's local demo directory in the background. |
+| `killcam_status` | Shows whether remote killcams are enabled and the pending event, encode, transfer, and packet counts. |
 
 `phase` använder:
 

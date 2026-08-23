@@ -37,7 +37,14 @@ bool ReplayRollingBuffer::begin(
 ) {
   if (!config.enabled || config.retainedTicks == 0U || config.checkpointIntervalTicks == 0U ||
       config.hashIntervalTicks == 0U || config.maximumBytes == 0U ||
-      generation == 0U || initialCheckpoint.serverTick != metadata.initialServerTick) {
+      generation == 0U || initialCheckpoint.serverTick != metadata.initialServerTick ||
+      metadata.protocolRevision != kReplayProtocolRevision ||
+      metadata.buildFingerprint != kReplayBuildFingerprint ||
+      metadata.simulationRevision != kReplaySimulationRevision ||
+      metadata.configurationRevision == 0U ||
+      !validateReplayGameplayConfig(metadata.gameplayConfig) ||
+      metadata.gameplayConfigHash != canonicalGameplayConfigHash(metadata.gameplayConfig) ||
+      initialCheckpoint.gameplayConfigHash != metadata.gameplayConfigHash) {
     return fail(error, "rolling replay configuration is invalid");
   }
   config_ = config;
@@ -74,13 +81,40 @@ void ReplayRollingBuffer::recordResolvedInput(const ReplayTickInput& input) {
     ++droppedRecords_;
     return;
   }
-  if (estimatedBytes_ > config_.maximumBytes ||
-      sizeof(ReplayTickInput) > config_.maximumBytes - estimatedBytes_) {
+  // Admit the newest tick before trimming. Rejecting it at the cap would make
+  // the next tick fail the adjacency check and permanently stop recording.
+  inputs_.push_back(input);
+  estimatedBytes_ += sizeof(ReplayTickInput);
+  trim();
+}
+
+void ReplayRollingBuffer::recordAuthorityBoundary(const ReplayAuthorityBoundary& boundary) {
+  if (!active_) {
     ++droppedRecords_;
     return;
   }
-  inputs_.push_back(input);
-  estimatedBytes_ += sizeof(ReplayTickInput);
+  if (boundary.tick < metadata_.initialServerTick ||
+      boundary.checkpoint.serverTick != boundary.tick ||
+      boundary.configurationRevision == 0U ||
+      !validateReplayGameplayConfig(boundary.gameplayConfig) ||
+      canonicalGameplayConfigHash(boundary.gameplayConfig) !=
+        boundary.checkpoint.gameplayConfigHash ||
+      (!authorityBoundaries_.empty() &&
+        boundary.tick <= authorityBoundaries_.back().tick)) {
+    markAuthorityBoundaryGap(boundary.tick);
+    ++droppedRecords_;
+    return;
+  }
+  const std::size_t checkpointBytes = checkpointResidentBytes(boundary.checkpoint);
+  constexpr std::size_t kBoundaryConfigReserveBytes = 2048U;
+  const std::size_t addition = checkpointBytes + kBoundaryConfigReserveBytes;
+  if (estimatedBytes_ > config_.maximumBytes || addition > config_.maximumBytes - estimatedBytes_) {
+    markAuthorityBoundaryGap(boundary.tick);
+    ++droppedRecords_;
+    return;
+  }
+  authorityBoundaries_.push_back(boundary);
+  estimatedBytes_ += addition;
   trim();
 }
 
@@ -123,12 +157,11 @@ void ReplayRollingBuffer::recordCompletedTick(const ReplayCheckpoint& checkpoint
 
 void ReplayRollingBuffer::recordLethal(const ReplayLethalEvent& event) {
   if (!active_ || event.replayGeneration != generation_ || event.victim >= kDuelPlayerCount ||
-      (!lethals_.empty() && event.tick < lethals_.back().tick)) {
-    ++droppedRecords_;
-    return;
-  }
-  if (estimatedBytes_ > config_.maximumBytes ||
-      sizeof(ReplayLethalEvent) > config_.maximumBytes - estimatedBytes_) {
+      event.replayGeneration == 0U || event.sequence == 0U ||
+      (!lethals_.empty() &&
+        (event.tick < lethals_.back().tick ||
+          (event.tick == lethals_.back().tick &&
+            event.sequence <= lethals_.back().sequence)))) {
     ++droppedRecords_;
     return;
   }
@@ -162,6 +195,12 @@ std::optional<ReplayDemo> ReplayRollingBuffer::extractSegment(
     return std::nullopt;
   }
   const ReplayCheckpoint& anchor = *std::prev(checkpoint);
+  if (authorityBoundaryGapTick_.has_value() &&
+      anchor.serverTick <= *authorityBoundaryGapTick_ &&
+      end >= *authorityBoundaryGapTick_) {
+    fail(error, "rolling replay authority boundary history is incomplete");
+    return std::nullopt;
+  }
   if (inputs_.empty() || inputs_.front().tick > anchor.serverTick || inputs_.back().tick < end) {
     fail(error, "rolling replay segment is incomplete");
     return std::nullopt;
@@ -169,12 +208,31 @@ std::optional<ReplayDemo> ReplayRollingBuffer::extractSegment(
   ReplayDemo segment;
   segment.metadata = metadata_;
   segment.metadata.initialServerTick = anchor.serverTick;
+  const ReplayAuthorityBoundary* anchorBoundary = nullptr;
+  for (const ReplayAuthorityBoundary& boundary : authorityBoundaries_) {
+    if (boundary.tick > anchor.serverTick) break;
+    anchorBoundary = &boundary;
+  }
+  if (anchorBoundary != nullptr) {
+    segment.metadata.gameplayConfig = anchorBoundary->gameplayConfig;
+    segment.metadata.gameplayConfigHash =
+      canonicalGameplayConfigHash(anchorBoundary->gameplayConfig);
+    segment.metadata.configurationRevision = anchorBoundary->configurationRevision;
+    segment.metadata.gameMode = anchorBoundary->gameMode;
+    segment.metadata.matchRules = anchorBoundary->matchRules;
+    segment.metadata.players = anchorBoundary->players;
+  }
   segment.checkpoints.push_back(anchor);
   for (const ReplayTickInput& input : inputs_) {
     if (input.tick >= anchor.serverTick && input.tick <= end) segment.ticks.push_back(input);
   }
   for (const ReplayStateHash& hash : hashes_) {
     if (hash.tick >= anchor.serverTick && hash.tick <= end) segment.hashes.push_back(hash);
+  }
+  for (const ReplayAuthorityBoundary& boundary : authorityBoundaries_) {
+    if (boundary.tick >= anchor.serverTick && boundary.tick <= end) {
+      segment.authorityBoundaries.push_back(boundary);
+    }
   }
   for (const ReplayLethalEvent& lethal : lethals_) {
     if (lethal.tick >= anchor.serverTick && lethal.tick <= end) segment.lethalEvents.push_back(lethal);
@@ -218,6 +276,10 @@ void ReplayRollingBuffer::trim() {
     ++droppedRecords_;
   }
   const std::uint32_t anchorTick = checkpoints_.empty() ? floor : checkpoints_.front().serverTick;
+  if (authorityBoundaryGapTick_.has_value() &&
+      *authorityBoundaryGapTick_ < anchorTick) {
+    authorityBoundaryGapTick_.reset();
+  }
   while (!inputs_.empty() && inputs_.front().tick < anchorTick) {
     inputs_.pop_front();
     estimatedBytes_ -= sizeof(ReplayTickInput);
@@ -231,6 +293,12 @@ void ReplayRollingBuffer::trim() {
   while (!lethals_.empty() && lethals_.front().tick < anchorTick) {
     lethals_.pop_front();
     estimatedBytes_ -= sizeof(ReplayLethalEvent);
+    ++droppedRecords_;
+  }
+  while (authorityBoundaries_.size() > 1U &&
+      authorityBoundaries_[1].tick < anchorTick) {
+    estimatedBytes_ -= checkpointResidentBytes(authorityBoundaries_.front().checkpoint) + 2048U;
+    authorityBoundaries_.pop_front();
     ++droppedRecords_;
   }
   while (estimatedBytes_ > config_.maximumBytes && checkpoints_.size() > 1U) {
@@ -249,16 +317,21 @@ void ReplayRollingBuffer::trim() {
       lethals_.pop_front();
       estimatedBytes_ -= sizeof(ReplayLethalEvent);
     }
+    while (authorityBoundaries_.size() > 1U &&
+        authorityBoundaries_[1].tick < nextAnchor) {
+      estimatedBytes_ -= checkpointResidentBytes(authorityBoundaries_.front().checkpoint) + 2048U;
+      authorityBoundaries_.pop_front();
+    }
     ++droppedRecords_;
   }
   // A single oversized current interval cannot be made segment-safe. Drop its
   // oldest frames while retaining its anchor rather than allow memory growth.
-  while (estimatedBytes_ > config_.maximumBytes && inputs_.size() > 1U) {
+  while (estimatedBytes_ > config_.maximumBytes && !inputs_.empty()) {
     inputs_.pop_front();
     estimatedBytes_ -= sizeof(ReplayTickInput);
     ++droppedRecords_;
   }
-  while (estimatedBytes_ > config_.maximumBytes && lethals_.size() > 1U) {
+  while (estimatedBytes_ > config_.maximumBytes && !lethals_.empty()) {
     lethals_.pop_front();
     estimatedBytes_ -= sizeof(ReplayLethalEvent);
     ++droppedRecords_;
@@ -268,9 +341,18 @@ void ReplayRollingBuffer::trim() {
 void ReplayRollingBuffer::clear() {
   std::deque<ReplayTickInput>().swap(inputs_);
   std::deque<ReplayCheckpoint>().swap(checkpoints_);
+  std::deque<ReplayAuthorityBoundary>().swap(authorityBoundaries_);
   std::deque<ReplayStateHash>().swap(hashes_);
   std::deque<ReplayLethalEvent>().swap(lethals_);
+  authorityBoundaryGapTick_.reset();
   estimatedBytes_ = 0U;
+}
+
+void ReplayRollingBuffer::markAuthorityBoundaryGap(std::uint32_t tick) {
+  const std::uint32_t safeTick = std::max(tick, metadata_.initialServerTick);
+  if (!authorityBoundaryGapTick_.has_value() || safeTick < *authorityBoundaryGapTick_) {
+    authorityBoundaryGapTick_ = safeTick;
+  }
 }
 
 std::uint32_t ReplayRollingBuffer::newestTick() const {

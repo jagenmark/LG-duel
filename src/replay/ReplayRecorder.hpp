@@ -52,6 +52,8 @@ public:
     std::string* error = nullptr
   );
   [[nodiscard]] bool recordResolvedInput(const ReplayTickInput& input, std::string* error = nullptr);
+  void recordAuthorityBoundary(const ReplayAuthorityBoundary& boundary);
+  void recordLethal(const ReplayLethalEvent& event);
   [[nodiscard]] bool needsCompletedCheckpoint(std::uint32_t tick) const;
   void recordCompletedTick(const ReplayCheckpoint& checkpoint);
   [[nodiscard]] bool active() const;

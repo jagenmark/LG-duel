@@ -1,5 +1,11 @@
 #include "client/ClientGame.hpp"
+#include "net/LoopbackTransport.hpp"
 #include "net/UdpTransport.hpp"
+#include "replay/KillcamClientReceiver.hpp"
+#include "replay/KillcamServerCoordinator.hpp"
+#include "replay/ReplayCodec.hpp"
+#include "replay/ReplayRuntime.hpp"
+#include "replay/ReplayTransferServer.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
 
@@ -11,8 +17,12 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <thread>
+#include <utility>
+#include <variant>
+#include <vector>
 
 namespace {
 
@@ -33,6 +43,70 @@ void syncConnectedPlayers(
     transport.connectedPlayers(),
     transport.connectedPlayerSessions()
   );
+}
+
+lg::replay::ReplayDemo makeUdpReplayFixture() {
+  lg::LoopbackTransport transport;
+  lg::ServerGame source(transport);
+  source.setMapDirectory("maps");
+  if (!source.loadRequestedMap("eyetoeye")) {
+    return {};
+  }
+  source.setConnectedPlayers({true, true});
+  lg::MatchRules rules;
+  rules.countdownTicks = 0U;
+  source.setMatchRules(rules);
+
+  for (std::size_t slot = 0U; slot < lg::kDuelPlayerCount; ++slot) {
+    lg::CommandPacket ready;
+    ready.playerIndex = static_cast<std::uint8_t>(slot);
+    ready.command.sequence = static_cast<std::uint32_t>(slot + 1U);
+    ready.toggleReady = true;
+    transport.sendCommand(ready);
+  }
+  source.tick(lg::kFixedTickSeconds);
+  lg::ServerSnapshot readySnapshot;
+  while (transport.receiveSnapshot(readySnapshot)) {}
+
+  std::string error;
+  lg::replay::ReplayRecordingConfig recording;
+  recording.checkpointIntervalTicks = 16U;
+  recording.hashIntervalTicks = 1U;
+  if (!source.beginReplayRecording(recording, &error)) {
+    return {};
+  }
+  for (std::uint32_t offset = 0U; offset < 16U; ++offset) {
+    for (std::size_t slot = 0U; slot < lg::kDuelPlayerCount; ++slot) {
+      lg::CommandPacket command;
+      command.playerIndex = static_cast<std::uint8_t>(slot);
+      command.command.sequence =
+        10U + offset * 2U + static_cast<std::uint32_t>(slot);
+      command.command.forwardMove = slot == 0U ? 1.0F : -1.0F;
+      command.command.viewYawRadians = slot == 0U ? 0.0F : 3.1415926F;
+      command.viewedServerTick = source.snapshot().serverTick;
+      transport.sendCommand(command);
+    }
+    source.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot ignored;
+    while (transport.receiveSnapshot(ignored)) {}
+  }
+
+  std::optional<lg::replay::ReplayDemo> demo = source.finishReplayRecording();
+  if (!demo.has_value() || demo->ticks.empty() || demo->checkpoints.empty()) {
+    return {};
+  }
+  demo->hashes.clear();
+  demo->lethalEvents.push_back({
+    demo->ticks.back().tick,
+    1U,
+    0U,
+    1U,
+    lg::Weapon::Railgun,
+    17U,
+    lg::replay::LethalKind::Direct,
+    19U,
+  });
+  return *demo;
 }
 
 } // namespace
@@ -79,9 +153,502 @@ int main() {
     firstTransport.playerIndex() != secondTransport.playerIndex(),
     "UDP clients should receive distinct player slots"
   );
+  failures += expect(
+    firstTransport.sessionId() != 0U && secondTransport.sessionId() != 0U &&
+      firstTransport.sessionId() != secondTransport.sessionId(),
+    "UDP clients should receive distinct authenticated sessions"
+  );
   failures += expect(serverTransport.connectedClientCount() == 2, "server should track two UDP clients");
   if (failures != 0) {
     return 1;
+  }
+
+  const auto runCoordinatorE2e = [&]() {
+    lg::replay::KillcamServerCoordinator coordinator(server, serverTransport);
+    server.resetMatch();
+    syncConnectedPlayers(server, serverTransport);
+    serverTransport.sendSnapshot(server.snapshot());
+    firstTransport.update();
+    secondTransport.update();
+    lg::ServerSnapshot resetSnapshot;
+    while (firstTransport.receiveSnapshot(resetSnapshot)) {}
+    while (secondTransport.receiveSnapshot(resetSnapshot)) {}
+    lg::replay::ReplayTransferMessage staleTransferMessage;
+    while (firstTransport.receiveReplayTransferMessage(staleTransferMessage)) {}
+    while (secondTransport.receiveReplayTransferMessage(staleTransferMessage)) {}
+    lg::replay::KillcamServerCoordinatorConfig killcamConfig;
+    killcamConfig.beforeTicks = 16U;
+    killcamConfig.afterTicks = 2U;
+    killcamConfig.transferTimeoutMilliseconds = 4000U;
+    killcamConfig.maximumSegmentBytes = 512U * 1024U;
+    killcamConfig.packetsPerTick = 4U;
+    killcamConfig.rolling.retainedTicks = 128U;
+    killcamConfig.rolling.checkpointIntervalTicks = 4U;
+    killcamConfig.rolling.hashIntervalTicks = 1U;
+    killcamConfig.rolling.maximumBytes = 2U * 1024U * 1024U;
+    std::string error;
+    failures += expect(
+      coordinator.configure(killcamConfig, &error),
+      "coordinator UDP slice should enable rolling replay"
+    );
+
+    const auto pumpServer = [&](std::uint64_t nowMilliseconds) {
+      firstTransport.update();
+      secondTransport.update();
+      serverTransport.update();
+      syncConnectedPlayers(server, serverTransport);
+      server.tick(lg::kFixedTickSeconds);
+      coordinator.update(nowMilliseconds);
+      lg::ServerSnapshot ignored;
+      while (firstTransport.receiveSnapshot(ignored)) {}
+      while (secondTransport.receiveSnapshot(ignored)) {}
+    };
+
+    lg::CommandPacket firstReady;
+    firstReady.command.sequence = 1000U;
+    firstReady.toggleReady = true;
+    firstTransport.sendCommand(firstReady);
+    lg::CommandPacket secondReady;
+    secondReady.command.sequence = 1000U;
+    secondReady.toggleReady = true;
+    secondTransport.sendCommand(secondReady);
+    std::uint64_t nowMilliseconds = 0U;
+    for (std::size_t iteration = 0U;
+         iteration < 200U && server.snapshot().matchPhase != lg::MatchPhase::Live;
+         ++iteration) {
+      pumpServer(nowMilliseconds++);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    failures += expect(
+      server.snapshot().matchPhase == lg::MatchPhase::Live,
+      "coordinator UDP slice should reach live duel play"
+    );
+
+    for (std::size_t iteration = 0U; iteration < 32U; ++iteration) {
+      pumpServer(nowMilliseconds++);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    bool lethalAccepted = false;
+    for (std::size_t iteration = 0U;
+         iteration < 200U && !lethalAccepted;
+         ++iteration) {
+      const std::size_t attackerIndex = firstTransport.playerIndex();
+      const std::size_t victimIndex = secondTransport.playerIndex();
+      if (attackerIndex < lg::kDuelPlayerCount &&
+          victimIndex < lg::kDuelPlayerCount &&
+          server.snapshot().players[victimIndex].health > 0) {
+        const lg::Vec3 attackerEye =
+          server.snapshot().players[attackerIndex].position +
+          lg::Vec3{0.0F, 0.0F, 0.65F};
+        const lg::Vec3 offset =
+          server.snapshot().players[victimIndex].position - attackerEye;
+        lg::CommandPacket attack;
+        attack.command.sequence =
+          1010U + static_cast<std::uint32_t>(iteration);
+        attack.command.attack = true;
+        attack.command.weapon = lg::Weapon::Railgun;
+        attack.command.planarAim = false;
+        attack.command.viewYawRadians = std::atan2(offset.y, offset.x);
+        attack.command.viewPitchRadians =
+          std::atan2(offset.z, std::hypot(offset.x, offset.y));
+        attack.viewedServerTick = server.snapshot().serverTick;
+        firstTransport.sendCommand(attack);
+      }
+      pumpServer(nowMilliseconds++);
+      lethalAccepted = coordinator.stats().acceptedEvents > 0U;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    failures += expect(
+      lethalAccepted,
+      "coordinator UDP slice should accept a real lethal event"
+    );
+
+    const std::uint32_t liveSession = secondTransport.sessionId();
+    const std::size_t livePlayer = secondTransport.playerIndex();
+    lg::ClientNetworkSimulationConfig transferSimulation;
+    transferSimulation.latencyMs = 1U;
+    transferSimulation.jitterMs = 1U;
+    transferSimulation.lossPercent = 10U;
+    transferSimulation.reorderPercent = 35U;
+    transferSimulation.seed = 0x51DECA5EU;
+    secondTransport.setNetworkSimulationConfig(transferSimulation);
+    lg::replay::KillcamClientReceiver receiver({1000U, 5000U});
+    receiver.bindSession(liveSession);
+    std::optional<std::vector<std::uint8_t>> receivedBytes;
+    for (std::size_t iteration = 0U;
+         iteration < 3000U && !receivedBytes.has_value();
+         ++iteration) {
+      pumpServer(nowMilliseconds++);
+      lg::replay::ReplayTransferMessage message;
+      while (secondTransport.receiveReplayTransferMessage(message)) {
+        const auto response = receiver.receive(message, nowMilliseconds);
+        if (response.has_value()) {
+          (void)secondTransport.sendReplayTransferMessage(*response);
+        }
+      }
+      const auto timeoutResponse = receiver.update(nowMilliseconds);
+      if (timeoutResponse.has_value()) {
+        (void)secondTransport.sendReplayTransferMessage(*timeoutResponse);
+      }
+      if (!receiver.active() && !receiver.failed()) {
+        receivedBytes = receiver.takeCompleted();
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    failures += expect(
+      receivedBytes.has_value() && coordinator.stats().encodedSegments > 0U,
+      "coordinator UDP slice should transfer a lethal segment"
+    );
+
+    lg::replay::ReplayDemo decoded;
+    failures += expect(
+      receivedBytes.has_value() &&
+        lg::replay::decodeDemo(*receivedBytes, decoded, &error) &&
+        decoded.lethalEvents.size() == 1U &&
+        decoded.lethalEvents.front().victim ==
+          static_cast<std::uint8_t>(livePlayer) &&
+        !decoded.ticks.empty() &&
+        decoded.ticks.back().tick ==
+          decoded.lethalEvents.front().tick + killcamConfig.afterTicks,
+      "coordinator UDP slice should include the requested after-death ticks"
+    );
+    if (receivedBytes.has_value()) {
+      lg::replay::ReplayRuntimeConfig runtimeConfig;
+      runtimeConfig.mapDirectory = "maps";
+      runtimeConfig.initialFollowSlot = decoded.lethalEvents.empty()
+        ? 0U
+        : decoded.lethalEvents.front().killer;
+      lg::replay::ReplayRuntime runtime(std::move(decoded), runtimeConfig);
+      failures += expect(
+        runtime.start(&error) && runtime.active(),
+        "coordinator UDP slice should load through ReplayRuntime"
+      );
+      if (runtime.active()) {
+        failures += expect(
+          runtime.resume() && runtime.advance(0.05, &error),
+          "coordinator UDP slice should advance playback"
+        );
+        runtime.stop();
+      }
+    }
+
+    secondTransport.setNetworkSimulationConfig({});
+    bool returnedToLive = false;
+    for (std::size_t iteration = 0U; iteration < 100U; ++iteration) {
+      serverTransport.sendSnapshot(server.snapshot());
+      secondTransport.update();
+      lg::ServerSnapshot liveSnapshot;
+      while (secondTransport.receiveSnapshot(liveSnapshot)) {
+        returnedToLive = true;
+      }
+      if (returnedToLive) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    failures += expect(
+      returnedToLive && secondTransport.connected() &&
+        secondTransport.sessionId() == liveSession &&
+        secondTransport.playerIndex() == livePlayer,
+      "coordinator UDP slice should return the same live client session"
+    );
+    lg::replay::ReplayTransferMessage strayMessage;
+    failures += expect(
+      !firstTransport.receiveReplayTransferMessage(strayMessage),
+      "coordinator UDP slice should not send the victim transfer to client one"
+    );
+
+    // Leave the shared UDP fixture in the warmup state expected by the
+    // transport assertions below. The coordinator slice itself owns no live
+    // match state, but the real lethal event above does advance the match.
+    server.resetMatch();
+    syncConnectedPlayers(server, serverTransport);
+    serverTransport.sendSnapshot(server.snapshot());
+    firstTransport.update();
+    secondTransport.update();
+    lg::ServerSnapshot ignored;
+    while (firstTransport.receiveSnapshot(ignored)) {}
+    while (secondTransport.receiveSnapshot(ignored)) {}
+  };
+
+  {
+    const lg::replay::ReplayDemo fixture = makeUdpReplayFixture();
+    std::vector<std::uint8_t> fixtureBytes;
+    std::string error;
+    failures += expect(
+      !fixture.ticks.empty() && !fixture.lethalEvents.empty() &&
+        lg::replay::encodeDemo(fixture, fixtureBytes, &error),
+      "UDP killcam fixture should encode a replay with a lethal event"
+    );
+    if (!fixtureBytes.empty()) {
+      lg::replay::ReplayTransferServerConfig transferConfig;
+      transferConfig.maximumSegmentBytes =
+        lg::replay::kReplayTransferMaxSegmentBytes;
+      transferConfig.transfer.retryMilliseconds = 5U;
+      transferConfig.transfer.timeoutMilliseconds = 4000U;
+      transferConfig.transfer.minimumPacketIntervalMilliseconds = 1U;
+      constexpr std::size_t kPacketsPerTick = 1U;
+
+      {
+        struct ScheduledMessage {
+          std::uint64_t dueMilliseconds = 0U;
+          lg::replay::ReplayTransferMessage message;
+        };
+
+        constexpr std::uint8_t kClientIndex = 3U;
+        constexpr std::uint32_t kSessionId = 0x51DECA5EU;
+        lg::replay::ReplayTransferServer deterministicServer(transferConfig);
+        lg::replay::KillcamClientReceiver deterministicReceiver({1000U, 5000U});
+        deterministicReceiver.bindSession(kSessionId);
+        const lg::replay::ReplayLethalEvent& lethal = fixture.lethalEvents.front();
+        failures += expect(
+          deterministicServer.start(
+            kClientIndex, kSessionId, lethal.replayGeneration, fixtureBytes,
+            0U, &error, lethal.sequence
+          ),
+          "deterministic killcam transfer should start"
+        );
+
+        std::vector<ScheduledMessage> clientInbox;
+        std::vector<ScheduledMessage> serverInbox;
+        std::optional<std::vector<std::uint8_t>> deterministicBytes;
+        bool droppedChunkOne = false;
+        bool delayedChunkZero = false;
+        std::size_t deterministicOutboundPackets = 0U;
+
+        for (std::uint64_t nowMilliseconds = 0U;
+             nowMilliseconds < 1000U && !deterministicBytes.has_value() &&
+               !deterministicReceiver.failed();
+             ++nowMilliseconds) {
+          const auto clientMessage = std::find_if(
+            clientInbox.begin(), clientInbox.end(),
+            [nowMilliseconds](const ScheduledMessage& scheduled) {
+              return scheduled.dueMilliseconds <= nowMilliseconds;
+            }
+          );
+          if (clientMessage != clientInbox.end()) {
+            const auto response = deterministicReceiver.receive(
+              clientMessage->message, nowMilliseconds
+            );
+            clientInbox.erase(clientMessage);
+            if (response.has_value()) {
+              serverInbox.push_back({nowMilliseconds + 1U, *response});
+            }
+          }
+
+          const auto serverMessage = std::find_if(
+            serverInbox.begin(), serverInbox.end(),
+            [nowMilliseconds](const ScheduledMessage& scheduled) {
+              return scheduled.dueMilliseconds <= nowMilliseconds;
+            }
+          );
+          if (serverMessage != serverInbox.end()) {
+            deterministicServer.receive(kClientIndex, kSessionId,
+                                        serverMessage->message);
+            serverInbox.erase(serverMessage);
+          }
+
+          const auto outbound = deterministicServer.poll(
+            nowMilliseconds, kPacketsPerTick
+          );
+          failures += expect(
+            outbound.size() <= kPacketsPerTick,
+            "deterministic transfer should respect its send budget"
+          );
+          for (const auto& packet : outbound) {
+            ++deterministicOutboundPackets;
+            if (const auto* chunk = std::get_if<lg::replay::ReplayTransferChunk>(
+                  &packet.message
+                );
+                chunk != nullptr && chunk->index == 1U && !droppedChunkOne) {
+              droppedChunkOne = true;
+              continue;
+            }
+            std::uint64_t delayMilliseconds = 1U;
+            if (const auto* chunk = std::get_if<lg::replay::ReplayTransferChunk>(
+                  &packet.message
+                );
+                chunk != nullptr && chunk->index == 0U && !delayedChunkZero) {
+              delayedChunkZero = true;
+              delayMilliseconds = 4U;
+            }
+            clientInbox.push_back({
+              nowMilliseconds + delayMilliseconds, packet.message
+            });
+          }
+
+          if (const auto timeout = deterministicReceiver.update(nowMilliseconds);
+              timeout.has_value()) {
+            serverInbox.push_back({nowMilliseconds + 1U, *timeout});
+          }
+          if (!deterministicReceiver.active() && !deterministicReceiver.failed()) {
+            deterministicBytes = deterministicReceiver.takeCompleted();
+          }
+        }
+
+        failures += expect(
+          droppedChunkOne && delayedChunkZero && deterministicOutboundPackets > 2U &&
+            deterministicBytes.has_value() && *deterministicBytes == fixtureBytes,
+          "deterministic loss and reorder should reassemble the exact killcam"
+        );
+        lg::replay::ReplayDemo deterministicDecoded;
+        failures += expect(
+          deterministicBytes.has_value() &&
+            lg::replay::decodeDemo(*deterministicBytes, deterministicDecoded, &error) &&
+            deterministicDecoded.lethalEvents.size() == 1U &&
+            deterministicDecoded.lethalEvents.front().victim == 0U &&
+            deterministicDecoded.lethalEvents.front().killer == 1U &&
+            deterministicDecoded.lethalEvents.front().sequence == 19U,
+          "deterministic loss and reorder killcam should decode the lethal event"
+        );
+      }
+
+      lg::replay::ReplayTransferServer transferServer(transferConfig);
+      lg::replay::KillcamClientReceiver receiver({1000U, 5000U});
+      receiver.bindSession(firstTransport.sessionId());
+      const std::uint8_t firstClientIndex = firstTransport.clientIndex();
+      const std::uint32_t firstSessionId = firstTransport.sessionId();
+      const lg::replay::ReplayLethalEvent& lethal = fixture.lethalEvents.front();
+      failures += expect(
+        firstSessionId != 0U && firstClientIndex != lg::kNoAssignedPlayer &&
+          transferServer.start(
+            firstClientIndex,
+            firstSessionId,
+            lethal.replayGeneration,
+            fixtureBytes,
+            0U,
+            &error,
+            lethal.sequence
+          ),
+        "UDP killcam server should start for the authenticated client"
+      );
+
+      std::optional<std::vector<std::uint8_t>> receivedBytes;
+      std::uint64_t nowMilliseconds = 0U;
+      for (std::size_t iteration = 0U;
+           iteration < 1000U && !receivedBytes.has_value() && !receiver.failed();
+           ++iteration) {
+        firstTransport.update();
+        secondTransport.update();
+        serverTransport.update();
+
+        std::uint8_t clientIndex = 0U;
+        lg::replay::ReplayTransferMessage serverMessage;
+        for (std::size_t received = 0U;
+             received < kPacketsPerTick &&
+               serverTransport.receiveReplayTransferMessage(clientIndex, serverMessage);
+             ++received) {
+          transferServer.receive(
+            clientIndex,
+            serverTransport.clientSession(clientIndex),
+            serverMessage
+          );
+        }
+
+        lg::replay::ReplayTransferMessage clientMessage;
+        for (std::size_t received = 0U;
+             received < kPacketsPerTick &&
+               firstTransport.receiveReplayTransferMessage(clientMessage);
+             ++received) {
+          const std::optional<lg::replay::ReplayTransferMessage> response =
+            receiver.receive(clientMessage, nowMilliseconds);
+          if (response.has_value()) {
+            (void)firstTransport.sendReplayTransferMessage(*response);
+          }
+        }
+        if (!receiver.active() && !receiver.failed() && !receivedBytes.has_value()) {
+          receivedBytes = receiver.takeCompleted();
+        }
+        const std::optional<lg::replay::ReplayTransferMessage> timeoutMessage =
+          receiver.update(nowMilliseconds);
+        if (timeoutMessage.has_value()) {
+          (void)firstTransport.sendReplayTransferMessage(*timeoutMessage);
+        }
+
+        const std::vector<lg::replay::ReplayTransferOutbound> outbound =
+          transferServer.poll(nowMilliseconds, kPacketsPerTick);
+        for (const lg::replay::ReplayTransferOutbound& packet : outbound) {
+          lg::WirePacket wire;
+          failures += expect(
+            lg::encodeReplayTransferPacket(packet.message, wire) &&
+              wire.size() <= lg::replay::kReplayTransferMaxDatagramBytes,
+            "UDP killcam packets should stay within the datagram bound"
+          );
+          failures += expect(
+            serverTransport.sendReplayTransferMessage(
+              packet.clientIndex, packet.message
+            ),
+            "UDP server should send each authenticated killcam packet"
+          );
+        }
+        if (!receiver.active() && !receiver.failed() && !receivedBytes.has_value()) {
+          receivedBytes = receiver.takeCompleted();
+        }
+        if (receivedBytes.has_value()) {
+          break;
+        }
+        ++nowMilliseconds;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+
+      failures += expect(
+        receivedBytes.has_value() && *receivedBytes == fixtureBytes,
+        "UDP killcam should relay the exact replay bytes"
+      );
+      lg::replay::ReplayDemo decoded;
+      failures += expect(
+        receivedBytes.has_value() &&
+          lg::replay::decodeDemo(*receivedBytes, decoded, &error) &&
+          decoded.lethalEvents.size() == 1U &&
+          decoded.lethalEvents.front().victim == 0U &&
+          decoded.lethalEvents.front().killer == 1U &&
+          decoded.lethalEvents.front().sequence == 19U,
+        "UDP killcam should decode its lethal event after transfer"
+      );
+      if (receivedBytes.has_value()) {
+        lg::replay::ReplayRuntimeConfig runtimeConfig;
+        runtimeConfig.mapDirectory = "maps";
+        lg::replay::ReplayRuntime runtime(std::move(decoded), runtimeConfig);
+        failures += expect(
+          runtime.start(&error) && runtime.active(),
+          "received UDP killcam should load through ReplayRuntime"
+        );
+        if (runtime.active()) {
+          const bool playbackAdvanced =
+            runtime.resume() && runtime.advance(0.05, &error);
+          failures += expect(
+            playbackAdvanced,
+            "received UDP killcam should advance through presentation"
+          );
+          runtime.stop();
+        }
+      }
+
+      lg::ServerSnapshot liveSnapshot;
+      bool receivedLiveSnapshot = false;
+      for (std::size_t iteration = 0U; iteration < 200U; ++iteration) {
+        serverTransport.sendSnapshot(server.snapshot());
+        firstTransport.update();
+        receivedLiveSnapshot = firstTransport.receiveSnapshot(liveSnapshot);
+        if (receivedLiveSnapshot) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      failures += expect(
+        firstTransport.connected() && receivedLiveSnapshot,
+        "client should return to live UDP snapshots after killcam playback"
+      );
+      lg::replay::ReplayTransferMessage secondMessage;
+      failures += expect(
+        !secondTransport.receiveReplayTransferMessage(secondMessage),
+        "a second client must not receive another client's killcam"
+      );
+      firstTransport.setNetworkSimulationConfig({});
+      lg::ServerSnapshot ignored;
+      for (std::size_t iteration = 0U; iteration < 32U; ++iteration) {
+        firstTransport.update();
+        while (firstTransport.receiveSnapshot(ignored)) {}
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
   }
 
   {
@@ -625,6 +1192,143 @@ int main() {
       secondClient.chatHistory().back().message == "udp chat history",
     "UDP chat history should deliver a sent message to other clients"
   );
+
+  {
+    const std::uint8_t clientIndex = firstTransport.clientIndex();
+    const std::uint32_t sessionId = firstTransport.sessionId();
+    lg::replay::ReplayTransferServerConfig cancelConfig;
+    cancelConfig.maximumSegmentBytes = 4096U;
+    cancelConfig.transfer.retryMilliseconds = 1U;
+    cancelConfig.transfer.timeoutMilliseconds = 4000U;
+    cancelConfig.transfer.minimumPacketIntervalMilliseconds = 1U;
+    lg::replay::ReplayTransferServer cancelServer(cancelConfig);
+    lg::replay::KillcamClientReceiver cancelReceiver({1000U, 5000U});
+    cancelReceiver.bindSession(sessionId);
+    std::string error;
+    const std::vector<std::uint8_t> cancelBytes(32U, 0x5cU);
+    failures += expect(
+      cancelServer.start(
+        clientIndex, sessionId, 41U, cancelBytes, 1U, &error, 23U
+      ),
+      "UDP cancel fixture should start an authenticated transfer"
+    );
+    const auto beginPackets = cancelServer.poll(2U, 1U);
+    failures += expect(
+      beginPackets.size() == 1U &&
+        std::holds_alternative<lg::replay::ReplayTransferBegin>(
+          beginPackets.front().message
+        ),
+      "UDP cancel fixture should produce a begin packet"
+    );
+    if (!beginPackets.empty()) {
+      failures += expect(
+        serverTransport.sendReplayTransferMessage(
+          clientIndex, beginPackets.front().message
+        ),
+        "UDP server should send the cancel fixture begin"
+      );
+    }
+    bool receivedBegin = false;
+    for (std::size_t iteration = 0U; iteration < 100U && !receivedBegin;
+         ++iteration) {
+      firstTransport.update();
+      lg::replay::ReplayTransferMessage message;
+      while (firstTransport.receiveReplayTransferMessage(message)) {
+        if (std::holds_alternative<lg::replay::ReplayTransferBegin>(message)) {
+          receivedBegin = cancelReceiver.receive(message, 2U).has_value();
+        }
+      }
+      if (!receivedBegin) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+    failures += expect(
+      receivedBegin && cancelReceiver.active() && !cancelReceiver.failed(),
+      "UDP cancel fixture should activate the receiver"
+    );
+
+    const auto cancelStatus = cancelServer.status(clientIndex);
+    failures += expect(
+      cancelStatus.has_value(),
+      "UDP cancel fixture should retain the active transfer tuple"
+    );
+    if (cancelStatus.has_value()) {
+      failures += expect(
+        serverTransport.sendReplayTransferMessage(
+          clientIndex,
+          lg::replay::ReplayTransferCancel{
+            cancelStatus->transferId,
+            cancelStatus->generation + 1U,
+            lg::replay::ReplayTransferCancelReason::Invalid,
+            sessionId
+          }
+        ),
+        "UDP server should send a stale cancel for the regression"
+      );
+    }
+    bool staleCancelReceived = false;
+    for (std::size_t iteration = 0U;
+         iteration < 100U && !staleCancelReceived; ++iteration) {
+      firstTransport.update();
+      lg::replay::ReplayTransferMessage message;
+      while (firstTransport.receiveReplayTransferMessage(message)) {
+        if (std::holds_alternative<lg::replay::ReplayTransferCancel>(message)) {
+          staleCancelReceived = true;
+          (void)cancelReceiver.receive(message, 3U);
+        }
+      }
+      if (!staleCancelReceived) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+    failures += expect(
+      staleCancelReceived && cancelReceiver.active() &&
+        !cancelReceiver.failed(),
+      "UDP stale cancel should leave the active receiver alone"
+    );
+
+    cancelServer.cancel(
+      clientIndex, sessionId, lg::replay::ReplayTransferCancelReason::Invalid
+    );
+    const auto matchingCancelPackets = cancelServer.poll(4U, 1U);
+    failures += expect(
+      matchingCancelPackets.size() == 1U &&
+        std::holds_alternative<lg::replay::ReplayTransferCancel>(
+          matchingCancelPackets.front().message
+        ),
+      "UDP reset should produce a matching cancel packet"
+    );
+    if (!matchingCancelPackets.empty()) {
+      failures += expect(
+        serverTransport.sendReplayTransferMessage(
+          clientIndex, matchingCancelPackets.front().message
+        ),
+        "UDP server should send the matching reset cancel"
+      );
+    }
+    bool matchingCancelReceived = false;
+    for (std::size_t iteration = 0U;
+         iteration < 100U && !matchingCancelReceived; ++iteration) {
+      firstTransport.update();
+      lg::replay::ReplayTransferMessage message;
+      while (firstTransport.receiveReplayTransferMessage(message)) {
+        if (std::holds_alternative<lg::replay::ReplayTransferCancel>(message)) {
+          matchingCancelReceived = true;
+          (void)cancelReceiver.receive(message, 5U);
+        }
+      }
+      if (!matchingCancelReceived) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+    failures += expect(
+      matchingCancelReceived && !cancelReceiver.active() &&
+        cancelReceiver.failed(),
+      "UDP matching reset cancel should fail the active receiver"
+    );
+  }
+
+  runCoordinatorE2e();
 
   firstTransport.disconnect();
   serverTransport.update();

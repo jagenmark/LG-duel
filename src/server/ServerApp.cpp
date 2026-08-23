@@ -3,6 +3,10 @@
 #include "console/ConsoleSystem.hpp"
 #include "console/ConsoleConfig.hpp"
 #include "net/UdpTransport.hpp"
+#include "replay/KillcamServerCoordinator.hpp"
+#include "replay/ReplayIoService.hpp"
+#include "replay/ReplayStorage.hpp"
+#include "server/ReplayAutoRecordLifecycle.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
 #include "sim/Arena.hpp"
@@ -399,7 +403,23 @@ int ServerApp::run() const {
   );
   server.setMapDirectory(defaultMapDirectory(options_.executablePath));
   (void)server.loadRequestedMap(kDefaultMapName);
+  replay::KillcamServerCoordinator killcamCoordinator(server, transport);
   std::cout << "LG Duel server listening on UDP port " << transport.localPort() << '\n';
+
+  replay::ReplayStorage replayStorage;
+  replay::ReplayIoService replayIo;
+  std::optional<replay::ReplayIoService::JobId> replaySaveJob;
+  struct PendingReplaySave {
+    std::filesystem::path path;
+    replay::ReplayDemo demo;
+  };
+  std::optional<PendingReplaySave> pendingReplaySave;
+  std::optional<replay::ReplayIoService::JobId> replayListJob;
+  std::optional<replay::ReplayIoService::JobId> replayDeleteJob;
+  std::optional<std::string> recordingStem;
+  std::string lastReplayResult;
+  bool autoRecording = false;
+  bool autoRecordStartedThisMatch = false;
 
   ConsoleSystem console;
   console.registerCvar({"sv_roundlimit", "Rounds required to win.", 10, CvarFlag::None, 1.0F, 100.0F});
@@ -410,6 +430,26 @@ int ServerApp::run() const {
   console.registerCvar({"sv_matchend", "Match-end delay in seconds.", 5.0F, CvarFlag::None, 0.0F, 60.0F});
   console.registerCvar({"sv_respawn_delay", "Death respawn delay for respawning modes in seconds.", 2.0F, CvarFlag::None, 0.0F, 30.0F});
   console.registerCvar({"sv_showopponenthealth", "Show opponent health to both players.", true, CvarFlag::None, {}, {}});
+  console.registerCvar({"sv_demo_autorecord", "Record each live match to the local demo directory.", false, CvarFlag::None, {}, {}});
+  console.registerCvar({"sv_demo_checkpoint_ticks", "Checkpoint interval for saved demos.", 250, CvarFlag::None, 1.0F, 4096.0F});
+  console.registerCvar({"sv_demo_hash_ticks", "State hash interval for saved demos.", 125, CvarFlag::None, 1.0F, 4096.0F});
+  console.registerCvar({"sv_demo_max_file_mb", "Maximum saved demo size in MiB.", 512, CvarFlag::None, 1.0F, 512.0F});
+  console.registerCvar({"sv_demo_max_resident_mb", "Maximum resident recorder size in MiB.", 512, CvarFlag::None, 1.0F, 512.0F});
+  console.registerCvar({"sv_killcam", "Enable remote duel killcam transfers.", true, CvarFlag::None, {}, {}});
+  console.registerCvar({"sv_killcam_before_seconds", "Remote killcam seconds before the lethal tick.", 3.0F, CvarFlag::None, 0.1F, 30.0F});
+  console.registerCvar({"sv_killcam_after_seconds", "Remote killcam seconds after the lethal tick.", 0.0F, CvarFlag::None, 0.0F, 10.0F});
+  console.registerCvar({"sv_killcam_transfer_timeout_ms", "Remote killcam transfer timeout.", 5000, CvarFlag::None, 100.0F, 30000.0F});
+  console.registerCvar({"sv_killcam_max_segment_kb", "Remote killcam encoded segment cap.", 512, CvarFlag::None, 1.0F, 512.0F});
+  console.registerCvar({
+    "sv_killcam_packets_per_tick",
+    "Remote killcam datagrams per server tick.",
+    static_cast<int>(replay::kDefaultKillcamPacketsPerTick),
+    CvarFlag::None,
+    1.0F,
+    64.0F
+  });
+  console.registerCvar({"sv_replay_rolling_seconds", "Rolling replay retention window.", 12.0F, CvarFlag::None, 3.0F, 80.0F});
+  console.registerCvar({"sv_replay_rolling_max_mb", "Rolling replay resident memory cap.", 16, CvarFlag::None, 1.0F, 64.0F});
   console.registerCvar({"sv_mcg_scorelimit", "McGuffin points required to win a round.", 100, CvarFlag::None, 1.0F, 1000.0F});
   console.registerCvar({"sv_mcg_points_per_second", "McGuffin installed scoring rate.", 1, CvarFlag::None, 1.0F, 20.0F});
   console.registerCvar({"sv_mcg_carry_points_per_second", "McGuffin unbanked carry-credit rate.", 1, CvarFlag::None, 1.0F, 20.0F});
@@ -438,7 +478,202 @@ int ServerApp::run() const {
   console.registerCvar({"bot_dodge", "Enable deterministic random bot left/right strafing.", false, CvarFlag::None, {}, {}});
   console.registerCvar({"bot_dodge_min_ms", "Minimum bot dodge direction interval in milliseconds.", 250, CvarFlag::None, 1.0F, 10000.0F});
   console.registerCvar({"bot_dodge_max_ms", "Maximum bot dodge direction interval in milliseconds.", 750, CvarFlag::None, 1.0F, 10000.0F});
+
+  const auto replayRecordingConfig = [&console] {
+    replay::ReplayRecordingConfig config;
+    config.checkpointIntervalTicks = static_cast<std::uint32_t>(
+      console.getInt("sv_demo_checkpoint_ticks")
+    );
+    config.hashIntervalTicks = static_cast<std::uint32_t>(
+      console.getInt("sv_demo_hash_ticks")
+    );
+    config.maximumBytes = static_cast<std::size_t>(console.getInt("sv_demo_max_file_mb")) *
+      1024U * 1024U;
+    config.maximumResidentBytes = static_cast<std::size_t>(
+      console.getInt("sv_demo_max_resident_mb")
+    ) * 1024U * 1024U;
+    return config;
+  };
+
+  const auto killcamConfig = [&console] {
+    replay::KillcamServerCoordinatorConfig config;
+    config.enabled = console.getBool("sv_killcam");
+    config.beforeTicks = static_cast<std::uint32_t>(std::lround(
+      console.getFloat("sv_killcam_before_seconds") / kFixedTickSeconds
+    ));
+    config.afterTicks = static_cast<std::uint32_t>(std::lround(
+      console.getFloat("sv_killcam_after_seconds") / kFixedTickSeconds
+    ));
+    config.transferTimeoutMilliseconds = static_cast<std::uint32_t>(
+      console.getInt("sv_killcam_transfer_timeout_ms")
+    );
+    config.maximumSegmentBytes = static_cast<std::size_t>(
+      console.getInt("sv_killcam_max_segment_kb")
+    ) * 1024U;
+    config.packetsPerTick = static_cast<std::size_t>(
+      console.getInt("sv_killcam_packets_per_tick")
+    );
+    config.rolling.retainedTicks = static_cast<std::uint32_t>(std::lround(
+      console.getFloat("sv_replay_rolling_seconds") / kFixedTickSeconds
+    ));
+    config.rolling.checkpointIntervalTicks = 250U;
+    config.rolling.hashIntervalTicks = 125U;
+    config.rolling.maximumBytes = static_cast<std::size_t>(
+      console.getInt("sv_replay_rolling_max_mb")
+    ) * 1024U * 1024U;
+    return config;
+  };
+
+  const auto beginReplayRecording = [&](std::string requestedStem, bool automatic) {
+    if (server.replayRecordingActive() || recordingStem.has_value() ||
+        pendingReplaySave.has_value()) {
+      return std::string("demo recording is already active");
+    }
+    if (requestedStem.empty()) {
+      requestedStem = replayStorage.automaticStem(
+        server.snapshot().map.mapName,
+        std::to_string(static_cast<int>(server.snapshot().gameMode))
+      );
+    }
+    std::string error;
+    const auto stem = replay::ReplayStorage::sanitizeStem(requestedStem, &error);
+    if (!stem.has_value()) {
+      return "demo record rejected: " + error;
+    }
+    if (!replayStorage.ensureDirectory(&error)) {
+      return "demo record rejected: " + error;
+    }
+    if (!server.beginReplayRecording(replayRecordingConfig(), &error)) {
+      return "demo record rejected: " + error;
+    }
+    recordingStem = *stem;
+    autoRecording = automatic;
+    if (automatic) autoRecordStartedThisMatch = true;
+    return "demo recording " + *stem;
+  };
+
+  const auto queueReplaySave = [&] {
+    if (!pendingReplaySave.has_value()) {
+      std::string error;
+      const std::string stem = recordingStem.value_or(
+        replayStorage.automaticStem(
+          server.snapshot().map.mapName,
+          std::to_string(static_cast<int>(server.snapshot().gameMode))
+        )
+      );
+      std::filesystem::path path;
+      if (!replayStorage.resolveDemoPath(stem, path, &error)) {
+        return "demo save rejected: " + error;
+      }
+      std::optional<replay::ReplayDemo> demo =
+        server.finishReplayRecording();
+      if (!demo.has_value()) {
+        recordingStem.reset();
+        return std::string("no completed demo to save");
+      }
+      pendingReplaySave = PendingReplaySave{path, std::move(*demo)};
+      recordingStem.reset();
+    }
+    if (replaySaveJob.has_value()) {
+      return std::string("demo save deferred: replay I/O job is active");
+    }
+    replay::ReplayIoService::JobId job = 0;
+    std::string error;
+    if (!replayIo.enqueueSave(
+          pendingReplaySave->path,
+          pendingReplaySave->demo,
+          job,
+          &error
+        )) {
+      return "demo save deferred: " + error;
+    }
+    const std::filesystem::path queuedPath = pendingReplaySave->path;
+    pendingReplaySave.reset();
+    replaySaveJob = job;
+    return "demo save queued: " + queuedPath.filename().string();
+  };
+
   bool resetRequested = false;
+  console.registerCommand(
+    "demo_record",
+    "Record a local demo: demo_record [name].",
+    [&beginReplayRecording](const std::vector<std::string>& arguments) {
+      if (arguments.size() > 2) return std::string("usage: demo_record [name]");
+      return beginReplayRecording(arguments.size() == 2 ? arguments[1] : std::string{}, false);
+    }
+  );
+  console.registerCommand(
+    "demo_stop",
+    "Stop the local demo recording and save it in the background.",
+    [&autoRecording, &queueReplaySave](const std::vector<std::string>&) {
+      autoRecording = false;
+      return queueReplaySave();
+    }
+  );
+  console.registerCommand(
+    "demo_status",
+    "Show local demo recording and I/O state.",
+    [&server, &recordingStem, &replaySaveJob, &pendingReplaySave,
+     &lastReplayResult](const std::vector<std::string>&) {
+      const replay::ReplayRecorderStats stats = server.replayRecorderStats();
+      std::string result = server.replayRecordingActive() ? "recording" : "idle";
+      if (recordingStem.has_value()) result += " name=" + *recordingStem;
+      result += " ticks=" + std::to_string(stats.inputTicks);
+      if (replaySaveJob.has_value()) result += " save=pending";
+      else if (pendingReplaySave.has_value()) result += " save=deferred";
+      if (!lastReplayResult.empty()) result += " last=" + lastReplayResult;
+      return result;
+    }
+  );
+  console.registerCommand(
+    "killcam_status",
+    "Show remote duel killcam transfer state.",
+    [&killcamCoordinator](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 1) return std::string("usage: killcam_status");
+      const replay::KillcamServerCoordinatorStats stats =
+        killcamCoordinator.stats();
+      return std::string("killcam enabled=") +
+        (killcamCoordinator.config().enabled ? "1" : "0") +
+        " pending=" + std::to_string(stats.pendingEvents) +
+        " encode=" + std::to_string(stats.pendingEncodes) +
+        " active=" + std::to_string(stats.activeTransfers) +
+        " sent=" + std::to_string(stats.sentPackets);
+    }
+  );
+  console.registerCommand(
+    "demo_list",
+    "List local demos after the background scan completes.",
+    [&replayIo, &replayStorage, &replayListJob](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 1) return std::string("usage: demo_list");
+      if (replayListJob.has_value()) return std::string("demo list is already pending");
+      replay::ReplayIoService::JobId job = 0;
+      std::string error;
+      if (!replayIo.enqueueList(replayStorage.directory(), job, &error)) {
+        return "demo list rejected: " + error;
+      }
+      replayListJob = job;
+      return std::string("demo list queued");
+    }
+  );
+  console.registerCommand(
+    "demo_delete",
+    "Delete one local demo: demo_delete <name>.",
+    [&replayIo, &replayStorage, &replayDeleteJob](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) return std::string("usage: demo_delete <name>");
+      if (replayDeleteJob.has_value()) return std::string("demo delete is already pending");
+      std::filesystem::path path;
+      std::string error;
+      if (!replayStorage.resolveDemoPath(arguments[1], path, &error)) {
+        return "demo delete rejected: " + error;
+      }
+      replay::ReplayIoService::JobId job = 0;
+      if (!replayIo.enqueueDelete(path, job, &error)) {
+        return "demo delete rejected: " + error;
+      }
+      replayDeleteJob = job;
+      return std::string("demo delete queued");
+    }
+  );
   console.registerCommand(
     "resetmatch",
     "Reset scores and return to ready-up.",
@@ -851,6 +1086,39 @@ int ServerApp::run() const {
 
   while (true) {
     nextTick += tickDuration;
+
+    while (std::optional<replay::ReplayIoService::Result> result = replayIo.poll()) {
+      if (result->id == replaySaveJob.value_or(0)) {
+        replaySaveJob.reset();
+      }
+      if (result->id == replayListJob.value_or(0)) {
+        replayListJob.reset();
+      }
+      if (result->id == replayDeleteJob.value_or(0)) {
+        replayDeleteJob.reset();
+      }
+      if (result->kind == replay::ReplayIoService::JobKind::List) {
+        if (result->ok) {
+          std::string names;
+          for (const replay::ReplayFileInfo& file : result->files) {
+            if (!names.empty()) names += ",";
+            names += file.name;
+          }
+          lastReplayResult = names.empty() ? "none" : names;
+          std::cout << "demos: " << lastReplayResult << '\n';
+        } else {
+          lastReplayResult = "list failed: " + result->error;
+          std::cout << lastReplayResult << '\n';
+        }
+      } else if (result->ok) {
+        lastReplayResult = result->path.filename().string() + " complete";
+        std::cout << "demo I/O complete: " << lastReplayResult << '\n';
+      } else {
+        lastReplayResult = "I/O failed: " + result->error;
+        std::cout << lastReplayResult << '\n';
+      }
+    }
+
     transport.update();
     server.setConnectedPlayers(
       transport.connectedPlayers(),
@@ -901,7 +1169,57 @@ int ServerApp::run() const {
       );
       resetRequested = false;
     }
+
+    std::string killcamError;
+    if (!killcamCoordinator.configure(killcamConfig(), &killcamError)) {
+      std::cerr << "Killcam configuration rejected: " << killcamError << '\n';
+    }
+
+    const MatchPhase replayMatchPhase = server.snapshot().matchPhase;
+    if (replayMatchPhase == MatchPhase::WaitingForPlayers ||
+        replayMatchPhase == MatchPhase::WaitingForReady) {
+      autoRecordStartedThisMatch = false;
+    }
+    const ReplayAutoRecordAction autoRecordAction = replayAutoRecordAction({
+      console.getBool("sv_demo_autorecord"),
+      autoRecording,
+      server.replayRecordingActive(),
+      recordingStem.has_value(),
+      pendingReplaySave.has_value(),
+      autoRecordStartedThisMatch,
+      replayMatchPhase,
+    });
+    if (autoRecordAction == ReplayAutoRecordAction::Start) {
+      const std::string result = beginReplayRecording({}, true);
+      if (result.rfind("demo recording ", 0) != 0) {
+        std::cerr << result << '\n';
+      }
+    } else if (autoRecordAction == ReplayAutoRecordAction::Stop) {
+      autoRecording = false;
+      const std::string result = queueReplaySave();
+      if (result.rfind("demo save queued", 0) != 0) {
+        std::cerr << result << '\n';
+      }
+    }
+
     server.tick(kFixedTickSeconds);
+    killcamCoordinator.update(static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+        Clock::now().time_since_epoch()
+      ).count()
+    ));
+    // A map change can finish a recorder inside ServerGame. Drain that demo
+    // here, after the tick, and keep all encoding and disk work off the tick.
+    if (((!server.replayRecordingActive() && recordingStem.has_value()) ||
+         pendingReplaySave.has_value()) &&
+        !replaySaveJob.has_value()) {
+      if (!server.replayRecordingActive()) autoRecording = false;
+      const std::string result = queueReplaySave();
+      if (result.rfind("demo save queued", 0) != 0 &&
+          result.rfind("demo save deferred:", 0) != 0) {
+        std::cerr << result << '\n';
+      }
+    }
     if (observeLiveTick) {
       const scenario::LiveScenarioUpdate liveUpdate =
         liveSession->afterServerTick(server);

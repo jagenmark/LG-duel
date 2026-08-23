@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -20,16 +21,66 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+void writeLittleEndian(
+  std::vector<std::uint8_t>& bytes,
+  std::size_t offset,
+  std::uint64_t value,
+  std::size_t width
+) {
+  for (std::size_t index = 0U; index < width; ++index) {
+    bytes[offset + index] = static_cast<std::uint8_t>(value >> (index * 8U));
+  }
+}
+
+void appendU32(std::vector<std::uint8_t>& bytes, std::uint32_t value) {
+  for (unsigned shift = 0U; shift < 32U; shift += 8U) {
+    bytes.push_back(static_cast<std::uint8_t>(value >> shift));
+  }
+}
+
+std::uint32_t replayCrc32(const std::vector<std::uint8_t>& bytes) {
+  std::uint32_t crc = 0xffffffffU;
+  for (const std::uint8_t byte : bytes) {
+    crc ^= byte;
+    for (unsigned bit = 0U; bit < 8U; ++bit) {
+      const std::uint32_t mask = 0U - (crc & 1U);
+      crc = (crc >> 1U) ^ (0xedb88320U & mask);
+    }
+  }
+  return ~crc;
+}
+
+void appendTickChunk(
+  std::vector<std::uint8_t>& bytes,
+  std::uint32_t tick
+) {
+  std::vector<std::uint8_t> payload;
+  appendU32(payload, tick);
+  payload.push_back(0U);
+  payload.push_back(0U);
+  bytes.push_back(static_cast<std::uint8_t>(
+    lg::replay::ReplayChunkType::TickInputs
+  ));
+  appendU32(bytes, static_cast<std::uint32_t>(payload.size()));
+  appendU32(bytes, replayCrc32(payload));
+  bytes.insert(bytes.end(), payload.begin(), payload.end());
+}
+
 lg::replay::ReplayDemo validDemo() {
   lg::replay::ReplayDemo demo;
   demo.metadata.protocolRevision = lg::kProtocolVersion;
-  demo.metadata.buildFingerprint = 0x1122334455667788ULL;
+  demo.metadata.buildFingerprint = lg::replay::kReplayBuildFingerprint;
   demo.metadata.initialServerTick = 100U;
   demo.metadata.mapRevision = 7U;
   demo.metadata.mapName = "replay_test";
   demo.metadata.mapContentHash = 0x12345678U;
   demo.metadata.gameMode = lg::GameMode::FreeForAll;
   demo.metadata.visibility = lg::replay::ReplayVisibility::DeveloperFull;
+  demo.metadata.gameplayConfig.balance.rocketLauncher.speed = 31.0F;
+  demo.metadata.gameplayConfig.movementTuning.gravity = 27.0F;
+  demo.metadata.gameplayConfig.mcguffinConfig.throwSpeed = 14.0F;
+  demo.metadata.gameplayConfigHash =
+    lg::replay::canonicalGameplayConfigHash(demo.metadata.gameplayConfig);
   demo.metadata.players[0] = {0U, true, false, lg::Team::None, "ALPHA"};
   demo.metadata.players[1] = {1U, true, true, lg::Team::None, "BOT"};
   for (std::size_t index = 2U; index < demo.metadata.players.size(); ++index) {
@@ -67,6 +118,8 @@ lg::replay::ReplayDemo validDemo() {
   checkpoint.serverTick = 101U;
   checkpoint.mapRevision = 7U;
   checkpoint.projectileRevision = 3U;
+  checkpoint.gameplayConfigHash = demo.metadata.gameplayConfigHash;
+  checkpoint.lethalSequence = 4U;
   checkpoint.damageTakenSequences[0] = 17U;
   checkpoint.damageTakenSequences[1] = 23U;
   checkpoint.rocketExplosionSequence = 31U;
@@ -102,7 +155,26 @@ lg::replay::ReplayDemo validDemo() {
   checkpoint.history[0].players[0] = checkpoint.players[0].player;
   demo.checkpoints.push_back(checkpoint);
   demo.hashes.push_back({101U, lg::replay::canonicalStateHash(checkpoint)});
-  demo.lethalEvents.push_back({101U, 1U, 1U, 0U, lg::Weapon::RocketLauncher, 14U, lg::replay::LethalKind::Direct});
+  demo.lethalEvents.push_back({101U, 1U, 1U, 0U, lg::Weapon::RocketLauncher, 14U,
+    lg::replay::LethalKind::Direct, 1U});
+  demo.lethalEvents.push_back({101U, 1U, 0U, 1U, lg::Weapon::RocketLauncher, 15U,
+    lg::replay::LethalKind::Splash, 2U});
+  demo.lethalEvents.push_back({101U, 1U, 1U, 1U, lg::Weapon::RocketLauncher, 16U,
+    lg::replay::LethalKind::Self, 3U});
+  demo.lethalEvents.push_back({101U, 1U, 0U, lg::replay::kNoReplayPlayer,
+    lg::Weapon::LightningGun, 0U, lg::replay::LethalKind::World, 4U});
+  lg::replay::ReplayAuthorityBoundary boundary;
+  boundary.tick = 101U;
+  boundary.checkpoint = checkpoint;
+  boundary.configurationRevision = 2U;
+  boundary.gameMode = demo.metadata.gameMode;
+  boundary.matchRules = demo.metadata.matchRules;
+  boundary.players = demo.metadata.players;
+  boundary.gameplayConfig = demo.metadata.gameplayConfig;
+  boundary.gameplayConfig.movementTuning.gravity = 28.0F;
+  boundary.checkpoint.gameplayConfigHash =
+    lg::replay::canonicalGameplayConfigHash(boundary.gameplayConfig);
+  demo.authorityBoundaries.push_back(boundary);
   return demo;
 }
 
@@ -117,9 +189,24 @@ int main() {
   failures += expect(!wire.empty(), "encoded replay should not be empty");
   const std::vector<std::uint8_t> validWire = wire;
 
+  const auto expectInvalidGameplayConfig = [&](auto mutate, std::string_view message) {
+    lg::replay::ReplayDemo invalid = source;
+    mutate(invalid.metadata.gameplayConfig);
+    invalid.metadata.gameplayConfigHash =
+      lg::replay::canonicalGameplayConfigHash(invalid.metadata.gameplayConfig);
+    return expect(!lg::replay::encodeDemo(invalid, wire, &error), message);
+  };
+
   lg::replay::ReplayDemo decoded;
   failures += expect(lg::replay::decodeDemo(wire, decoded, &error), "valid replay should decode");
   failures += expect(decoded.metadata.mapName == source.metadata.mapName, "metadata should round trip");
+  failures += expect(
+    decoded.metadata.gameplayConfigHash == source.metadata.gameplayConfigHash &&
+      decoded.metadata.gameplayConfig.balance.rocketLauncher.speed == 31.0F &&
+      decoded.metadata.gameplayConfig.movementTuning.gravity == 27.0F &&
+      decoded.metadata.gameplayConfig.mcguffinConfig.throwSpeed == 14.0F,
+    "full gameplay configuration should round trip"
+  );
   failures += expect(decoded.ticks.size() == 1U && decoded.ticks[0].slots[0].attackEdgeAccepted,
     "accepted action edge should round trip");
   failures += expect(decoded.ticks.size() == 1U && std::all_of(
@@ -161,6 +248,18 @@ int main() {
   );
   failures += expect(decoded.hashes.size() == 1U && decoded.hashes[0].value == source.hashes[0].value,
     "state hash should round trip");
+  failures += expect(decoded.lethalEvents.size() == 4U &&
+    decoded.lethalEvents[0].sequence == 1U &&
+    decoded.lethalEvents[1].kind == lg::replay::LethalKind::Splash &&
+    decoded.lethalEvents[1].projectileSequence == 15U &&
+    decoded.lethalEvents[2].kind == lg::replay::LethalKind::Self &&
+    decoded.lethalEvents[3].kind == lg::replay::LethalKind::World,
+    "lethal sequence and all provenance kinds should round trip");
+  failures += expect(decoded.authorityBoundaries.size() == 1U &&
+    decoded.authorityBoundaries[0].configurationRevision == 2U &&
+    decoded.authorityBoundaries[0].checkpoint.gameplayConfigHash ==
+      lg::replay::canonicalGameplayConfigHash(decoded.authorityBoundaries[0].gameplayConfig),
+    "authority boundary and its config snapshot should round trip");
   failures += expect(lg::replay::canonicalStateHash(decoded.checkpoints[0]) == source.hashes[0].value,
     "canonical checkpoint hash should survive codec round trip");
 
@@ -183,6 +282,60 @@ int main() {
     failures += expect(!lg::replay::decodeDemo(wrongMagic, decoded, &error), "invalid magic should fail");
   }
   {
+    std::vector<std::uint8_t> oldVersion = validWire;
+    oldVersion[4] = static_cast<std::uint8_t>(
+      lg::replay::kReplayFormatVersion - 1U
+    );
+    oldVersion[5] = 0U;
+    failures += expect(
+      !lg::replay::decodeDemo(oldVersion, decoded, &error) &&
+        error == "replay version is incompatible",
+      "the previous replay layout must be rejected as unsupported"
+    );
+  }
+  {
+    std::vector<std::uint8_t> unsupportedSimulation = validWire;
+    writeLittleEndian(
+      unsupportedSimulation,
+      40U,
+      lg::replay::kReplaySimulationRevision + 1U,
+      4U
+    );
+    failures += expect(
+      !lg::replay::decodeDemo(unsupportedSimulation, decoded, &error) &&
+        error == "replay simulation revision is incompatible",
+      "unsupported simulation revisions should fail with a distinct diagnostic"
+    );
+  }
+  {
+    std::vector<std::uint8_t> unsupportedProtocol = validWire;
+    writeLittleEndian(
+      unsupportedProtocol,
+      20U,
+      lg::replay::kReplayProtocolRevision + 1U,
+      4U
+    );
+    failures += expect(
+      !lg::replay::decodeDemo(unsupportedProtocol, decoded, &error) &&
+        error == "replay protocol revision is incompatible",
+      "unsupported protocol revisions should fail with a distinct diagnostic"
+    );
+  }
+  {
+    std::vector<std::uint8_t> unsupportedBuild = validWire;
+    writeLittleEndian(
+      unsupportedBuild,
+      24U,
+      lg::replay::kReplayBuildFingerprint ^ 1ULL,
+      8U
+    );
+    failures += expect(
+      !lg::replay::decodeDemo(unsupportedBuild, decoded, &error) &&
+        error == "replay build fingerprint is incompatible",
+      "unsupported build fingerprints should fail with a distinct diagnostic"
+    );
+  }
+  {
     lg::replay::ReplayDemo invalid = source;
     invalid.metadata.gameMode = static_cast<lg::GameMode>(255);
     failures += expect(
@@ -192,8 +345,94 @@ int main() {
   }
   {
     lg::replay::ReplayDemo invalid = source;
+    invalid.metadata.simulationRevision = lg::replay::kReplaySimulationRevision + 1U;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "an unsupported replay simulation revision should not encode");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
     invalid.ticks[0].slots[0].command.viewYawRadians = std::numeric_limits<float>::quiet_NaN();
     failures += expect(!lg::replay::encodeDemo(invalid, wire, &error), "non-finite command should not encode");
+  }
+  {
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.weaponDamage.railgunDamage = -1; },
+      "negative replay weapon damage should not encode"
+    );
+  }
+  {
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.railgun.damage = -1; },
+      "negative replay hitscan damage should not encode"
+    );
+  }
+  {
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.revolver.knockback = -1.0F; },
+      "negative replay hitscan knockback should not encode"
+    );
+  }
+  {
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.range = -1.0F; },
+      "negative machine-gun range should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.damage = -1; },
+      "negative machine-gun damage should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.eyeHeight = -1.0F; },
+      "negative machine-gun eye height should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.knockback = -1.0F; },
+      "negative machine-gun knockback should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.spreadRadians = -1.0F; },
+      "negative machine-gun spread should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.machineGun.headshotMultiplier = -1.0F; },
+      "negative machine-gun headshot multiplier should not encode"
+    );
+  }
+  {
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.range = -1.0F; },
+      "negative shotgun range should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.pelletCount = 0U; },
+      "zero shotgun pellet count should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.damagePerPellet = -1; },
+      "negative shotgun damage should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.spreadRadians = -1.0F; },
+      "negative shotgun spread should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.eyeHeight = -1.0F; },
+      "negative shotgun eye height should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.knockback = -1.0F; },
+      "negative shotgun knockback should not encode"
+    );
+    failures += expectInvalidGameplayConfig(
+      [](auto& config) { config.balance.shotgun.headshotMultiplier = -1.0F; },
+      "negative shotgun headshot multiplier should not encode"
+    );
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.lethalEvents[1].sequence = invalid.lethalEvents[0].sequence;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error),
+      "duplicate lethal sequences in one tick should not encode");
   }
   {
     lg::replay::ReplayDemo invalid = source;
@@ -244,6 +483,46 @@ int main() {
     lg::replay::ReplayDemo invalid = source;
     invalid.ticks.push_back(invalid.ticks.front());
     failures += expect(!lg::replay::encodeDemo(invalid, wire, &error), "out-of-order ticks should not encode");
+  }
+  {
+    const std::uint32_t metadataBytes =
+      static_cast<std::uint32_t>(validWire[8]) |
+      (static_cast<std::uint32_t>(validWire[9]) << 8U) |
+      (static_cast<std::uint32_t>(validWire[10]) << 16U) |
+      (static_cast<std::uint32_t>(validWire[11]) << 24U);
+    std::vector<std::uint8_t> compactExpansion(
+      validWire.begin(),
+      validWire.begin() + static_cast<std::ptrdiff_t>(16U + metadataBytes)
+    );
+    for (std::uint32_t index = 0U; index < 12U; ++index) {
+      appendTickChunk(compactExpansion, source.metadata.initialServerTick + index);
+    }
+    const std::size_t smallResidentLimit =
+      sizeof(lg::replay::ReplayDemo) +
+      8U * sizeof(lg::replay::ReplayTickInput);
+    lg::replay::ReplayDemo unchanged = source;
+    failures += expect(
+      !lg::replay::decodeDemo(
+        compactExpansion,
+        unchanged,
+        &error,
+        smallResidentLimit
+      ) && error == "replay decoded data exceeds resident-memory limit" &&
+        unchanged.metadata.mapName == source.metadata.mapName,
+      "compact replay records must be rejected before native expansion exceeds its budget"
+    );
+    unchanged = source;
+    failures += expect(
+      !lg::replay::decodeDemo(
+        compactExpansion,
+        unchanged,
+        &error,
+        lg::replay::kMaxReplayDecodedResidentBytes,
+        8U
+      ) && error == "replay has too many input ticks for decode limit" &&
+        unchanged.metadata.mapName == source.metadata.mapName,
+      "remote-style decode must reject a sparse replay at its explicit tick cap"
+    );
   }
   {
     std::vector<std::uint8_t> trailing = validWire;

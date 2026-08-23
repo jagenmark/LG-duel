@@ -77,6 +77,19 @@ lg_duel_set_warnings(lg_duel_server_tests)
 
 add_test(NAME lg_duel_server_tests COMMAND lg_duel_server_tests)
 
+add_executable(lg_duel_replay_auto_record_lifecycle_tests
+  server/ReplayAutoRecordLifecycleTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_auto_record_lifecycle_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_auto_record_lifecycle_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_auto_record_lifecycle_tests)
+
+add_test(
+  NAME lg_duel_replay_auto_record_lifecycle_tests
+  COMMAND lg_duel_replay_auto_record_lifecycle_tests
+)
+
 add_executable(lg_duel_scenario_tests
   scenario/ScenarioTests.cpp
 )
@@ -322,6 +335,49 @@ lg_duel_set_warnings(lg_duel_replay_transfer_tests)
 
 add_test(NAME lg_duel_replay_transfer_tests COMMAND lg_duel_replay_transfer_tests)
 
+add_executable(lg_duel_replay_transfer_server_tests
+  replay/ReplayTransferServerTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_transfer_server_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_transfer_server_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_transfer_server_tests)
+
+add_test(NAME lg_duel_replay_transfer_server_tests COMMAND lg_duel_replay_transfer_server_tests)
+
+add_executable(lg_duel_killcam_client_receiver_tests
+  replay/KillcamClientReceiverTests.cpp
+)
+
+target_link_libraries(lg_duel_killcam_client_receiver_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_killcam_client_receiver_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_killcam_client_receiver_tests)
+
+add_test(NAME lg_duel_killcam_client_receiver_tests COMMAND lg_duel_killcam_client_receiver_tests)
+
+add_executable(lg_duel_client_killcam_coordinator_tests
+  replay/ClientKillcamCoordinatorTests.cpp
+)
+
+target_link_libraries(lg_duel_client_killcam_coordinator_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_client_killcam_coordinator_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_client_killcam_coordinator_tests)
+
+add_test(
+  NAME lg_duel_client_killcam_coordinator_tests
+  COMMAND lg_duel_client_killcam_coordinator_tests
+)
+
+add_executable(lg_duel_killcam_server_coordinator_tests
+  replay/KillcamServerCoordinatorTests.cpp
+)
+
+target_link_libraries(lg_duel_killcam_server_coordinator_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_killcam_server_coordinator_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_killcam_server_coordinator_tests)
+
+add_test(NAME lg_duel_killcam_server_coordinator_tests COMMAND lg_duel_killcam_server_coordinator_tests)
+
 add_executable(lg_duel_replay_file_tests
   replay/ReplayFileTests.cpp
 )
@@ -351,6 +407,30 @@ target_compile_features(lg_duel_replay_performance_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_replay_performance_tests)
 
 add_test(NAME lg_duel_replay_performance_tests COMMAND lg_duel_replay_performance_tests)
+
+add_executable(lg_duel_replay_storage_io_tests
+  replay/ReplayStorageIoTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_storage_io_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_storage_io_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_storage_io_tests)
+
+add_test(NAME lg_duel_replay_storage_io_tests COMMAND lg_duel_replay_storage_io_tests)
+
+add_executable(lg_duel_replay_runtime_tests
+  replay/ReplayRuntimeTests.cpp
+)
+
+target_link_libraries(lg_duel_replay_runtime_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_replay_runtime_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_replay_runtime_tests)
+
+add_test(NAME lg_duel_replay_runtime_tests COMMAND lg_duel_replay_runtime_tests)
+set_tests_properties(
+  lg_duel_replay_runtime_tests
+  PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
 
 add_executable(lg_duel_client_network_simulator_tests
   net/ClientNetworkSimulatorTests.cpp

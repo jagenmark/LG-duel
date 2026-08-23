@@ -558,6 +558,7 @@ ServerGame::ServerGame(NetTransport& transport, std::string balanceConfigPath)
 }
 
 void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
+  const std::uint64_t previousHash = replayGameplayConfigHash();
   lightningGunTuning_.range = config.lightningGun.range;
   lightningGunTuning_.eyeHeight = config.lightningGun.eyeHeight;
   lightningGunTuning_.headshotMultiplier = config.lightningGun.headshotMultiplier;
@@ -638,11 +639,15 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   largeHealthPickupAmount_ = config.largeHealthPickupAmount;
   smallHealthPickupCooldownTicks_ = config.smallHealthPickupCooldownTicks;
   largeHealthPickupCooldownTicks_ = config.largeHealthPickupCooldownTicks;
+  if (!applyingReplayConfig_ && previousHash != replayGameplayConfigHash()) {
+    bumpReplayConfigurationRevision();
+  }
 }
 
 void ServerGame::tick(float fixedDt) {
-  // Tick order is authoritative: accept input and phase changes first, simulate
-  // movement, resolve combat, retain events, then publish the completed state.
+  // Tick order is authoritative: accept input, bind changed authority to the
+  // pre-simulation tick, update the phase, simulate, retain events, then
+  // publish the completed state.
   if (replayPlayback_ && !pendingReplayInput_.has_value()) {
     // Playback advances only when its runner has supplied the resolved frame
     // for this server tick. This prevents accidental live or bot input leaks.
@@ -658,6 +663,7 @@ void ServerGame::tick(float fixedDt) {
   spawnedProjectileCount_ = 0;
   if (!replayPlayback_) {
     receiveCommands();
+    recordReplayAuthorityBoundaryIfChanged();
   }
   updateMatchState();
   const bool tickStartedLive = snapshot_.matchPhase == MatchPhase::Live;
@@ -1628,16 +1634,36 @@ bool ServerGame::beginReplayRecording(
     return false;
   }
   replayRecorder_ = std::move(recorder);
+  replayAuthoritySignature_ = replayAuthoritySignature();
   return true;
 }
 
 std::optional<replay::ReplayDemo> ServerGame::finishReplayRecording() {
-  if (replayRecorder_ == nullptr) return std::nullopt;
+  if (replayRecorder_ == nullptr) {
+    std::optional<replay::ReplayDemo> pending = std::move(completedReplayRecording_);
+    completedReplayRecording_.reset();
+    return pending;
+  }
   // This one stop-time capture keeps the steady tick path free of extra state
   // copies while ensuring a demo always has a hash for its final live state.
   std::optional<replay::ReplayDemo> demo = replayRecorder_->finish(captureReplayCheckpoint());
   replayRecorder_.reset();
+  replayAuthoritySignature_.reset();
   return demo;
+}
+
+void ServerGame::completeReplayRecording(
+  replay::ReplayStopReason stopReason
+) {
+  if (replayRecorder_ == nullptr || !replayRecorder_->active()) return;
+  std::string ignored;
+  std::optional<replay::ReplayDemo> completed =
+    replayRecorder_->finish(captureReplayCheckpoint(), &ignored);
+  replayRecorder_.reset();
+  if (completed.has_value()) {
+    completed->metadata.stopReason = stopReason;
+    completedReplayRecording_ = std::move(completed);
+  }
 }
 
 bool ServerGame::replayRecordingActive() const {
@@ -1666,16 +1692,23 @@ bool ServerGame::beginRollingReplay(
   }
   rollingReplay_ = std::move(rolling);
   latestReplayLethal_.reset();
+  pendingReplayLethals_.clear();
+  replayAuthoritySignature_ = replayAuthoritySignature();
   return true;
 }
 
 void ServerGame::endRollingReplay() {
   rollingReplay_.reset();
   latestReplayLethal_.reset();
+  replayAuthoritySignature_.reset();
 }
 
 replay::ReplayRollingBufferStats ServerGame::rollingReplayStats() const {
   return rollingReplay_ == nullptr ? replay::ReplayRollingBufferStats{} : rollingReplay_->stats();
+}
+
+std::uint32_t ServerGame::replayGeneration() const {
+  return replayGeneration_;
 }
 
 std::optional<replay::ReplayDemo> ServerGame::extractRollingReplaySegment(
@@ -1695,9 +1728,129 @@ std::optional<replay::ReplayLethalEvent> ServerGame::latestReplayLethal() const 
   return latestReplayLethal_;
 }
 
+std::vector<replay::ReplayLethalEvent> ServerGame::takeReplayLethalEvents() {
+  std::vector<replay::ReplayLethalEvent> result;
+  result.reserve(pendingReplayLethals_.size());
+  while (!pendingReplayLethals_.empty()) {
+    result.push_back(pendingReplayLethals_.front());
+    pendingReplayLethals_.pop_front();
+  }
+  return result;
+}
+
+replay::ReplayGameplayConfig ServerGame::captureReplayGameplayConfig() const {
+  replay::ReplayGameplayConfig config;
+  config.balance.lightningGun = lightningGunTuning_;
+  config.balance.freezeGun = freezeGunTuning_;
+  config.balance.icePool = icePoolTuning_;
+  config.balance.railgun = railgunTuning_;
+  config.balance.sniperChargeSeconds = sniperChargeSeconds_;
+  config.balance.sniperMaxDamageMultiplier = sniperMaxDamageMultiplier_;
+  config.balance.railgunCooldownTicks = railgunCooldownDurationTicks_;
+  config.balance.revolver = revolverTuning_;
+  config.balance.revolverCooldownTicks = revolverCooldownDurationTicks_;
+  config.balance.machineGun = machineGunTuning_;
+  config.balance.machineGunCooldownTicks = machineGunCooldownDurationTicks_;
+  config.balance.shotgun = shotgunTuning_;
+  config.balance.shotgunCooldownTicks = shotgunCooldownDurationTicks_;
+  config.balance.rocketLauncher = rocketLauncherTuning_;
+  config.balance.rocketLauncherCooldownTicks = rocketLauncherCooldownDurationTicks_;
+  config.balance.grenadeLauncher = grenadeLauncherTuning_;
+  config.balance.plasmaGun = plasmaGunTuning_;
+  config.balance.weaponAmmo = weaponAmmoConfig_;
+  config.balance.weaponPulloutTicks = weaponPulloutDurationTicks_;
+  config.balance.jumpPadRetriggerCooldownTicks = jumpPadRetriggerCooldownTicks_;
+  config.balance.smallHealthPickupAmount = smallHealthPickupAmount_;
+  config.balance.largeHealthPickupAmount = largeHealthPickupAmount_;
+  config.balance.smallHealthPickupCooldownTicks = smallHealthPickupCooldownTicks_;
+  config.balance.largeHealthPickupCooldownTicks = largeHealthPickupCooldownTicks_;
+  config.movementTuning = movementTuning_;
+  config.playerSizeScaleXY = playerSizeScaleXY_;
+  config.playerSizeScaleZ = playerSizeScaleZ_;
+  config.lightningKnockback = lightningKnockback_;
+  config.lightningFireHz = lightningFireHz_;
+  config.rocketKnockback = rocketKnockback_;
+  config.knockbackTimeMs = knockbackTimeMs_;
+  config.weaponDamage = weaponDamage_;
+  config.vampirism = vampirism_;
+  config.selfDamagePercent = selfDamagePercent_;
+  config.healthAmount = healthAmount_;
+  config.weaponSwitchingMode = weaponSwitchingMode_;
+  config.mcguffinConfig = mcguffinConfig_;
+  config.matchRules = matchRules_;
+  return config;
+}
+
+bool ServerGame::applyReplayGameplayConfig(
+  const replay::ReplayGameplayConfig& config,
+  std::string* error
+) {
+  if (!replay::validateReplayGameplayConfig(config, error)) return false;
+  const std::uint64_t previousHash = replayGameplayConfigHash();
+  const MovementTuning previousMovementTuning = movementTuning_;
+  const bool previousApplying = applyingReplayConfig_;
+  applyingReplayConfig_ = true;
+  applyBalanceConfig(config.balance);
+  setRuntimeGameplayTuning(
+    config.movementTuning,
+    config.playerSizeScaleXY,
+    config.playerSizeScaleZ,
+    config.lightningKnockback,
+    config.lightningFireHz,
+    config.rocketKnockback,
+    config.knockbackTimeMs,
+    config.weaponDamage,
+    config.vampirism,
+    config.selfDamagePercent,
+    config.healthAmount,
+    config.balance.weaponAmmo.infiniteAmmo,
+    botDodgeEnabled_,
+    botDodgeMinIntervalMs_,
+    botDodgeMaxIntervalMs_,
+    config.weaponSwitchingMode
+  );
+  // The normal live cvar path applies its live safety policy by normalizing
+  // maxAirSpeed and clamping knockback duration. A replay payload is already
+  // validated and must retain its exact serialized values for hash equality.
+  movementTuning_ = config.movementTuning;
+  snapshot_.movementTuning = movementTuning_;
+  knockbackTimeMs_ = config.knockbackTimeMs;
+  snapshot_.knockbackTimeMs = knockbackTimeMs_;
+  // Keep the serialized balance sub-objects exact as well. The live runtime
+  // setter derives some of these fields from top-level gameplay cvars, but
+  // the replay contract hashes and restores every encoded field.
+  lightningGunTuning_ = config.balance.lightningGun;
+  freezeGunTuning_ = config.balance.freezeGun;
+  icePoolTuning_ = config.balance.icePool;
+  railgunTuning_ = config.balance.railgun;
+  sniperChargeSeconds_ = config.balance.sniperChargeSeconds;
+  sniperMaxDamageMultiplier_ = config.balance.sniperMaxDamageMultiplier;
+  revolverTuning_ = config.balance.revolver;
+  machineGunTuning_ = config.balance.machineGun;
+  shotgunTuning_ = config.balance.shotgun;
+  rocketLauncherTuning_ = config.balance.rocketLauncher;
+  grenadeLauncherTuning_ = config.balance.grenadeLauncher;
+  plasmaGunTuning_ = config.balance.plasmaGun;
+  snapshot_.icePoolTuning = icePoolTuning_;
+  if (!sameBotNavigationTuning(previousMovementTuning, movementTuning_)) {
+    rebuildBotNavigation();
+  }
+  setMcGuffinConfig(config.mcguffinConfig);
+  setMatchRules(config.matchRules);
+  applyingReplayConfig_ = previousApplying;
+  if (!previousApplying && previousHash != replayGameplayConfigHash()) {
+    bumpReplayConfigurationRevision();
+  }
+  if (error != nullptr) error->clear();
+  return true;
+}
+
 replay::ReplayMetadata ServerGame::replayMetadata() const {
   replay::ReplayMetadata metadata;
   metadata.protocolRevision = kProtocolVersion;
+  metadata.simulationRevision = replay::kReplaySimulationRevision;
+  metadata.configurationRevision = replayConfigurationRevision_;
+  metadata.gameplayConfig = captureReplayGameplayConfig();
   metadata.gameplayConfigHash = replayGameplayConfigHash();
   metadata.initialServerTick = snapshot_.serverTick;
   metadata.mapRevision = snapshot_.mapRevision;
@@ -1719,19 +1872,26 @@ replay::ReplayMetadata ServerGame::replayMetadata() const {
 }
 
 void ServerGame::resetRollingReplay() {
-  if (rollingReplay_ == nullptr || !rollingReplay_->active()) return;
   ++replayGeneration_;
   if (replayGeneration_ == 0U) replayGeneration_ = 1U;
-  rollingReplay_->reset(replayMetadata(), captureReplayCheckpoint(), replayGeneration_);
+  if (rollingReplay_ != nullptr && rollingReplay_->active()) {
+    rollingReplay_->reset(replayMetadata(), captureReplayCheckpoint(), replayGeneration_);
+  }
   latestReplayLethal_.reset();
+  pendingReplayLethals_.clear();
+  if (replayRecorder_ == nullptr || !replayRecorder_->active()) {
+    replayAuthoritySignature_.reset();
+  }
 }
 
 void ServerGame::recordReplayLethal(
   std::size_t attackerIndex,
   std::size_t targetIndex,
-  Weapon weapon
+  Weapon weapon,
+  replay::LethalKind kind,
+  std::uint32_t projectileSequence
 ) {
-  if (rollingReplay_ == nullptr || !rollingReplay_->active() || targetIndex >= kDuelPlayerCount) return;
+  if (targetIndex >= kDuelPlayerCount) return;
   replay::ReplayLethalEvent event;
   event.tick = snapshot_.serverTick;
   event.replayGeneration = replayGeneration_;
@@ -1740,112 +1900,115 @@ void ServerGame::recordReplayLethal(
     ? static_cast<std::uint8_t>(attackerIndex)
     : replay::kNoReplayPlayer;
   event.weapon = weapon;
+  event.projectileSequence = projectileSequence;
   event.kind = attackerIndex == targetIndex
     ? replay::LethalKind::Self
-    : attackerIndex < kDuelPlayerCount
-      ? replay::LethalKind::Direct
-      : replay::LethalKind::World;
-  rollingReplay_->recordLethal(event);
+    : attackerIndex < kDuelPlayerCount ? kind : replay::LethalKind::World;
+  event.sequence = ++replayLethalSequence_;
+  if (event.sequence == 0U) event.sequence = ++replayLethalSequence_;
+  if (replayRecorder_ != nullptr && replayRecorder_->active()) {
+    replayRecorder_->recordLethal(event);
+  }
+  if (rollingReplay_ != nullptr && rollingReplay_->active()) {
+    rollingReplay_->recordLethal(event);
+  }
   latestReplayLethal_ = event;
+  constexpr std::size_t kMaxPendingReplayLethals = 64U;
+  if (pendingReplayLethals_.size() >= kMaxPendingReplayLethals) {
+    pendingReplayLethals_.pop_front();
+  }
+  pendingReplayLethals_.push_back(event);
 }
 
 std::uint64_t ServerGame::replayGameplayConfigHash() const {
-  std::uint64_t hash = 1469598103934665603ULL;
-  const auto mixByte = [&hash](std::uint8_t value) {
-    hash ^= value;
-    hash *= 1099511628211ULL;
-  };
-  const auto mixU32 = [&mixByte](std::uint32_t value) {
-    for (unsigned shift = 0; shift < 32U; shift += 8U) {
-      mixByte(static_cast<std::uint8_t>((value >> shift) & 0xffU));
-    }
-  };
-  const auto mixI32 = [&mixU32](std::int32_t value) {
-    mixU32(std::bit_cast<std::uint32_t>(value));
-  };
-  const auto mixF32 = [&mixU32](float value) {
-    mixU32(std::bit_cast<std::uint32_t>(value));
-  };
-  const auto mixBool = [&mixByte](bool value) { mixByte(value ? 1U : 0U); };
-  const auto mixMovement = [&mixBool, &mixF32](const MovementTuning& tuning) {
-    mixBool(tuning.flightEnabled);
-    mixF32(tuning.groundAcceleration); mixF32(tuning.airAcceleration);
-    mixF32(tuning.groundFriction); mixF32(tuning.stopSpeed); mixF32(tuning.gravity);
-    mixF32(tuning.maxGroundSpeed); mixF32(tuning.maxAirSpeed); mixF32(tuning.jumpImpulse);
-    mixBool(tuning.airControlEnabled); mixF32(tuning.dashTargetSpeed); mixF32(tuning.dashMaxSpeed);
-    mixF32(tuning.dashAcceleration); mixF32(tuning.dashDuration); mixF32(tuning.dashCooldown);
-    mixF32(tuning.dashGroundHopVelocity); mixF32(tuning.dashAirHopVelocity);
-    mixF32(tuning.flightAcceleration); mixF32(tuning.maxFlightSpeed); mixF32(tuning.flightDamping);
-    mixF32(tuning.flightGravityCancel);
-  };
-  mixMovement(movementTuning_);
-  mixF32(playerSizeScaleXY_); mixF32(playerSizeScaleZ_); mixF32(lightningKnockback_);
-  mixF32(lightningFireHz_); mixF32(rocketKnockback_); mixI32(knockbackTimeMs_);
-  mixI32(weaponDamage_.shotgunDamagePerPellet); mixI32(weaponDamage_.machineGunDamage);
-  mixI32(weaponDamage_.lightningGunDamage); mixI32(weaponDamage_.railgunDamage);
-  mixI32(weaponDamage_.rocketLauncherDamage); mixI32(weaponDamage_.plasmaGunDamage);
-  mixI32(weaponDamage_.freezeGunDamage); mixF32(vampirism_); mixByte(selfDamagePercent_);
-  mixI32(healthAmount_); mixBool(weaponAmmoConfig_.infiniteAmmo);
-  for (const std::int32_t ammo : weaponAmmoConfig_.spawnAmmo) mixI32(ammo);
-  const auto mixLightning = [&mixF32](const LightningGunTuning& tuning) {
-    mixF32(tuning.range); mixF32(tuning.damagePerSecond); mixF32(tuning.fireHz);
-    mixF32(tuning.eyeHeight); mixF32(tuning.knockbackPerSecond); mixF32(tuning.headshotMultiplier);
-  };
-  mixLightning(lightningGunTuning_);
-  mixF32(freezeGunTuning_.range); mixF32(freezeGunTuning_.fireHz); mixF32(freezeGunTuning_.eyeHeight);
-  mixF32(freezeGunTuning_.damagePerSecond); mixF32(freezeGunTuning_.freezePerSecond);
-  mixF32(freezeGunTuning_.decayPerSecond); mixF32(freezeGunTuning_.maxLevel);
-  mixF32(freezeGunTuning_.maxSlowFraction); mixF32(freezeGunTuning_.headshotMultiplier);
-  mixF32(icePoolTuning_.maxRadius); mixF32(icePoolTuning_.growthPerSecond);
-  mixF32(icePoolTuning_.lifetimeSeconds); mixF32(icePoolTuning_.friction);
-  mixF32(icePoolTuning_.slopeGravityScale); mixF32(icePoolTuning_.controlScale);
-  mixF32(icePoolTuning_.mergeDistance);
-  const auto mixHitscan = [&mixF32, &mixI32](const HitscanTuning& tuning) {
-    mixF32(tuning.range); mixI32(tuning.damage); mixF32(tuning.eyeHeight);
-    mixF32(tuning.knockback); mixF32(tuning.headshotMultiplier);
-  };
-  mixHitscan(railgunTuning_); mixF32(sniperChargeSeconds_); mixF32(sniperMaxDamageMultiplier_);
-  mixU32(railgunCooldownDurationTicks_); mixHitscan(revolverTuning_); mixU32(revolverCooldownDurationTicks_);
-  mixF32(machineGunTuning_.range); mixI32(machineGunTuning_.damage); mixF32(machineGunTuning_.eyeHeight);
-  mixF32(machineGunTuning_.knockback); mixF32(machineGunTuning_.spreadRadians);
-  mixF32(machineGunTuning_.headshotMultiplier); mixU32(machineGunCooldownDurationTicks_);
-  mixF32(shotgunTuning_.range); mixByte(shotgunTuning_.pelletCount); mixI32(shotgunTuning_.damagePerPellet);
-  mixF32(shotgunTuning_.spreadRadians); mixF32(shotgunTuning_.eyeHeight); mixF32(shotgunTuning_.knockback);
-  mixF32(shotgunTuning_.headshotMultiplier); mixU32(shotgunCooldownDurationTicks_);
-  mixF32(rocketLauncherTuning_.speed); mixF32(rocketLauncherTuning_.radius);
-  mixF32(rocketLauncherTuning_.directHitboxHalfExtentXY); mixF32(rocketLauncherTuning_.directHitboxHalfExtentZ);
-  mixI32(rocketLauncherTuning_.directDamage); mixI32(rocketLauncherTuning_.splashDamage);
-  mixF32(rocketLauncherTuning_.knockback); mixF32(rocketLauncherTuning_.eyeHeight);
-  mixU32(rocketLauncherTuning_.maxLifetimeTicks); mixU32(rocketLauncherCooldownDurationTicks_);
-  mixF32(grenadeLauncherTuning_.speed); mixF32(grenadeLauncherTuning_.verticalBoost);
-  mixF32(grenadeLauncherTuning_.gravity); mixF32(grenadeLauncherTuning_.bounceDamping);
-  mixF32(grenadeLauncherTuning_.restSpeed); mixF32(grenadeLauncherTuning_.bounceSoundMinSpeed);
-  mixF32(grenadeLauncherTuning_.projectileRadius); mixF32(grenadeLauncherTuning_.projectileHitboxRadius);
-  mixF32(grenadeLauncherTuning_.radius); mixI32(grenadeLauncherTuning_.directDamage);
-  mixI32(grenadeLauncherTuning_.splashDamage); mixF32(grenadeLauncherTuning_.knockback);
-  mixF32(grenadeLauncherTuning_.eyeHeight); mixU32(grenadeLauncherTuning_.fuseTicks);
-  mixU32(grenadeLauncherTuning_.cooldownTicks);
-  mixF32(plasmaGunTuning_.speed); mixF32(plasmaGunTuning_.radius);
-  mixF32(plasmaGunTuning_.directHitboxHalfExtentXY); mixF32(plasmaGunTuning_.directHitboxHalfExtentZ);
-  mixI32(plasmaGunTuning_.damage); mixF32(plasmaGunTuning_.knockback); mixF32(plasmaGunTuning_.eyeHeight);
-  mixU32(plasmaGunTuning_.maxLifetimeTicks); mixU32(plasmaGunTuning_.cooldownTicks);
-  mixU32(weaponPulloutDurationTicks_); mixU32(jumpPadRetriggerCooldownTicks_);
-  mixI32(smallHealthPickupAmount_); mixI32(largeHealthPickupAmount_);
-  mixU32(smallHealthPickupCooldownTicks_); mixU32(largeHealthPickupCooldownTicks_);
-  mixU32(mcguffinConfig_.scoreLimit); mixU32(mcguffinConfig_.pointsPerSecond);
-  mixU32(mcguffinConfig_.carryPointsPerSecond); mixU32(mcguffinConfig_.carryPointLimit);
-  mixU32(mcguffinConfig_.initialSpawnTicks); mixU32(mcguffinConfig_.installationDelayTicks);
-  mixU32(mcguffinConfig_.stealTicks); mixU32(mcguffinConfig_.returnTicks);
-  mixF32(mcguffinConfig_.throwSpeed); mixF32(mcguffinConfig_.throwUpSpeed);
-  mixF32(mcguffinConfig_.throwVelocityInheritance); mixF32(mcguffinConfig_.throwGravity);
-  mixF32(mcguffinConfig_.throwBounceDamping); mixU32(mcguffinConfig_.throwPickupLockoutTicks);
-  mixU32(mcguffinConfig_.finalHoldTicks); mixF32(mcguffinConfig_.pickupRadius);
-  mixU32(matchRules_.roundLimit); mixU32(matchRules_.timeLimitMinutes); mixByte(matchRules_.playerLimit);
-  mixU32(matchRules_.countdownTicks); mixU32(matchRules_.roundEndTicks); mixU32(matchRules_.matchEndTicks);
-  mixU32(matchRules_.deathRespawnTicks); mixBool(matchRules_.showOpponentHealth);
-  mixByte(static_cast<std::uint8_t>(weaponSwitchingMode_));
-  // Bot tuning and bot RNG intentionally do not enter this fingerprint.
-  return hash;
+  return replay::canonicalGameplayConfigHash(captureReplayGameplayConfig());
+}
+
+ServerGame::ReplayAuthoritySignature ServerGame::replayAuthoritySignature() const {
+  ReplayAuthoritySignature signature;
+  signature.mapRevision = snapshot_.mapRevision;
+  signature.mapContentHash = snapshot_.map.contentHash;
+  signature.mapName = snapshot_.map.mapName;
+  signature.configurationRevision = replayConfigurationRevision_;
+  signature.gameplayConfigHash = replayGameplayConfigHash();
+  signature.gameMode = snapshot_.gameMode;
+  signature.matchRules = matchRules_;
+  signature.bots = botPlayers_;
+  signature.ready = snapshot_.readyPlayers;
+  signature.teams = snapshot_.teams;
+  signature.names = snapshot_.playerNames;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    signature.occupied[index] = isOccupiedSlot(index);
+  }
+  return signature;
+}
+
+bool ServerGame::sameReplayAuthoritySignature(
+  const ReplayAuthoritySignature& left,
+  const ReplayAuthoritySignature& right
+) const {
+  return left.mapRevision == right.mapRevision &&
+    left.mapContentHash == right.mapContentHash && left.mapName == right.mapName &&
+    left.configurationRevision == right.configurationRevision &&
+    left.gameplayConfigHash == right.gameplayConfigHash && left.gameMode == right.gameMode &&
+    left.matchRules.roundLimit == right.matchRules.roundLimit &&
+    left.matchRules.timeLimitMinutes == right.matchRules.timeLimitMinutes &&
+    left.matchRules.playerLimit == right.matchRules.playerLimit &&
+    left.matchRules.countdownTicks == right.matchRules.countdownTicks &&
+    left.matchRules.roundEndTicks == right.matchRules.roundEndTicks &&
+    left.matchRules.matchEndTicks == right.matchRules.matchEndTicks &&
+    left.matchRules.deathRespawnTicks == right.matchRules.deathRespawnTicks &&
+    left.matchRules.showOpponentHealth == right.matchRules.showOpponentHealth &&
+    left.occupied == right.occupied && left.bots == right.bots &&
+    left.ready == right.ready && left.teams == right.teams && left.names == right.names;
+}
+
+replay::ReplayAuthorityBoundary ServerGame::captureReplayAuthorityBoundary() const {
+  replay::ReplayAuthorityBoundary boundary;
+  boundary.tick = snapshot_.serverTick;
+  boundary.checkpoint = captureReplayCheckpoint();
+  boundary.gameplayConfig = captureReplayGameplayConfig();
+  boundary.configurationRevision = replayConfigurationRevision_;
+  boundary.gameMode = snapshot_.gameMode;
+  boundary.matchRules = matchRules_;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    boundary.players[index].slot = static_cast<std::uint8_t>(index);
+    boundary.players[index].occupied = isOccupiedSlot(index);
+    boundary.players[index].bot = botPlayers_[index];
+    boundary.players[index].team = snapshot_.teams[index];
+    boundary.players[index].name = snapshot_.playerNames[index];
+  }
+  return boundary;
+}
+
+void ServerGame::recordReplayAuthorityBoundaryIfChanged() {
+  const bool recording = replayRecorder_ != nullptr && replayRecorder_->active();
+  const bool rolling = rollingReplay_ != nullptr && rollingReplay_->active();
+  if (!recording && !rolling) return;
+  const ReplayAuthoritySignature current = replayAuthoritySignature();
+  if (!replayAuthoritySignature_.has_value()) {
+    replayAuthoritySignature_ = current;
+    return;
+  }
+  if (sameReplayAuthoritySignature(*replayAuthoritySignature_, current)) return;
+
+  // Roster/name/team/ready changes do not pass through a config setter. Give
+  // every such change a new authority revision before recording its state.
+  if (replayAuthoritySignature_->configurationRevision == current.configurationRevision &&
+      replayAuthoritySignature_->gameplayConfigHash == current.gameplayConfigHash) {
+    bumpReplayConfigurationRevision();
+  }
+  const replay::ReplayAuthorityBoundary boundary = captureReplayAuthorityBoundary();
+  if (recording) replayRecorder_->recordAuthorityBoundary(boundary);
+  if (rolling) rollingReplay_->recordAuthorityBoundary(boundary);
+  replayAuthoritySignature_ = replayAuthoritySignature();
+}
+
+void ServerGame::bumpReplayConfigurationRevision() {
+  if (applyingReplayConfig_) return;
+  ++replayConfigurationRevision_;
+  if (replayConfigurationRevision_ == 0U) replayConfigurationRevision_ = 1U;
+  snapshot_.configurationRevision = replayConfigurationRevision_;
 }
 
 replay::ReplayTickInput ServerGame::captureResolvedReplayInput() const {
@@ -2003,6 +2166,7 @@ replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
   checkpoint.mcguffinRoundLiveTicks = mcguffinRoundLiveTicks_;
   checkpoint.mcguffinThrowPickupLockoutTicks = mcguffinThrowPickupLockoutTicks_;
   checkpoint.spawnRandomState = spawnRandomState_;
+  checkpoint.lethalSequence = replayLethalSequence_;
   checkpoint.projectileSequences = projectileSequences_;
   checkpoint.rocketExplosionSequence = rocketExplosionSequence_;
   checkpoint.fragEventSequence = fragEventSequence_;
@@ -2051,11 +2215,30 @@ bool ServerGame::restoreReplayCheckpoint(
   if (!replay::validateReplayCheckpoint(checkpoint) || !validSpawnCursor) {
     return reject("replay checkpoint has invalid bounded state");
   }
+  if (metadata.protocolRevision != kProtocolVersion) {
+    return reject("replay protocol revision is incompatible");
+  }
+  if (metadata.buildFingerprint != replay::kReplayBuildFingerprint) {
+    return reject("replay build fingerprint is incompatible");
+  }
+  if (metadata.simulationRevision != replay::kReplaySimulationRevision) {
+    return reject("replay simulation revision is incompatible");
+  }
   if (metadata.mapName != mapDescriptor_.mapName ||
       metadata.mapContentHash != mapDescriptor_.contentHash ||
       checkpoint.mapRevision != metadata.mapRevision ||
       checkpoint.gameplayConfigHash != metadata.gameplayConfigHash ||
-      replayGameplayConfigHash() != metadata.gameplayConfigHash ||
+      metadata.configurationRevision == 0U ||
+      !replay::validateReplayGameplayConfig(metadata.gameplayConfig) ||
+      replay::canonicalGameplayConfigHash(metadata.gameplayConfig) != metadata.gameplayConfigHash ||
+      metadata.gameplayConfig.matchRules.roundLimit != metadata.matchRules.roundLimit ||
+      metadata.gameplayConfig.matchRules.timeLimitMinutes != metadata.matchRules.timeLimitMinutes ||
+      metadata.gameplayConfig.matchRules.playerLimit != metadata.matchRules.playerLimit ||
+      metadata.gameplayConfig.matchRules.countdownTicks != metadata.matchRules.countdownTicks ||
+      metadata.gameplayConfig.matchRules.roundEndTicks != metadata.matchRules.roundEndTicks ||
+      metadata.gameplayConfig.matchRules.matchEndTicks != metadata.matchRules.matchEndTicks ||
+      metadata.gameplayConfig.matchRules.deathRespawnTicks != metadata.matchRules.deathRespawnTicks ||
+      metadata.gameplayConfig.matchRules.showOpponentHealth != metadata.matchRules.showOpponentHealth ||
       checkpoint.match.gameMode != metadata.gameMode) {
     return reject("replay checkpoint does not match the loaded map or metadata");
   }
@@ -2066,6 +2249,11 @@ bool ServerGame::restoreReplayCheckpoint(
         (!player.occupied && (checkpoint.players[index].connected || checkpoint.players[index].participating))) {
       return reject("replay player metadata does not match checkpoint occupancy");
     }
+  }
+
+  if (!applyReplayGameplayConfig(metadata.gameplayConfig, error) ||
+      replayGameplayConfigHash() != metadata.gameplayConfigHash) {
+    return reject("replay gameplay configuration is incompatible");
   }
 
   ++damageFeedbackRevision_;
@@ -2080,6 +2268,7 @@ bool ServerGame::restoreReplayCheckpoint(
   snapshot_ = {};
   mapRevision_ = checkpoint.mapRevision;
   projectileRevision_ = checkpoint.projectileRevision;
+  replayConfigurationRevision_ = metadata.configurationRevision;
   snapshot_.serverTick = checkpoint.serverTick;
   snapshot_.mapRevision = checkpoint.mapRevision;
   snapshot_.damageFeedbackRevision = damageFeedbackRevision_;
@@ -2104,7 +2293,7 @@ bool ServerGame::restoreReplayCheckpoint(
   snapshot_.mcguffinConfig = configuredSnapshot.mcguffinConfig;
   snapshot_.weaponSwitchingMode = configuredSnapshot.weaponSwitchingMode;
   snapshot_.weaponAmmo = configuredSnapshot.weaponAmmo;
-  snapshot_.configurationRevision = configuredSnapshot.configurationRevision;
+  snapshot_.configurationRevision = replayConfigurationRevision_;
   snapshot_.hasConfiguration = configuredSnapshot.hasConfiguration;
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     const replay::ReplayCheckpointPlayer& source = checkpoint.players[index];
@@ -2189,6 +2378,7 @@ bool ServerGame::restoreReplayCheckpoint(
   mcguffinRoundLiveTicks_ = checkpoint.mcguffinRoundLiveTicks;
   mcguffinThrowPickupLockoutTicks_ = checkpoint.mcguffinThrowPickupLockoutTicks;
   spawnRandomState_ = checkpoint.spawnRandomState;
+  replayLethalSequence_ = checkpoint.lethalSequence;
   projectileSequences_ = checkpoint.projectileSequences;
   rocketExplosionSequence_ = checkpoint.rocketExplosionSequence;
   fragEventSequence_ = checkpoint.fragEventSequence;
@@ -2254,6 +2444,10 @@ bool ServerGame::restoreReplayCheckpoint(
 }
 
 void ServerGame::resetMatch() {
+  // A reset does not advance serverTick. Close the old authority stream before
+  // replacing its state so the final hash still matches its last input tick.
+  completeReplayRecording(replay::ReplayStopReason::Completed);
+  bumpReplayConfigurationRevision();
   combatBatch_ = {};
   ++damageFeedbackRevision_;
   if (damageFeedbackRevision_ == 0U) {
@@ -2272,6 +2466,7 @@ void ServerGame::resetMatch() {
   snapshot_ = {};
   snapshot_.serverTick = serverTick;
   snapshot_.mapRevision = mapRevision_;
+  snapshot_.configurationRevision = replayConfigurationRevision_;
   snapshot_.damageFeedbackRevision = damageFeedbackRevision_;
   snapshot_.map = mapDescriptor_;
   snapshot_.connectedPlayers = connectedPlayers;
@@ -2398,6 +2593,8 @@ void ServerGame::setArena(const Arena& arena) {
 }
 
 void ServerGame::setArena(const Arena& arena, MapDescriptor descriptor) {
+  completeReplayRecording(replay::ReplayStopReason::MapChanged);
+  endReplayPlayback();
   arena_ = arena;
   spawnLastUsedTicks_ = {};
   spawnWasUsed_ = {};
@@ -2600,6 +2797,10 @@ void ServerGame::setConnectedPlayers(
   const bool abortActiveMatch = !warmupPhase() &&
     (snapshot_.gameMode == GameMode::Duel ||
      snapshot_.gameMode == GameMode::ClanArena);
+  if (abortActiveMatch) {
+    // Roster cleanup below changes replay authority at the current tick.
+    completeReplayRecording(replay::ReplayStopReason::Completed);
+  }
   const std::array<bool, kDuelPlayerCount> previousConnected =
     snapshot_.connectedPlayers;
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
@@ -2786,6 +2987,7 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
 }
 
 void ServerGame::setMatchRules(const MatchRules& rules) {
+  const std::uint64_t previousHash = replayGameplayConfigHash();
   matchRules_ = rules;
   matchRules_.roundLimit = std::max<std::uint16_t>(1, matchRules_.roundLimit);
   matchRules_.playerLimit = std::clamp<std::uint8_t>(
@@ -2794,6 +2996,9 @@ void ServerGame::setMatchRules(const MatchRules& rules) {
     static_cast<std::uint8_t>(kDuelPlayerCount)
   );
   updateEffectiveMatchRules();
+  if (!applyingReplayConfig_ && previousHash != replayGameplayConfigHash()) {
+    bumpReplayConfigurationRevision();
+  }
 }
 
 void ServerGame::updateEffectiveMatchRules() {
@@ -2975,8 +3180,12 @@ void ServerGame::setMcGuffinConfig(const McGuffinConfig& config) {
   if (!isValidMcGuffinConfig(config)) {
     return;
   }
+  const std::uint64_t previousHash = replayGameplayConfigHash();
   mcguffinConfig_ = config;
   snapshot_.mcguffinConfig = config;
+  if (!applyingReplayConfig_ && previousHash != replayGameplayConfigHash()) {
+    bumpReplayConfigurationRevision();
+  }
 }
 
 void ServerGame::setRuntimeGameplayTuning(
@@ -2997,6 +3206,7 @@ void ServerGame::setRuntimeGameplayTuning(
   int botDodgeMaxIntervalMs,
   WeaponSwitchingMode weaponSwitchingMode
 ) {
+  const std::uint64_t previousHash = replayGameplayConfigHash();
   MovementTuning normalizedMovementTuning = movementTuning;
   normalizedMovementTuning.maxAirSpeed = normalizedMovementTuning.maxGroundSpeed;
   const CollisionBounds previousNavigationBounds =
@@ -3098,11 +3308,18 @@ void ServerGame::setRuntimeGameplayTuning(
   if (rebuildNavigation) {
     rebuildBotNavigation();
   }
+  if (!applyingReplayConfig_ && previousHash != replayGameplayConfigHash()) {
+    bumpReplayConfigurationRevision();
+  }
 }
 
 void ServerGame::setWeaponSwitchingMode(WeaponSwitchingMode mode) {
+  const std::uint64_t previousHash = replayGameplayConfigHash();
   weaponSwitchingMode_ = mode;
   snapshot_.weaponSwitchingMode = weaponSwitchingMode_;
+  if (!applyingReplayConfig_ && previousHash != replayGameplayConfigHash()) {
+    bumpReplayConfigurationRevision();
+  }
 }
 
 void ServerGame::setBotDodge(
@@ -4131,7 +4348,13 @@ void ServerGame::applyDamageAndKnockback(
       damageAllowed(attackerIndex, targetIndex)
     )
   ) {
-    recordReplayLethal(attackerIndex, targetIndex, weapon);
+    recordReplayLethal(
+      attackerIndex,
+      targetIndex,
+      weapon,
+      context.lethalKind,
+      context.projectileSequence
+    );
     FragEvent frag;
     frag.active = true;
     frag.sequence = nextNonZeroSequence(fragEventSequence_);
@@ -4692,8 +4915,22 @@ void ServerGame::simulateRockets(float fixedDt) {
         rocket.weapon,
         false,
         playerIndex == directTarget
-          ? DamageContext{true, directImpactPosition, true, player.position}
-          : DamageContext{true, splashExplosionPosition, true, player.position}
+          ? DamageContext{
+              true,
+              directImpactPosition,
+              true,
+              player.position,
+              replay::LethalKind::Direct,
+              rocket.sequence,
+            }
+          : DamageContext{
+              true,
+              splashExplosionPosition,
+              true,
+              player.position,
+              replay::LethalKind::Splash,
+              rocket.sequence,
+            }
       );
     }
     appendCombatEvent(
@@ -4812,7 +5049,9 @@ void ServerGame::updateKillVolumes() {
       recordReplayLethal(
         kDuelPlayerCount,
         playerIndex,
-        selectedWeapons_[playerIndex]
+        selectedWeapons_[playerIndex],
+        replay::LethalKind::World,
+        0U
       );
       handlePlayerDeath(playerIndex, std::nullopt);
       break;

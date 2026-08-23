@@ -3193,5 +3193,33 @@ int main() {
     );
   }
 
+  {
+    lg::HudRenderState killcamHud;
+    killcamHud.killcam.active = true;
+    killcamHud.killcam.killer = "RANGER";
+    killcamHud.killcam.weapon = "RAILGUN";
+    killcamHud.killcam.cause = "DIRECT";
+    killcamHud.killcam.progress = 0.5F;
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      killcamHud,
+      {}
+    );
+    failures += expect(
+      findText(ui, "KILLCAM") != nullptr &&
+        findText(ui, "KILLED BY RANGER - RAILGUN") != nullptr &&
+        findText(ui, "DIRECT") != nullptr &&
+        findText(ui, "SPACE/ESC: SKIP") != nullptr,
+      "killcam HUD should show label, killer, weapon, cause, and skip prompt"
+    );
+    failures += expect(
+      hasFilledQuadColor(ui, {235, 90, 70, 255}),
+      "killcam HUD should show replay progress"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }

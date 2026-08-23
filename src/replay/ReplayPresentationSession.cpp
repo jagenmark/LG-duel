@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <iterator>
 
 namespace lg::replay {
 namespace {
@@ -47,21 +48,27 @@ bool ReplayPresentationSession::begin(const ReplayDemo &demo,
     followable_[index] = demo.metadata.players[index].occupied;
   }
   if (initialFollowSlot >= followable_.size() ||
-      !followable_[initialFollowSlot]) {
-    const auto firstFollowable =
-        std::find(followable_.begin(), followable_.end(), true);
-    if (firstFollowable == followable_.end()) {
+      (!followable_[initialFollowSlot] && initialFollowSlot != 0U)) {
+    state_ = {};
+    state_.stopReason = ReplayPresentationStopReason::InvalidDemo;
+    return fail(error, "replay presentation follow slot is not recorded");
+  }
+  std::uint8_t followSlot = initialFollowSlot;
+  if (!followable_[followSlot]) {
+    const auto fallback = std::find(followable_.begin(), followable_.end(), true);
+    if (fallback == followable_.end()) {
       state_ = {};
       state_.stopReason = ReplayPresentationStopReason::InvalidDemo;
-      return fail(error, "replay presentation has no player to follow");
+      return fail(error, "replay presentation has no recorded player to follow");
     }
-    initialFollowSlot =
-        static_cast<std::uint8_t>(firstFollowable - followable_.begin());
+    followSlot = static_cast<std::uint8_t>(
+      std::distance(followable_.begin(), fallback)
+    );
   }
   state_ = {};
   state_.active = true;
   state_.paused = true;
-  state_.followSlot = initialFollowSlot;
+  state_.followSlot = followSlot;
   state_.startTick = demo.ticks.front().tick;
   state_.endTick = demo.ticks.back().tick + 1U;
   state_.currentTick = state_.startTick;
