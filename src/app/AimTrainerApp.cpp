@@ -25,6 +25,121 @@
 namespace lg {
 namespace {
 
+#if LG_DUEL_HAS_SDL3
+constexpr std::size_t kTrainerVideoSettingCount = 10U;
+constexpr std::size_t kTrainerVideoApplyRow = 8U;
+constexpr std::size_t kTrainerVideoCloseRow = 9U;
+
+struct TrainerVideoMenu {
+  bool open = false;
+  std::size_t selectedRow = 0U;
+  std::size_t scrollRows = 0U;
+  int hoveredRow = -1;
+  int pressedRow = -1;
+  bool fullscreen = false;
+  int textureFilter = 2;
+  int textureAnisotropy = 8;
+  float displayGamma = 1.0F;
+  bool bloom = true;
+  int antiAliasing = 0;
+  int sunShadows = 0;
+  int pointLights = 1;
+};
+
+void syncTrainerVideoMenu(
+  TrainerVideoMenu& menu,
+  SDL_Window* window,
+  const RenderSettings& settings
+) {
+  menu.fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0U;
+  menu.textureFilter = settings.textureFilter;
+  menu.textureAnisotropy = settings.textureAnisotropy;
+  menu.displayGamma = settings.displayGamma;
+  menu.bloom = settings.bloomEnabled;
+  menu.antiAliasing = settings.antiAliasingQuality;
+  menu.sunShadows = settings.sunShadowQuality;
+  menu.pointLights = settings.pointLightQuality;
+}
+
+void adjustTrainerVideoMenu(TrainerVideoMenu& menu, int direction) {
+  if (direction == 0) return;
+  switch (menu.selectedRow) {
+  case 0U: menu.fullscreen = !menu.fullscreen; break;
+  case 1U: menu.textureFilter = (menu.textureFilter + direction + 3) % 3; break;
+  case 2U: {
+    static constexpr std::array<int, 5> values = {1, 2, 4, 8, 16};
+    const auto found = std::find(values.begin(), values.end(), menu.textureAnisotropy);
+    const int index = found == values.end()
+      ? 0 : static_cast<int>(found - values.begin());
+    menu.textureAnisotropy = values[static_cast<std::size_t>((index + direction + 5) % 5)];
+    break;
+  }
+  case 3U:
+    menu.displayGamma = std::clamp(
+      menu.displayGamma + 0.05F * static_cast<float>(direction), 0.5F, 1.5F
+    );
+    break;
+  case 4U: menu.bloom = !menu.bloom; break;
+  case 5U: menu.antiAliasing = (menu.antiAliasing + direction + 3) % 3; break;
+  case 6U: menu.sunShadows = (menu.sunShadows + direction + 3) % 3; break;
+  case 7U: menu.pointLights = (menu.pointLights + direction + 3) % 3; break;
+  default: break;
+  }
+}
+
+void applyTrainerVideoMenu(
+  const TrainerVideoMenu& menu,
+  SDL_Window* window,
+  RenderSettings& settings
+) {
+  (void)SDL_SetWindowFullscreen(window, menu.fullscreen);
+  settings.textureFilter = menu.textureFilter;
+  settings.textureAnisotropy = menu.textureAnisotropy;
+  settings.displayGamma = menu.displayGamma;
+  settings.bloomEnabled = menu.bloom;
+  settings.antiAliasingQuality = menu.antiAliasing;
+  settings.sunShadowQuality = menu.sunShadows;
+  settings.pointLightQuality = menu.pointLights;
+}
+
+void addTrainerVideoHud(HudRenderState& hud, const TrainerVideoMenu& menu) {
+  if (!menu.open) return;
+  const auto item = [&menu](
+    std::size_t row,
+    std::string label,
+    std::string value,
+    bool command = false
+  ) {
+    return HudRenderState::SettingsMenuItem{
+      std::move(label), std::move(value), menu.selectedRow == row, false, command
+    };
+  };
+  hud.settingsOpen = true;
+  hud.settingsScrollRows = menu.scrollRows;
+  hud.settingsHoveredRow = menu.hoveredRow;
+  hud.settingsPressedRow = menu.pressedRow;
+  hud.settingsItems = {
+    item(0U, "Display mode", menu.fullscreen ? "Borderless fullscreen" : "Windowed"),
+    item(1U, "Texture filter", menu.textureFilter == 0 ? "Nearest" :
+      menu.textureFilter == 1 ? "Bilinear" : "Trilinear"),
+    item(2U, "Texture anisotropy", std::to_string(menu.textureAnisotropy) + "x"),
+    item(3U, "Brightness / gamma", std::to_string(
+      static_cast<int>(std::lround(menu.displayGamma * 100.0F))) + "%"),
+    item(4U, "Bright-effect bloom", menu.bloom ? "On" : "Off"),
+    item(5U, "Anti-aliasing", menu.antiAliasing == 0 ? "Off" :
+      menu.antiAliasing == 1 ? "2x MSAA" : "4x MSAA"),
+    item(6U, "Sun shadows", menu.sunShadows == 0 ? "Off" :
+      menu.sunShadows == 1 ? "Low" : "High"),
+    item(7U, "Live point lights", menu.pointLights == 0 ? "Combat only" :
+      menu.pointLights == 1 ? "16 lights" : "32 lights"),
+    item(kTrainerVideoApplyRow, "Apply changes", "Enter", true),
+    item(kTrainerVideoCloseRow, "Close", "Esc", true),
+  };
+  hud.settingsFooter =
+    "UP/DOWN select. LEFT/RIGHT change. ENTER change or apply. ESC or F10 closes.";
+}
+#endif
+
 [[nodiscard]] std::filesystem::path defaultBalanceConfigPath() {
   namespace fs = std::filesystem;
   fs::path directory = fs::current_path();
@@ -107,7 +222,9 @@ void addTrainerHud(
   hud.bottomCenterLines.push_back(
     "LMB fire  RMB zoom  WASD move  SPACE jump  Q dash  CTRL crouch  SHIFT sneak"
   );
-  hud.bottomCenterLines.push_back("1-9 switch weapon  F3 start  F5 restart  ESC scenarios");
+  hud.bottomCenterLines.push_back(
+    "1-9 switch weapon  F3 start  F5 restart  ESC scenarios  F10 video"
+  );
 
   hud.trainerMenuOpen = editor.open();
   if (!editor.open()) return;
@@ -148,6 +265,21 @@ void addTrainerHud(
   return buildOptionMenuLayout(width, height, editor.rows().size(), editor.scrollRows());
 }
 
+[[nodiscard]] OptionMenuLayout trainerVideoLayout(
+  SDL_Window* window,
+  const TrainerVideoMenu& menu
+) {
+  int width = 0;
+  int height = 0;
+  SDL_GetWindowSize(window, &width, &height);
+  return buildOptionMenuLayout(
+    width,
+    height,
+    kTrainerVideoSettingCount,
+    menu.scrollRows
+  );
+}
+
 void keepEditorSelectionVisible(SDL_Window* window, AimTrainerEditor& editor) {
   const OptionMenuLayout layout = editorLayout(window, editor);
   std::size_t scroll = std::min(editor.scrollRows(), layout.maxScrollRows);
@@ -159,8 +291,12 @@ void keepEditorSelectionVisible(SDL_Window* window, AimTrainerEditor& editor) {
   editor.setScrollRows(std::min(scroll, layout.maxScrollRows));
 }
 
-void syncMenuInput(SDL_Window* window, const AimTrainerEditor& editor) {
-  (void)SDL_SetWindowRelativeMouseMode(window, !editor.open());
+void syncMenuInput(
+  SDL_Window* window,
+  const AimTrainerEditor& editor,
+  bool videoMenuOpen
+) {
+  (void)SDL_SetWindowRelativeMouseMode(window, !editor.open() && !videoMenuOpen);
   if (editor.editingText()) {
     (void)SDL_StartTextInput(window);
   } else {
@@ -220,7 +356,8 @@ int AimTrainerApp::run() const {
     AimTrainer::balanceFingerprint(balance, movement)
   );
   AimTrainerEditor editor(menu);
-  syncMenuInput(window, editor);
+  TrainerVideoMenu videoMenu;
+  syncMenuInput(window, editor, videoMenu.open);
 
   bool running = true;
   bool forward = false;
@@ -275,7 +412,17 @@ int AimTrainerApp::run() const {
         continue;
       }
       if (event.type == SDL_EVENT_MOUSE_MOTION) {
-        if (editor.open()) {
+        if (videoMenu.open) {
+          const OptionMenuLayout layout = trainerVideoLayout(window, videoMenu);
+          videoMenu.hoveredRow = optionMenuPointInScrollbarTrack(
+            layout, event.motion.x, event.motion.y
+          ) ? -1 : optionMenuRowAt(
+            layout,
+            videoMenu.scrollRows,
+            kTrainerVideoSettingCount,
+            event.motion.y
+          );
+        } else if (editor.open()) {
           const std::vector<AimTrainerEditorRow> rows = editor.rows();
           const OptionMenuLayout layout = editorLayout(window, editor);
           hoveredRow = optionMenuPointInScrollbarTrack(
@@ -294,6 +441,13 @@ int AimTrainerApp::run() const {
         }
         continue;
       }
+      if (event.type == SDL_EVENT_MOUSE_WHEEL && videoMenu.open) {
+        const OptionMenuLayout layout = trainerVideoLayout(window, videoMenu);
+        videoMenu.scrollRows = optionMenuScrollForWheel(
+          layout, videoMenu.scrollRows, event.wheel.y
+        );
+        continue;
+      }
       if (event.type == SDL_EVENT_MOUSE_WHEEL && editor.open()) {
         const OptionMenuLayout layout = editorLayout(window, editor);
         editor.setScrollRows(optionMenuScrollForWheel(
@@ -308,7 +462,31 @@ int AimTrainerApp::run() const {
         event.type == SDL_EVENT_MOUSE_BUTTON_UP
       ) {
         const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-        if (editor.open()) {
+        if (videoMenu.open) {
+          if (event.button.button == SDL_BUTTON_LEFT) {
+            const OptionMenuLayout layout = trainerVideoLayout(window, videoMenu);
+            const int row = optionMenuRowAt(
+              layout,
+              videoMenu.scrollRows,
+              kTrainerVideoSettingCount,
+              event.button.y
+            );
+            videoMenu.pressedRow = pressed ? row : -1;
+            if (!pressed && row >= 0) {
+              videoMenu.selectedRow = static_cast<std::size_t>(row);
+              if (videoMenu.selectedRow == kTrainerVideoApplyRow) {
+                applyTrainerVideoMenu(videoMenu, window, settings);
+              } else if (videoMenu.selectedRow == kTrainerVideoCloseRow) {
+                videoMenu.open = false;
+              } else {
+                const int direction = event.button.x <
+                  layout.panelX + layout.panelWidth * 0.75F ? -1 : 1;
+                adjustTrainerVideoMenu(videoMenu, direction);
+              }
+              syncMenuInput(window, editor, videoMenu.open);
+            }
+          }
+        } else if (editor.open()) {
           if (event.button.button == SDL_BUTTON_LEFT) {
             const std::vector<AimTrainerEditorRow> rows = editor.rows();
             const OptionMenuLayout layout = editorLayout(window, editor);
@@ -330,7 +508,7 @@ int AimTrainerApp::run() const {
                 (void)editor.adjustSelected(direction);
               }
               keepEditorSelectionVisible(window, editor);
-              syncMenuInput(window, editor);
+              syncMenuInput(window, editor, videoMenu.open);
             }
           }
         } else if (event.button.button == SDL_BUTTON_LEFT) {
@@ -346,6 +524,45 @@ int AimTrainerApp::run() const {
       const bool pressed = event.type == SDL_EVENT_KEY_DOWN;
       const bool firstPress = pressed && !event.key.repeat;
 
+      if (firstPress && event.key.scancode == SDL_SCANCODE_F10) {
+        videoMenu.open = !videoMenu.open;
+        if (videoMenu.open) {
+          clearGameplayInput();
+          editor.setOpen(false);
+          syncTrainerVideoMenu(videoMenu, window, settings);
+        }
+        videoMenu.hoveredRow = -1;
+        videoMenu.pressedRow = -1;
+        syncMenuInput(window, editor, videoMenu.open);
+        continue;
+      }
+      if (videoMenu.open) {
+        if (!firstPress) continue;
+        if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+          videoMenu.open = false;
+        } else if (event.key.scancode == SDL_SCANCODE_UP) {
+          videoMenu.selectedRow =
+            (videoMenu.selectedRow + kTrainerVideoSettingCount - 1U) %
+            kTrainerVideoSettingCount;
+        } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
+          videoMenu.selectedRow =
+            (videoMenu.selectedRow + 1U) % kTrainerVideoSettingCount;
+        } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
+          adjustTrainerVideoMenu(videoMenu, -1);
+        } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
+          adjustTrainerVideoMenu(videoMenu, 1);
+        } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
+          if (videoMenu.selectedRow == kTrainerVideoApplyRow) {
+            applyTrainerVideoMenu(videoMenu, window, settings);
+          } else if (videoMenu.selectedRow == kTrainerVideoCloseRow) {
+            videoMenu.open = false;
+          } else {
+            adjustTrainerVideoMenu(videoMenu, 1);
+          }
+        }
+        syncMenuInput(window, editor, videoMenu.open);
+        continue;
+      }
       if (firstPress && event.key.scancode == SDL_SCANCODE_F3) {
         if (menu.frame().phase != AimTrainerPhase::Running) {
           const AimTrainerArmResult started = menu.start();
@@ -356,7 +573,7 @@ int AimTrainerApp::run() const {
         }
         hoveredRow = -1;
         pressedRow = -1;
-        syncMenuInput(window, editor);
+        syncMenuInput(window, editor, videoMenu.open);
         continue;
       }
       if (firstPress && event.key.scancode == SDL_SCANCODE_F5) {
@@ -367,7 +584,7 @@ int AimTrainerApp::run() const {
         }
         hoveredRow = -1;
         pressedRow = -1;
-        syncMenuInput(window, editor);
+        syncMenuInput(window, editor, videoMenu.open);
         continue;
       }
       if (editor.open()) {
@@ -391,14 +608,14 @@ int AimTrainerApp::run() const {
           editor.backspace();
         }
         keepEditorSelectionVisible(window, editor);
-        syncMenuInput(window, editor);
+        syncMenuInput(window, editor, videoMenu.open);
         continue;
       }
 
       if (firstPress && event.key.scancode == SDL_SCANCODE_ESCAPE) {
         clearGameplayInput();
         editor.setOpen(true);
-        syncMenuInput(window, editor);
+        syncMenuInput(window, editor, videoMenu.open);
         continue;
       }
       switch (event.key.scancode) {
@@ -451,7 +668,7 @@ int AimTrainerApp::run() const {
     ) {
       clearGameplayInput();
       editor.setOpen(true);
-      syncMenuInput(window, editor);
+      syncMenuInput(window, editor, videoMenu.open);
     }
 
     const AimTrainerPresentation presentation =
@@ -474,6 +691,7 @@ int AimTrainerApp::run() const {
       pressedRow,
       balanceWarning
     );
+    addTrainerVideoHud(hud, videoMenu);
     ConsoleRenderState console;
     renderer.render(
       map.arena,
