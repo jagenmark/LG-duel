@@ -322,10 +322,12 @@ void addTrainerHud(
     "  GROUPS " + std::to_string(draft.groups.size()) +
     "  TARGETS " + std::to_string(frame.targets.size())
   );
-  hud.centerLines.push_back(
-    frame.phase == AimTrainerPhase::Running ? "TRAINING" :
-      frame.phase == AimTrainerPhase::Results ? frame.message : "F3: START  ESC: SCENARIOS"
-  );
+  if (frame.phase != AimTrainerPhase::Running) {
+    hud.centerLines.push_back(
+      frame.phase == AimTrainerPhase::Results
+        ? frame.message : "F3: START  ESC: SCENARIOS"
+    );
+  }
   hud.bottomCenterLines.push_back(
     "LMB fire  RMB zoom  WASD move  SPACE jump  Q dash  CTRL crouch  SHIFT sneak"
   );
