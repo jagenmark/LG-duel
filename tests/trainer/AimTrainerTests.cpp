@@ -763,6 +763,59 @@ int main() {
     );
   }
 
+  // The Air preset keeps one large sphere moving through all three axes.
+  {
+    const std::vector<lg::AimScenario> presets =
+      lg::AimTrainerStore::builtInPresets();
+    const lg::AimScenario* air = presetNamed(presets, "60s Air");
+    failures += expect(
+      air != nullptr &&
+        air->weaponPolicy == lg::AimWeaponPolicy::Forced &&
+        air->forcedWeapon == lg::Weapon::LightningGun &&
+        air->scoreMode == lg::AimScoreMode::Damage &&
+        air->groups.size() == 1U &&
+        air->groups[0].visual == lg::AimTargetVisual::Orb &&
+        near(air->groups[0].radius, 0.65F) &&
+        air->groups[0].life == lg::AimTargetLife::Invincible &&
+        air->groups[0].motion == lg::AimTargetMotion::Air &&
+        air->groups[0].count == 1U &&
+        air->groups[0].randomMinimum.x < arena.spawnPositions[0].x &&
+        air->groups[0].randomMaximum.x > arena.spawnPositions[0].x &&
+        air->groups[0].randomMinimum.y < arena.spawnPositions[0].y &&
+        air->groups[0].randomMaximum.y > arena.spawnPositions[0].y,
+      "Air preset should be one large durable sphere built for Lightning Gun tracking"
+    );
+    if (air != nullptr) {
+      lg::AimTrainer trainer(arena, balance);
+      failures += expect(
+        trainer.arm(*air).ok && trainer.start(),
+        "Air sphere scenario should start"
+      );
+      const lg::Vec3 start = trainer.view().targets[0].position;
+      bool movedInFront = false;
+      bool movedBehind = false;
+      bool movedLeft = false;
+      bool movedRight = false;
+      for (std::uint32_t tick = 0; tick < 1500U; ++tick) {
+        (void)trainer.tick({});
+        const lg::Vec3 position = trainer.view().targets[0].position;
+        movedInFront = movedInFront || position.x > arena.spawnPositions[0].x + 0.5F;
+        movedBehind = movedBehind || position.x < arena.spawnPositions[0].x - 0.5F;
+        movedLeft = movedLeft || position.y < arena.spawnPositions[0].y - 0.5F;
+        movedRight = movedRight || position.y > arena.spawnPositions[0].y + 0.5F;
+      }
+      const lg::AimTargetView& target = trainer.view().targets[0];
+      failures += expect(
+        lg::length(target.position - start) > 0.1F &&
+          std::fabs(target.worker.velocity.x) > 0.01F &&
+          std::fabs(target.worker.velocity.y) > 0.01F &&
+          std::fabs(target.worker.velocity.z) > 0.01F &&
+          movedInFront && movedBehind && movedLeft && movedRight,
+        "Air sphere should move through all three axes around the full player view"
+      );
+    }
+  }
+
   // Freeze changes Worker state and projectile helpers preserve bounce/fuse behavior.
   {
     lg::AimScenario freeze = directOrbScenario();

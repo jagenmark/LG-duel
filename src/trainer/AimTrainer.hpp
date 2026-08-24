@@ -17,7 +17,7 @@ enum class AimTrainerPhase : std::uint8_t { Idle, Armed, Running, Results };
 enum class AimTargetVisual : std::uint8_t { Orb, Worker };
 enum class AimTargetLife : std::uint8_t { Invincible, OneHit, Health };
 enum class AimSpawnMode : std::uint8_t { FixedList, BoundedRandom };
-enum class AimTargetMotion : std::uint8_t { Stationary, Strafe, RandomWaypoint };
+enum class AimTargetMotion : std::uint8_t { Stationary, Strafe, RandomWaypoint, Air };
 enum class AimScoreMode : std::uint8_t { Hit, Damage, Clear };
 enum class AimPlayerMovement : std::uint8_t { Locked, Normal };
 enum class AimWeaponPolicy : std::uint8_t { All, Forced };
@@ -177,6 +177,7 @@ private:
     std::uint32_t respawnTicks = 0;
     std::uint32_t spawnOrdinal = 0;
     Vec3 waypoint = {};
+    Vec3 airVelocity = {};
     std::uint32_t nextWaypointTick = 0;
     float strafeDirectionSign = 1.0F;
   };
@@ -186,6 +187,7 @@ private:
   [[nodiscard]] Vec3 groundWorkerPosition(Vec3 requested) const;
   void respawnTarget(TargetRuntime& target);
   void updateTargetMotion(TargetRuntime& target);
+  [[nodiscard]] Vec3 randomTargetPoint(const AimTargetGroup& group, bool keepAway);
   [[nodiscard]] std::uint32_t randomU32();
   [[nodiscard]] float randomFloat(float minimum, float maximum);
   [[nodiscard]] WeaponRuntimeTarget runtimeTarget(const TargetRuntime& target) const;

@@ -59,6 +59,7 @@ namespace {
   case AimTargetMotion::Stationary: return "stationary";
   case AimTargetMotion::Strafe: return "strafe";
   case AimTargetMotion::RandomWaypoint: return "random waypoint";
+  case AimTargetMotion::Air: return "air";
   }
   return "stationary";
 }
@@ -366,7 +367,7 @@ bool AimTrainerEditor::adjust(const AimTrainerEditorRow& row, int direction) {
       ? AimSpawnMode::BoundedRandom : AimSpawnMode::FixedList; break;
   case AimTrainerEditorField::Motion:
     group.motion = static_cast<AimTargetMotion>(
-      (static_cast<int>(group.motion) + 3 + direction) % 3); break;
+      (static_cast<int>(group.motion) + 4 + direction) % 4); break;
   case AimTrainerEditorField::Duration:
     draft.durationTicks = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
       static_cast<std::int64_t>(draft.durationTicks) + direction * kFixedTickRate,
