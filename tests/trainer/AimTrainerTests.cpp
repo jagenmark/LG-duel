@@ -1,4 +1,5 @@
 #include "dev/DevJson.hpp"
+#include "app/AimTrainerInput.hpp"
 #include "render/OptionMenuLayout.hpp"
 #include "shared/Constants.hpp"
 #include "sim/Combat.hpp"
@@ -189,6 +190,15 @@ int main() {
   int failures = 0;
   const lg::Arena arena = trainerArena();
   const lg::BalanceConfig balance;
+
+  {
+    const lg::AimTrainerViewAngles moved =
+      lg::applyAimTrainerMouseMotion({}, 10.0F, 0.0F);
+    failures += expect(
+      moved.yaw < 0.0F,
+      "rightward trainer mouse motion should turn right like the normal client"
+    );
+  }
 
   // Exact default duration, one natural result, and no second write.
   {

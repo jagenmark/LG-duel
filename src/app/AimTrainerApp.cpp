@@ -1,4 +1,5 @@
 #include "app/AimTrainerApp.hpp"
+#include "app/AimTrainerInput.hpp"
 
 #include "render/OptionMenuLayout.hpp"
 #include "render/Renderer.hpp"
@@ -436,8 +437,11 @@ int AimTrainerApp::run() const {
             event.motion.y
           );
         } else {
-          yaw += event.motion.xrel * 0.0025F;
-          pitch = std::clamp(pitch - event.motion.yrel * 0.0025F, -1.5F, 1.5F);
+          const AimTrainerViewAngles angles = applyAimTrainerMouseMotion(
+            {yaw, pitch}, event.motion.xrel, event.motion.yrel
+          );
+          yaw = angles.yaw;
+          pitch = angles.pitch;
         }
         continue;
       }
