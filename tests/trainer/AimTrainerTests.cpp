@@ -231,6 +231,32 @@ int main() {
     removeTree(root);
   }
 
+  // Trainer shortcuts can start and restart the current draft without the editor row.
+  {
+    const std::filesystem::path root = temporaryRoot("shortcut-restart");
+    lg::AimTrainer trainer(arena, balance);
+    lg::AimTrainerStore store(root);
+    lg::AimTrainerMenu menu(trainer, store);
+    lg::AimScenario scenario = directOrbScenario();
+    scenario.durationTicks = 100U;
+    menu.edit(scenario);
+    failures += expect(menu.start().ok, "F3 start command should start the draft");
+    for (std::uint32_t tick = 0; tick < 12U; ++tick) menu.tick({});
+    failures += expect(
+      menu.frame().phase == lg::AimTrainerPhase::Running &&
+      menu.frame().elapsedTicks == 12U,
+      "shortcut fixture should advance before restart"
+    );
+    failures += expect(menu.restart().ok, "F5 restart command should restart the draft");
+    failures += expect(
+      menu.frame().phase == lg::AimTrainerPhase::Running &&
+      menu.frame().elapsedTicks == 0U &&
+      menu.frame().remainingTicks == scenario.durationTicks,
+      "restart should reset the active run to its first tick"
+    );
+    removeTree(root);
+  }
+
   // Event retention and the continuous beam presentation seam.
   {
     lg::AimTrainer trainer(arena, balance);

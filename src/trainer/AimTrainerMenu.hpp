@@ -40,6 +40,7 @@ public:
   [[nodiscard]] AimTrainerArmResult start();
   void tick(const UserCommand& command);
   [[nodiscard]] AimTrainerArmResult repeat();
+  [[nodiscard]] AimTrainerArmResult restart();
   void abort();
   void consumePresentationEvents();
 

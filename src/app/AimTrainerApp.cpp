@@ -102,12 +102,12 @@ void addTrainerHud(
   );
   hud.centerLines.push_back(
     frame.phase == AimTrainerPhase::Running ? "TRAINING" :
-      frame.phase == AimTrainerPhase::Results ? frame.message : "F10: SCENARIO MENU"
+      frame.phase == AimTrainerPhase::Results ? frame.message : "F3: START  ESC: SCENARIOS"
   );
   hud.bottomCenterLines.push_back(
     "LMB fire  RMB zoom  WASD move  SPACE jump  Q dash  CTRL crouch  SHIFT sneak"
   );
-  hud.bottomCenterLines.push_back("1-9 switch weapon  F10 menu");
+  hud.bottomCenterLines.push_back("1-9 switch weapon  F3 start  F5 restart  ESC scenarios");
 
   hud.trainerMenuOpen = editor.open();
   if (!editor.open()) return;
@@ -129,7 +129,7 @@ void addTrainerHud(
   hud.trainerMenuPressedRow = pressedRow;
   hud.trainerMenuFooter = editor.editingText()
     ? "Type a value. ENTER accepts; ESC cancels."
-    : "UP/DOWN select. LEFT/RIGHT change. ENTER edit or run. F10 closes.";
+    : "UP/DOWN select. LEFT/RIGHT change. ENTER edit or run. ESC closes.";
   if (!editor.message().empty()) hud.trainerMenuFooter += "  " + editor.message();
   if (!menu.warning().empty()) hud.trainerMenuFooter += "  STORAGE: " + menu.warning();
   if (!balanceWarning.empty()) {
@@ -346,9 +346,25 @@ int AimTrainerApp::run() const {
       const bool pressed = event.type == SDL_EVENT_KEY_DOWN;
       const bool firstPress = pressed && !event.key.repeat;
 
-      if (firstPress && event.key.scancode == SDL_SCANCODE_F10) {
-        editor.setOpen(!editor.open());
-        if (editor.open()) clearGameplayInput();
+      if (firstPress && event.key.scancode == SDL_SCANCODE_F3) {
+        if (menu.frame().phase != AimTrainerPhase::Running) {
+          const AimTrainerArmResult started = menu.start();
+          if (started.ok) {
+            clearGameplayInput();
+            editor.setOpen(false);
+          }
+        }
+        hoveredRow = -1;
+        pressedRow = -1;
+        syncMenuInput(window, editor);
+        continue;
+      }
+      if (firstPress && event.key.scancode == SDL_SCANCODE_F5) {
+        const AimTrainerArmResult restarted = menu.restart();
+        if (restarted.ok) {
+          clearGameplayInput();
+          editor.setOpen(false);
+        }
         hoveredRow = -1;
         pressedRow = -1;
         syncMenuInput(window, editor);
