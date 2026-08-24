@@ -137,6 +137,9 @@ struct AimTrainerFrame {
   LightningGunResult latestBeam = {};
   WeaponAmmoArray ammo = {};
   bool fireEventPending = false;
+  bool hitConfirmPending = false;
+  bool pendingHitConfirmHeadshot = false;
+  std::uint32_t pendingHitConfirmDamage = 0;
   bool naturalCompletion = false;
   bool storageWarning = false;
   std::string message;

@@ -176,6 +176,9 @@ void AimTrainer::consumePresentationEvents() {
   frame_.pendingFires.clear();
   frame_.latestFire = {};
   frame_.fireEventPending = false;
+  frame_.hitConfirmPending = false;
+  frame_.pendingHitConfirmHeadshot = false;
+  frame_.pendingHitConfirmDamage = 0U;
 }
 
 void AimTrainer::markStorageWarning(std::string message) {
@@ -562,6 +565,15 @@ void AimTrainer::applyHitBatch(const WeaponRuntimeTick& tick) {
       );
     }
     frame_.stats.damage += damage;
+    if (damage > 0U) {
+      frame_.hitConfirmPending = true;
+      frame_.pendingHitConfirmHeadshot =
+        frame_.pendingHitConfirmHeadshot || hit.headshot;
+      frame_.pendingHitConfirmDamage = static_cast<std::uint32_t>(std::min(
+        static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()),
+        static_cast<std::uint64_t>(frame_.pendingHitConfirmDamage) + damage
+      ));
+    }
     bool cleared = false;
     if (group.life == AimTargetLife::OneHit) {
       cleared = true;

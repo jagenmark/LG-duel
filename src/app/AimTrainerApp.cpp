@@ -1,6 +1,9 @@
 #include "app/AimTrainerApp.hpp"
 #include "app/AimTrainerInput.hpp"
+#include "app/ClientAudio.hpp"
+#include "app/ClientCvars.hpp"
 
+#include "client/HitConfirmAudio.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "dev/DevControlServer.hpp"
 #include "render/OptionMenuLayout.hpp"
@@ -25,6 +28,7 @@
 #include <deque>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -556,6 +560,7 @@ int AimTrainerApp::run() const {
     std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
     return 1;
   }
+  const bool audioSubsystemAvailable = SDL_InitSubSystem(SDL_INIT_AUDIO);
   SDL_Window* window = SDL_CreateWindow(
     "LG Duel - Aim Trainer",
     1280,
@@ -588,6 +593,9 @@ int AimTrainerApp::run() const {
       ? std::filesystem::path(executableBasePath)
       : std::filesystem::current_path()
   );
+  ClientAudio audio;
+  const bool audioAvailable =
+    audioSubsystemAvailable && audio.initialize(runtimeDirectory);
   const std::filesystem::path repositoryRoot =
     runtimeDirectory.parent_path().parent_path();
   const std::filesystem::path captureDirectory =
@@ -660,6 +668,7 @@ int AimTrainerApp::run() const {
   bool suppressConsoleToggleText = false;
   TrainerConsoleState consoleState;
   ConsoleSystem trainerConsole;
+  registerClientCvars(trainerConsole);
   appendTrainerConsoleOutput(
     consoleState,
     "LG Duel aim trainer console. Type cmdlist for commands."
@@ -835,6 +844,7 @@ int AimTrainerApp::run() const {
   Weapon requestedWeapon = Weapon::LightningGun;
   std::uint32_t commandSequence = 0;
   std::uint64_t renderedFrameSerial = 0U;
+  std::uint64_t hitConfirmSoundsPlayed = 0U;
   float accumulator = 0.0F;
   auto previous = std::chrono::steady_clock::now();
   std::array<bool, Arena::kHealthPickupCount> pickups = {};
@@ -932,6 +942,16 @@ int AimTrainerApp::run() const {
     status.object["player_weapon"] = dev::JsonValue::stringValue(
       std::string(weaponShortName(requestedWeapon))
     );
+    status.object["audio_available"] =
+      dev::JsonValue::booleanValue(audioAvailable);
+    status.object["sound_enabled"] =
+      dev::JsonValue::booleanValue(trainerConsole.getBool("s_enable"));
+    status.object["sound_volume"] =
+      dev::JsonValue::numberValue(trainerConsole.getFloat("s_volume"));
+    status.object["audio_hit_confirm_count"] =
+      dev::JsonValue::numberValue(
+        static_cast<double>(hitConfirmSoundsPlayed)
+      );
     status.object["menu"] = dev::JsonValue::stringValue(
       consoleState.open ? "console" :
       videoMenu.open ? "video" : editor.open() ? "scenarios" : "closed"
@@ -1565,6 +1585,64 @@ int AimTrainerApp::run() const {
         --activeControl->inputTicksRemaining;
       }
     }
+    if (audioAvailable) {
+      const bool soundEnabled = trainerConsole.getBool("s_enable");
+      const float masterVolume = trainerConsole.getFloat("s_volume");
+      const auto soundVolume = [&trainerConsole, masterVolume](
+        std::string_view name
+      ) {
+        return masterVolume * trainerConsole.getFloat(name);
+      };
+      if (soundEnabled) {
+        for (const WeaponFireResult& fire : menu.frame().pendingFires) {
+          const WeaponFireAudioEvent event =
+            routeWeaponFireAudioEvent(fire, true);
+          switch (event.cue) {
+          case WeaponFireAudioCue::Railgun:
+            audio.playRailFire(soundVolume("s_rg_fire_volume"));
+            break;
+          case WeaponFireAudioCue::Revolver:
+            audio.playRevolverFire(soundVolume("s_rg_fire_volume"));
+            break;
+          case WeaponFireAudioCue::RocketLauncher:
+            audio.playRocketFire(soundVolume("s_rl_fire_volume"));
+            break;
+          case WeaponFireAudioCue::MachineGun:
+            audio.playMachineGunFire(soundVolume("s_mg_fire_volume"));
+            break;
+          case WeaponFireAudioCue::Shotgun:
+            audio.playShotgunFire(soundVolume("s_sg_fire_volume"));
+            break;
+          case WeaponFireAudioCue::GrenadeLauncher:
+            audio.playGrenadeLauncherFire(soundVolume("s_gl_fire_volume"));
+            break;
+          case WeaponFireAudioCue::PlasmaGun:
+            audio.playPlasmaGunFire(soundVolume("s_pg_fire_volume"));
+            break;
+          case WeaponFireAudioCue::None:
+            break;
+          }
+        }
+        if (menu.frame().hitConfirmPending) {
+          audio.playHit(
+            soundVolume("s_hit_volume"),
+            static_cast<int>(std::min(
+              menu.frame().pendingHitConfirmDamage,
+              static_cast<std::uint32_t>(std::numeric_limits<int>::max())
+            )),
+            menu.frame().pendingHitConfirmHeadshot
+          );
+          ++hitConfirmSoundsPlayed;
+        }
+      }
+      const bool beamActive =
+        soundEnabled && menu.frame().latestBeam.active;
+      audio.setLightningGunFire(
+        beamActive,
+        beamActive ? soundVolume("s_lg_fire_volume") : 0.0F
+      );
+      audio.update();
+    }
     if (activeControl.has_value() &&
         activeControl->stage == TrainerControlOperation::Stage::SendInput &&
         activeControl->inputTicksRemaining == 0U) {
@@ -1717,6 +1795,7 @@ int AimTrainerApp::run() const {
     menu.consumePresentationEvents();
   }
   developerControl.stop();
+  audio.shutdown();
   renderer.shutdown();
   SDL_DestroyWindow(window);
   SDL_Quit();

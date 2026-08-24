@@ -370,6 +370,12 @@ int main() {
       trainer.view().pendingFires.size() == 1U,
       "accepted hitscan event should be pending"
     );
+    failures += expect(
+      trainer.view().hitConfirmPending &&
+        trainer.view().pendingHitConfirmDamage ==
+          static_cast<std::uint32_t>(balance.railgun.damage),
+      "a trainer target hit should expose damage for one hit-confirm sound"
+    );
     (void)trainer.tick({});
     (void)trainer.tick({});
     failures += expect(
@@ -379,8 +385,10 @@ int main() {
     trainer.consumePresentationEvents();
     failures += expect(
       !trainer.view().fireEventPending && !trainer.view().latestFire.fired &&
-      trainer.view().pendingFires.empty(),
-      "render consumption should clear the discrete event"
+      trainer.view().pendingFires.empty() &&
+      !trainer.view().hitConfirmPending &&
+      trainer.view().pendingHitConfirmDamage == 0U,
+      "render consumption should clear fire and hit-confirm events"
     );
     trainer.abort();
 
