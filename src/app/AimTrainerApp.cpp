@@ -12,6 +12,7 @@
 #include "sim/WeaponCatalog.hpp"
 #include "trainer/AimTrainerEditor.hpp"
 #include "trainer/AimTrainerPresentation.hpp"
+#include "trainer/AimTrainerVideoSettings.hpp"
 
 #if LG_DUEL_HAS_SDL3
 #include <SDL3/SDL.h>
@@ -86,6 +87,38 @@ struct TrainerControlOperation {
   std::uint32_t inputTicksRemaining = 0U;
   std::filesystem::path capturePath;
 };
+
+[[nodiscard]] AimTrainerVideoSettings savedTrainerVideoSettings(
+  const TrainerVideoMenu& menu
+) {
+  return {
+    menu.fullscreenMode,
+    menu.resolution.width,
+    menu.resolution.height,
+    menu.textureFilter,
+    menu.textureAnisotropy,
+    menu.displayGamma,
+    menu.bloom,
+    menu.antiAliasing,
+    menu.sunShadows,
+    menu.pointLights,
+  };
+}
+
+void restoreTrainerVideoSettings(
+  TrainerVideoMenu& menu,
+  const AimTrainerVideoSettings& saved
+) {
+  menu.fullscreenMode = saved.displayMode;
+  menu.resolution = {saved.resolutionWidth, saved.resolutionHeight};
+  menu.textureFilter = saved.textureFilter;
+  menu.textureAnisotropy = saved.textureAnisotropy;
+  menu.displayGamma = saved.displayGamma;
+  menu.bloom = saved.bloom;
+  menu.antiAliasing = saved.antiAliasing;
+  menu.sunShadows = saved.sunShadows;
+  menu.pointLights = saved.pointLights;
+}
 
 void appendTrainerConsoleOutput(
   TrainerConsoleState& state,
@@ -259,9 +292,14 @@ void applyTrainerVideoMenu(
 void addTrainerVideoHud(
   HudRenderState& hud,
   const TrainerVideoMenu& menu,
-  SDL_Window* window
+  SDL_Window* window,
+  std::string_view settingsWarning
 ) {
   if (!menu.open) return;
+  int width = 0;
+  int height = 0;
+  (void)SDL_GetWindowSizeInPixels(window, &width, &height);
+  (void)height;
   const auto item = [&menu](
     std::size_t row,
     std::string label,
@@ -297,8 +335,12 @@ void addTrainerVideoHud(
     item(kTrainerVideoApplyRow, "Apply changes", "Enter", true),
     item(kTrainerVideoCloseRow, "Close", "Esc", true),
   };
-  hud.settingsFooter =
-    "UP/DOWN select. LEFT/RIGHT change. ENTER change or apply. ESC or F10 closes.";
+  hud.settingsFooter = aimTrainerUsesCompactHud(width)
+    ? "ARROWS change  ENTER apply  ESC/F10 close"
+    : "UP/DOWN select. LEFT/RIGHT change. ENTER change or apply. ESC or F10 closes.";
+  if (!settingsWarning.empty()) {
+    hud.settingsFooter += "  SAVE: " + std::string(settingsWarning);
+  }
 }
 #endif
 
@@ -336,7 +378,8 @@ void addTrainerHud(
   const AimTrainerEditor& editor,
   int hoveredRow,
   int pressedRow,
-  std::string_view balanceWarning
+  std::string_view balanceWarning,
+  int viewportWidth
 ) {
   const AimTrainerFrame& frame = menu.frame();
   const AimScenario& draft = menu.draft();
@@ -377,18 +420,34 @@ void addTrainerHud(
     "  GROUPS " + std::to_string(draft.groups.size()) +
     "  TARGETS " + std::to_string(frame.targets.size())
   );
+  const bool compact = aimTrainerUsesCompactHud(viewportWidth);
+  if (compact) {
+    hud.topLeftLines.insert(
+      hud.topLeftLines.end(),
+      hud.topRightLines.begin(),
+      hud.topRightLines.end()
+    );
+    hud.topRightLines.clear();
+  }
   if (frame.phase != AimTrainerPhase::Running) {
     hud.centerLines.push_back(
       frame.phase == AimTrainerPhase::Results
         ? frame.message : "F3: START  ESC: SCENARIOS"
     );
   }
-  hud.bottomCenterLines.push_back(
-    "LMB fire  RMB zoom  WASD move  SPACE jump  Q dash  CTRL crouch  SHIFT sneak"
-  );
-  hud.bottomCenterLines.push_back(
-    "1-9 switch weapon  F3 start  F5 restart  ESC scenarios  F10 video"
-  );
+  if (compact) {
+    hud.bottomCenterLines.push_back("LMB fire  RMB zoom  WASD move  SPACE jump");
+    hud.bottomCenterLines.push_back("Q dash  CTRL crouch  SHIFT sneak");
+    hud.bottomCenterLines.push_back("1-9 weapon  F3 start  F5 restart");
+    hud.bottomCenterLines.push_back("ESC scenarios  F10 video");
+  } else {
+    hud.bottomCenterLines.push_back(
+      "LMB fire  RMB zoom  WASD move  SPACE jump  Q dash  CTRL crouch  SHIFT sneak"
+    );
+    hud.bottomCenterLines.push_back(
+      "1-9 switch weapon  F3 start  F5 restart  ESC scenarios  F10 video"
+    );
+  }
 
   hud.trainerMenuOpen = editor.open();
   if (!editor.open()) return;
@@ -409,8 +468,10 @@ void addTrainerHud(
   hud.trainerMenuHoveredRow = hoveredRow;
   hud.trainerMenuPressedRow = pressedRow;
   hud.trainerMenuFooter = editor.editingText()
-    ? "Type a value. ENTER accepts; ESC cancels."
-    : "UP/DOWN select. LEFT/RIGHT change. ENTER edit or run. ESC closes.";
+    ? "Type value. ENTER accepts; ESC cancels."
+    : compact
+      ? "ARROWS navigate/change. ENTER select. ESC close."
+      : "UP/DOWN select. LEFT/RIGHT change. ENTER edit or run. ESC closes.";
   if (!editor.message().empty()) hud.trainerMenuFooter += "  " + editor.message();
   if (!menu.warning().empty()) hud.trainerMenuFooter += "  STORAGE: " + menu.warning();
   if (!balanceWarning.empty()) {
@@ -453,6 +514,17 @@ void keepEditorSelectionVisible(SDL_Window* window, AimTrainerEditor& editor) {
     scroll = editor.selectedRow() - layout.visibleRows + 1U;
   }
   editor.setScrollRows(std::min(scroll, layout.maxScrollRows));
+}
+
+void keepVideoSelectionVisible(SDL_Window* window, TrainerVideoMenu& menu) {
+  const OptionMenuLayout layout = trainerVideoLayout(window, menu);
+  std::size_t scroll = std::min(menu.scrollRows, layout.maxScrollRows);
+  if (menu.selectedRow < scroll) {
+    scroll = menu.selectedRow;
+  } else if (menu.selectedRow >= scroll + layout.visibleRows) {
+    scroll = menu.selectedRow - layout.visibleRows + 1U;
+  }
+  menu.scrollRows = std::min(scroll, layout.maxScrollRows);
 }
 
 void syncMenuInput(
@@ -562,6 +634,14 @@ int AimTrainerApp::run() const {
   );
   AimTrainerEditor editor(menu);
   TrainerVideoMenu videoMenu;
+  const std::filesystem::path videoSettingsPath =
+    preferences / "aim_trainer" / "video.cfg";
+  const AimTrainerVideoSettingsLoadResult loadedVideoSettings =
+    loadAimTrainerVideoSettings(videoSettingsPath);
+  if (loadedVideoSettings.loaded) {
+    restoreTrainerVideoSettings(videoMenu, loadedVideoSettings.settings);
+  }
+  std::string videoSettingsWarning = loadedVideoSettings.warning;
   float videoWheelRemainder = 0.0F;
   float scenarioWheelRemainder = 0.0F;
   syncMenuInput(window, editor, videoMenu.open);
@@ -618,6 +698,23 @@ int AimTrainerApp::run() const {
       return restarted.ok ? std::string("aim trainer restarted") : restarted.error;
     }
   );
+  (void)trainerConsole.registerCommand(
+    "trainer_abort",
+    "Abort the current aim-trainer run without recording a ranked result.",
+    [&menu, &editor](const std::vector<std::string>&) {
+      menu.abort();
+      editor.setOpen(true);
+      return std::string("aim trainer aborted");
+    }
+  );
+  RenderSettings settings;
+  settings.playerModel = 1;
+  settings.drawRemoteWeapons = false;
+  settings.showOwnWeapons = true;
+  settings.localSelectedWeapon = Weapon::LightningGun;
+  if (loadedVideoSettings.loaded) {
+    applyTrainerVideoMenu(videoMenu, window, settings);
+  }
   const auto clearGameplayInput = [&] {
     forward = false;
     backward = false;
@@ -630,6 +727,107 @@ int AimTrainerApp::run() const {
     sneak = false;
     zoomed = false;
   };
+  const auto openTrainerVideoMenu = [&] {
+    videoWheelRemainder = 0.0F;
+    clearGameplayInput();
+    editor.setOpen(false);
+    videoMenu.open = true;
+    videoMenu.hoveredRow = -1;
+    videoMenu.pressedRow = -1;
+    syncTrainerVideoMenu(videoMenu, window, settings);
+    syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+  };
+  const auto closeTrainerMenus = [&] {
+    videoMenu.open = false;
+    editor.setOpen(false);
+    syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+  };
+  const auto handleTrainerVideoAction = [&](std::string_view action) {
+    if (!videoMenu.open) return false;
+    if (action == "up") {
+      videoMenu.selectedRow =
+        (videoMenu.selectedRow + kTrainerVideoSettingCount - 1U) %
+        kTrainerVideoSettingCount;
+    } else if (action == "down") {
+      videoMenu.selectedRow =
+        (videoMenu.selectedRow + 1U) % kTrainerVideoSettingCount;
+    } else if (action == "left") {
+      adjustTrainerVideoMenu(videoMenu, window, -1);
+    } else if (action == "right") {
+      adjustTrainerVideoMenu(videoMenu, window, 1);
+    } else if (action == "activate") {
+      if (videoMenu.selectedRow == kTrainerVideoApplyRow) {
+        applyTrainerVideoMenu(videoMenu, window, settings);
+        videoSettingsWarning.clear();
+        (void)saveAimTrainerVideoSettings(
+          videoSettingsPath,
+          savedTrainerVideoSettings(videoMenu),
+          videoSettingsWarning
+        );
+      } else if (videoMenu.selectedRow == kTrainerVideoCloseRow) {
+        videoMenu.open = false;
+      } else {
+        adjustTrainerVideoMenu(videoMenu, window, 1);
+      }
+    } else {
+      return false;
+    }
+    keepVideoSelectionVisible(window, videoMenu);
+    syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+    return true;
+  };
+  (void)trainerConsole.registerCommand(
+    "trainer_menu",
+    "Drive trainer menus: video, scenarios, close, up, down, left, right, activate.",
+    [&](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2U) {
+        return std::string(
+          "usage: trainer_menu <video|scenarios|close|up|down|left|right|activate>"
+        );
+      }
+      const std::string_view action = arguments[1];
+      if (action == "video") {
+        openTrainerVideoMenu();
+        return std::string("video menu opened");
+      }
+      if (action == "scenarios") {
+        scenarioWheelRemainder = 0.0F;
+        clearGameplayInput();
+        videoMenu.open = false;
+        editor.setOpen(true);
+        keepEditorSelectionVisible(window, editor);
+        syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+        return std::string("scenario menu opened");
+      }
+      if (action == "close") {
+        closeTrainerMenus();
+        return std::string("trainer menus closed");
+      }
+      if (videoMenu.open) {
+        return handleTrainerVideoAction(action)
+          ? std::string("video menu action applied")
+          : std::string("unknown trainer menu action");
+      }
+      if (!editor.open()) return std::string("no trainer menu is open");
+      if (action == "up") {
+        editor.moveSelection(-1);
+      } else if (action == "down") {
+        editor.moveSelection(1);
+      } else if (action == "left" && !editor.editingText()) {
+        (void)editor.adjustSelected(-1);
+      } else if (action == "right" && !editor.editingText()) {
+        (void)editor.adjustSelected(1);
+      } else if (action == "activate") {
+        if (editor.editingText()) (void)editor.commitText();
+        else (void)editor.activateSelected();
+      } else {
+        return std::string("unknown trainer menu action");
+      }
+      keepEditorSelectionVisible(window, editor);
+      syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+      return std::string("scenario menu action applied");
+    }
+  );
   float yaw = 0.0F;
   float pitch = 0.0F;
   int hoveredRow = -1;
@@ -639,11 +837,6 @@ int AimTrainerApp::run() const {
   std::uint64_t renderedFrameSerial = 0U;
   float accumulator = 0.0F;
   auto previous = std::chrono::steady_clock::now();
-  RenderSettings settings;
-  settings.playerModel = 1;
-  settings.drawRemoteWeapons = false;
-  settings.showOwnWeapons = true;
-  settings.localSelectedWeapon = Weapon::LightningGun;
   std::array<bool, Arena::kHealthPickupCount> pickups = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> explosions = {};
   std::array<WeaponFireResult, kDuelPlayerCount> fires = {};
@@ -739,6 +932,65 @@ int AimTrainerApp::run() const {
     status.object["player_weapon"] = dev::JsonValue::stringValue(
       std::string(weaponShortName(requestedWeapon))
     );
+    status.object["menu"] = dev::JsonValue::stringValue(
+      consoleState.open ? "console" :
+      videoMenu.open ? "video" : editor.open() ? "scenarios" : "closed"
+    );
+    status.object["menu_selected_row"] = dev::JsonValue::numberValue(
+      videoMenu.open ? videoMenu.selectedRow : editor.selectedRow()
+    );
+    status.object["menu_scroll_rows"] = dev::JsonValue::numberValue(
+      videoMenu.open ? videoMenu.scrollRows : editor.scrollRows()
+    );
+    int windowWidth = 0;
+    int windowHeight = 0;
+    (void)SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+    status.object["window_width"] = dev::JsonValue::numberValue(windowWidth);
+    status.object["window_height"] = dev::JsonValue::numberValue(windowHeight);
+    dev::JsonValue video = dev::JsonValue::objectValue();
+    video.object["display_mode"] =
+      dev::JsonValue::numberValue(videoMenu.fullscreenMode);
+    video.object["resolution_width"] =
+      dev::JsonValue::numberValue(videoMenu.resolution.width);
+    video.object["resolution_height"] =
+      dev::JsonValue::numberValue(videoMenu.resolution.height);
+    video.object["texture_filter"] =
+      dev::JsonValue::numberValue(videoMenu.textureFilter);
+    video.object["texture_anisotropy"] =
+      dev::JsonValue::numberValue(videoMenu.textureAnisotropy);
+    video.object["display_gamma"] =
+      dev::JsonValue::numberValue(videoMenu.displayGamma);
+    video.object["bloom"] = dev::JsonValue::booleanValue(videoMenu.bloom);
+    video.object["anti_aliasing"] =
+      dev::JsonValue::numberValue(videoMenu.antiAliasing);
+    video.object["sun_shadows"] =
+      dev::JsonValue::numberValue(videoMenu.sunShadows);
+    video.object["point_lights"] =
+      dev::JsonValue::numberValue(videoMenu.pointLights);
+    status.object["video_menu"] = std::move(video);
+    dev::JsonValue targets = dev::JsonValue::arrayValue();
+    for (const AimTargetView& target : menu.frame().targets) {
+      dev::JsonValue value = dev::JsonValue::objectValue();
+      value.object["id"] = dev::JsonValue::numberValue(target.id);
+      value.object["visual"] = dev::JsonValue::stringValue(
+        target.visual == AimTargetVisual::Worker ? "worker" : "orb"
+      );
+      value.object["active"] = dev::JsonValue::booleanValue(target.active);
+      value.object["position"] = dev::JsonValue::arrayValue({
+        dev::JsonValue::numberValue(target.position.x),
+        dev::JsonValue::numberValue(target.position.y),
+        dev::JsonValue::numberValue(target.position.z),
+      });
+      value.object["velocity"] = dev::JsonValue::arrayValue({
+        dev::JsonValue::numberValue(target.worker.velocity.x),
+        dev::JsonValue::numberValue(target.worker.velocity.y),
+        dev::JsonValue::numberValue(target.worker.velocity.z),
+      });
+      value.object["yaw"] =
+        dev::JsonValue::numberValue(target.worker.viewYawRadians);
+      targets.array.push_back(std::move(value));
+    }
+    status.object["targets"] = std::move(targets);
     return status;
   };
   const auto completeControlError = [
@@ -1012,6 +1264,12 @@ int AimTrainerApp::run() const {
               videoMenu.selectedRow = static_cast<std::size_t>(row);
               if (videoMenu.selectedRow == kTrainerVideoApplyRow) {
                 applyTrainerVideoMenu(videoMenu, window, settings);
+                videoSettingsWarning.clear();
+                (void)saveAimTrainerVideoSettings(
+                  videoSettingsPath,
+                  savedTrainerVideoSettings(videoMenu),
+                  videoSettingsWarning
+                );
               } else if (videoMenu.selectedRow == kTrainerVideoCloseRow) {
                 videoMenu.open = false;
               } else {
@@ -1138,16 +1396,8 @@ int AimTrainerApp::run() const {
       }
 
       if (firstPress && event.key.scancode == SDL_SCANCODE_F10) {
-        videoMenu.open = !videoMenu.open;
-        if (videoMenu.open) {
-          videoWheelRemainder = 0.0F;
-          clearGameplayInput();
-          editor.setOpen(false);
-          syncTrainerVideoMenu(videoMenu, window, settings);
-        }
-        videoMenu.hoveredRow = -1;
-        videoMenu.pressedRow = -1;
-        syncMenuInput(window, editor, videoMenu.open);
+        if (videoMenu.open) closeTrainerMenus();
+        else openTrainerVideoMenu();
         continue;
       }
       if (videoMenu.open) {
@@ -1159,29 +1409,18 @@ int AimTrainerApp::run() const {
         if (!shouldHandleAimTrainerMenuKeyDown(pressed, event.key.repeat, repeatable)) {
           continue;
         }
-        if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
-          videoMenu.open = false;
-        } else if (event.key.scancode == SDL_SCANCODE_UP) {
-          videoMenu.selectedRow =
-            (videoMenu.selectedRow + kTrainerVideoSettingCount - 1U) %
-            kTrainerVideoSettingCount;
+        if (event.key.scancode == SDL_SCANCODE_ESCAPE) closeTrainerMenus();
+        else if (event.key.scancode == SDL_SCANCODE_UP) {
+          (void)handleTrainerVideoAction("up");
         } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
-          videoMenu.selectedRow =
-            (videoMenu.selectedRow + 1U) % kTrainerVideoSettingCount;
+          (void)handleTrainerVideoAction("down");
         } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
-          adjustTrainerVideoMenu(videoMenu, window, -1);
+          (void)handleTrainerVideoAction("left");
         } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
-          adjustTrainerVideoMenu(videoMenu, window, 1);
+          (void)handleTrainerVideoAction("right");
         } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
-          if (videoMenu.selectedRow == kTrainerVideoApplyRow) {
-            applyTrainerVideoMenu(videoMenu, window, settings);
-          } else if (videoMenu.selectedRow == kTrainerVideoCloseRow) {
-            videoMenu.open = false;
-          } else {
-            adjustTrainerVideoMenu(videoMenu, window, 1);
-          }
+          (void)handleTrainerVideoAction("activate");
         }
-        syncMenuInput(window, editor, videoMenu.open);
         continue;
       }
       if (firstPress && event.key.scancode == SDL_SCANCODE_F3) {
@@ -1377,15 +1616,20 @@ int AimTrainerApp::run() const {
       renderSettings.showOwnWeapons = false;
     }
     HudRenderState hud;
+    int hudWidth = 0;
+    int hudHeight = 0;
+    (void)SDL_GetWindowSizeInPixels(window, &hudWidth, &hudHeight);
+    (void)hudHeight;
     addTrainerHud(
       hud,
       menu,
       editor,
       hoveredRow,
       pressedRow,
-      balanceWarning
+      balanceWarning,
+      hudWidth
     );
-    addTrainerVideoHud(hud, videoMenu, window);
+    addTrainerVideoHud(hud, videoMenu, window, videoSettingsWarning);
     ConsoleRenderState console = trainerConsoleRenderState(consoleState);
     std::optional<FrameCaptureRequest> captureRequest;
     FrameCaptureResult captureResult;

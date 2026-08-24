@@ -11,13 +11,17 @@ AimTrainerPresentation buildAimTrainerPresentation(const AimTrainerFrame& frame)
       ++result.workerCount;
       result.targetEffects.push_back({
         TransientEffectType::TrainerWorkerTarget,
-        target.position,
+        target.worker.position,
         0.0F,
         0.0F,
         1.0F,
         1.0F,
         {target.color.red, target.color.green, target.color.blue, 255U},
         target.id,
+        target.worker.velocity,
+        {},
+        {},
+        target.worker.viewYawRadians,
       });
       continue;
     }

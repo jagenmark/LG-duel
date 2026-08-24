@@ -15,6 +15,10 @@ struct AimTrainerWheelInput {
   float remainder = 0.0F;
 };
 
+[[nodiscard]] inline bool aimTrainerUsesCompactHud(int viewportWidth) {
+  return viewportWidth < 900;
+}
+
 [[nodiscard]] inline bool shouldHandleAimTrainerMenuKeyDown(
   bool pressed,
   bool repeat,

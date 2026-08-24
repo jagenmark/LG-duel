@@ -180,6 +180,7 @@ private:
 
   [[nodiscard]] bool validateScenario(const AimScenario& scenario, std::string& error) const;
   void resetRun();
+  [[nodiscard]] Vec3 groundWorkerPosition(Vec3 requested) const;
   void respawnTarget(TargetRuntime& target);
   void updateTargetMotion(TargetRuntime& target);
   [[nodiscard]] std::uint32_t randomU32();

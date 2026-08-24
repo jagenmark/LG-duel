@@ -36,7 +36,13 @@ buildOptionMenuLayout(int width, int height, std::size_t itemCount,
   const float safeWidth = std::max(320.0F, outputWidth - 48.0F);
   const float safeHeight = std::max(260.0F, outputHeight - 48.0F);
   layout.panelWidth = std::min(safeWidth, outputWidth * 0.75F);
-  layout.panelHeight = std::min(safeHeight, outputHeight * 0.75F);
+  const float maximumPanelHeight =
+      std::min(safeHeight, outputHeight * 0.75F);
+  const float contentPanelHeight =
+      117.0F + static_cast<float>(itemCount) * layout.rowHeight;
+  layout.panelHeight = std::min(
+      maximumPanelHeight,
+      std::max(260.0F, contentPanelHeight));
   layout.panelX = (outputWidth - layout.panelWidth) * 0.5F;
   layout.panelY = (outputHeight - layout.panelHeight) * 0.45F;
   layout.firstRowY = layout.panelY + 78.0F;

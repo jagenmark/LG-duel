@@ -8,6 +8,7 @@
 #include "sim/WeaponRuntime.hpp"
 #include "trainer/AimTrainerEditor.hpp"
 #include "trainer/AimTrainerPresentation.hpp"
+#include "trainer/AimTrainerVideoSettings.hpp"
 
 #include <algorithm>
 #include <array>
@@ -214,6 +215,11 @@ int main() {
     !lg::shouldHandleAimTrainerMenuKeyDown(true, true, false),
     "held command keys should not trigger menu commands again"
   );
+  failures += expect(
+    lg::aimTrainerUsesCompactHud(580) &&
+      !lg::aimTrainerUsesCompactHud(1200),
+    "trainer HUD should stack status text in narrow tiled windows"
+  );
   {
     const lg::AimTrainerWheelInput wheel =
       lg::accumulateAimTrainerWheel(0.0F, 0.1F);
@@ -227,6 +233,41 @@ int main() {
       accumulated.rowDelta == -1 && near(accumulated.remainder, 0.1F),
       "trackpad deltas should move one row after they add up to a full step"
     );
+  }
+
+  {
+    const std::filesystem::path root = temporaryRoot("video-settings");
+    const std::filesystem::path path = root / "video.cfg";
+    lg::AimTrainerVideoSettings saved;
+    saved.displayMode = 2;
+    saved.resolutionWidth = 1920;
+    saved.resolutionHeight = 1200;
+    saved.textureFilter = 2;
+    saved.textureAnisotropy = 16;
+    saved.displayGamma = 1.1F;
+    saved.bloom = false;
+    saved.antiAliasing = 2;
+    saved.sunShadows = 2;
+    saved.pointLights = 2;
+    std::string error;
+    const bool wrote = lg::saveAimTrainerVideoSettings(path, saved, error);
+    const lg::AimTrainerVideoSettingsLoadResult loaded =
+      lg::loadAimTrainerVideoSettings(path);
+    failures += expect(
+      wrote && loaded.loaded && loaded.warning.empty() &&
+        loaded.settings.displayMode == saved.displayMode &&
+        loaded.settings.resolutionWidth == saved.resolutionWidth &&
+        loaded.settings.resolutionHeight == saved.resolutionHeight &&
+        loaded.settings.textureFilter == saved.textureFilter &&
+        loaded.settings.textureAnisotropy == saved.textureAnisotropy &&
+        near(loaded.settings.displayGamma, saved.displayGamma) &&
+        loaded.settings.bloom == saved.bloom &&
+        loaded.settings.antiAliasing == saved.antiAliasing &&
+        loaded.settings.sunShadows == saved.sunShadows &&
+        loaded.settings.pointLights == saved.pointLights,
+      "applied trainer video settings should survive a client restart"
+    );
+    removeTree(root);
   }
 
   // Exact default duration, one natural result, and no second write.
@@ -280,6 +321,26 @@ int main() {
     scenario.durationTicks = 100U;
     menu.edit(scenario);
     failures += expect(menu.start().ok, "F3 start command should start the draft");
+    lg::AimTrainerEditor runningEditor(menu);
+    const std::vector<lg::AimTrainerEditorRow> runningRows = runningEditor.rows();
+    const bool runningHasAbort = std::any_of(
+      runningRows.begin(),
+      runningRows.end(),
+      [](const lg::AimTrainerEditorRow& row) {
+        return row.field == lg::AimTrainerEditorField::Abort;
+      }
+    );
+    const bool runningHasStart = std::any_of(
+      runningRows.begin(),
+      runningRows.end(),
+      [](const lg::AimTrainerEditorRow& row) {
+        return row.field == lg::AimTrainerEditorField::Start;
+      }
+    );
+    failures += expect(
+      runningHasAbort && !runningHasStart,
+      "a running scenario menu should offer Abort instead of a Start command that cannot work"
+    );
     for (std::uint32_t tick = 0; tick < 12U; ++tick) menu.tick({});
     failures += expect(
       menu.frame().phase == lg::AimTrainerPhase::Running &&
@@ -646,6 +707,38 @@ int main() {
     lg::AimTrainer overCap(arena, balance);
     failures += expect(!overCap.arm(full).ok,
       "scenario validation must reject target groups above the shown cap");
+  }
+
+  // Worker targets are grounded bot-shaped targets with real locomotion state.
+  {
+    lg::AimScenario worker = directOrbScenario();
+    worker.groups[0].visual = lg::AimTargetVisual::Worker;
+    worker.groups[0].life = lg::AimTargetLife::Invincible;
+    worker.groups[0].spawnMode = lg::AimSpawnMode::FixedList;
+    worker.groups[0].fixedSpawns = {{5.0F, 0.0F, 4.0F}};
+    worker.groups[0].motion = lg::AimTargetMotion::Strafe;
+    worker.groups[0].strafeDirection = {0.0F, 1.0F, 0.0F};
+    worker.groups[0].strafeSpeed = 2.0F;
+    worker.durationTicks = 100U;
+    lg::AimTrainer trainer(arena, balance);
+    failures += expect(
+      trainer.arm(worker).ok && trainer.start(),
+      "grounded Worker scenario should start"
+    );
+    (void)trainer.tick({});
+    const lg::AimTargetView& target = trainer.view().targets[0];
+    const lg::AimTrainerPresentation presentation =
+      lg::buildAimTrainerPresentation(trainer.view());
+    failures += expect(
+      near(target.position.z, target.worker.bounds.halfHeight) &&
+        near(target.worker.position.z, target.worker.bounds.halfHeight) &&
+        near(target.worker.velocity.y, worker.groups[0].strafeSpeed) &&
+        near(target.worker.viewYawRadians, 1.57079632679F) &&
+        presentation.targetEffects.size() == 1U &&
+        near(presentation.targetEffects[0].velocity.y, worker.groups[0].strafeSpeed) &&
+        near(presentation.targetEffects[0].rotationRadians, 1.57079632679F),
+      "Worker targets should stand on the floor and carry travel speed and facing to rendering"
+    );
   }
 
   // Freeze changes Worker state and projectile helpers preserve bounce/fuse behavior.

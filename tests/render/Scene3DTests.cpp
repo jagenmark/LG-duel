@@ -7536,6 +7536,45 @@ int main() {
     "plasma gun fire events should not draw a separate beam line"
   );
 
+  const lg::TransientEffect trainerOrb = {
+    lg::TransientEffectType::TrainerOrbTarget,
+    player.position + lg::Vec3{3.0F, 0.0F, 0.65F},
+    0.0F,
+    0.0F,
+    0.35F,
+    0.35F,
+    {32, 220, 235, 255},
+    9U,
+  };
+  const lg::Scene3D trainerOrbScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(&trainerOrb, 1U),
+    settings
+  );
+  const lg::SimpleRenderInstance* trainerOrbInstance = findSimpleMesh(
+    trainerOrbScene,
+    lg::MeshHandle::TrainerOrb
+  );
+  const lg::StaticMeshAsset* trainerOrbAsset =
+    lg::staticMeshAsset(lg::MeshHandle::TrainerOrb);
+  failures += expect(
+    trainerOrbInstance != nullptr &&
+      trainerOrbAsset != nullptr &&
+      trainerOrbAsset->vertices.size() >= 300U &&
+      nearlyEqual(trainerOrbInstance->scale.x, 0.35F) &&
+      nearlyEqual(trainerOrbInstance->scale.y, 0.35F) &&
+      nearlyEqual(trainerOrbInstance->scale.z, 0.35F),
+    "trainer orb targets should use a round dedicated mesh at their gameplay radius"
+  );
+
   std::array<lg::TransientEffect, 8> explosionEffects = {};
   explosionEffects[0] = {
     lg::TransientEffectType::RocketExplosionFlash,
