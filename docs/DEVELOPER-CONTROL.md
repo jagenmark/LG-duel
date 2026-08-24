@@ -173,6 +173,34 @@ The owned-process workflow is:
 .\scripts\lg-control.ps1 stop
 ```
 
+On Linux, use the matching shell wrapper. It routes lifecycle commands to the
+verified launcher and all other commands to the bounded control client:
+
+```bash
+./scripts/lg-control.sh start --control-port 28061
+./scripts/lg-control.sh status --control-port 28061
+./scripts/lg-control.sh --port 28061 capture --name client-check
+./scripts/lg-control.sh stop
+```
+
+The aim trainer uses the same control protocol without starting a network
+server:
+
+```bash
+./scripts/lg-control.sh start --aim-trainer --control-port 28161
+./scripts/lg-control.sh --aim-trainer --port 28161 exec-console trainer_start
+./scripts/lg-control.sh --aim-trainer --port 28161 wait-frames 2
+./scripts/lg-control.sh --aim-trainer --port 28161 capture --name trainer-check --show-hud
+./scripts/lg-control.sh stop
+```
+
+The Linux wrapper also accepts `--json` after the command, matching the
+PowerShell wrapper's common call shape.
+
+Trainer control supports status, console commands, frame waits, screenshots,
+camera and player-view changes, weapon changes, and fixed-tick input. Operations
+that require a server or network session return `unsupported_in_aim_trainer`.
+
 `start` defaults to a verified `SDL_GPU/vulkan` session. The shared launcher
 selects the same Intel ICD accepted by a valid local benchmark, checks its
 manifest hash, probes the configured device with `vulkaninfo`, and passes that
@@ -180,6 +208,11 @@ single-manifest loader environment to the client. Once control answers, it
 requires the exact renderer, GPU, driver, Vulkan version, manifest path/hash,
 and `software_renderer: false` before reporting readiness. It performs the same
 attestation before attaching to an already-running client.
+
+On Linux systems without `vulkaninfo` or a saved ICD record, the launcher lets
+SDL use the system Vulkan loader. It then checks that the live client reports
+`SDL_GPU/vulkan`, a named GPU, and no software renderer. An explicit
+`LG_DUEL_VULKAN_CONFIG` still requires the full ICD checks.
 
 The launcher uses `build/default`, launches hidden processes with control
 enabled, records ownership and verified launch metadata in

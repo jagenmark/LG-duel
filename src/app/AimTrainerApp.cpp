@@ -2,12 +2,14 @@
 #include "app/AimTrainerInput.hpp"
 
 #include "console/ConsoleSystem.hpp"
+#include "dev/DevControlServer.hpp"
 #include "render/OptionMenuLayout.hpp"
 #include "render/Renderer.hpp"
 #include "shared/Constants.hpp"
 #include "shared/FixedTick.hpp"
 #include "sim/BalanceConfig.hpp"
 #include "sim/MapRegistry.hpp"
+#include "sim/WeaponCatalog.hpp"
 #include "trainer/AimTrainerEditor.hpp"
 #include "trainer/AimTrainerPresentation.hpp"
 
@@ -22,6 +24,7 @@
 #include <deque>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -29,6 +32,9 @@
 
 namespace lg {
 namespace {
+
+constexpr float kTrainerDegreesToRadians = 0.01745329252F;
+constexpr float kTrainerRadiansToDegrees = 57.2957795131F;
 
 #if LG_DUEL_HAS_SDL3
 constexpr std::size_t kTrainerVideoSettingCount = 11U;
@@ -64,6 +70,21 @@ struct TrainerConsoleState {
   std::deque<std::string> output;
   std::vector<std::string> history;
   std::size_t historyIndex = 0U;
+};
+
+struct TrainerControlOperation {
+  enum class Stage {
+    Start,
+    WaitFrames,
+    SendInput,
+    Capture,
+  };
+
+  dev::QueuedControlRequest queued;
+  Stage stage = Stage::Start;
+  std::uint64_t targetRenderedFrame = 0U;
+  std::uint32_t inputTicksRemaining = 0U;
+  std::filesystem::path capturePath;
 };
 
 void appendTrainerConsoleOutput(
@@ -454,6 +475,9 @@ void syncMenuInput(
 
 } // namespace
 
+AimTrainerApp::AimTrainerApp(DeveloperControlOptions developerControl)
+  : developerControl_(developerControl) {}
+
 int AimTrainerApp::run() const {
 #if LG_DUEL_HAS_SDL3
   if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -485,6 +509,40 @@ int AimTrainerApp::run() const {
     SDL_DestroyWindow(window);
     SDL_Quit();
     return 1;
+  }
+  const char* executableBasePath = SDL_GetBasePath();
+  const std::filesystem::path runtimeDirectory = std::filesystem::weakly_canonical(
+    executableBasePath != nullptr
+      ? std::filesystem::path(executableBasePath)
+      : std::filesystem::current_path()
+  );
+  const std::filesystem::path repositoryRoot =
+    runtimeDirectory.parent_path().parent_path();
+  const std::filesystem::path captureDirectory =
+    runtimeDirectory.parent_path() / "captures";
+  dev::DevControlServer developerControl;
+  if (developerControl_.enabled) {
+    std::error_code directoryError;
+    std::filesystem::create_directories(captureDirectory, directoryError);
+    if (directoryError) {
+      std::cerr << "Could not create developer capture directory: "
+                << directoryError.message() << '\n';
+      renderer.shutdown();
+      SDL_DestroyWindow(window);
+      SDL_Quit();
+      return 1;
+    }
+    std::string controlError;
+    if (!developerControl.start(developerControl_.port, controlError)) {
+      std::cerr << "Developer control startup failed: " << controlError << '\n';
+      renderer.shutdown();
+      SDL_DestroyWindow(window);
+      SDL_Quit();
+      return 1;
+    }
+    std::cout << "Aim trainer developer control enabled on 127.0.0.1:"
+              << developerControl.port() << '\n';
+    std::cout << "Capture output: " << captureDirectory.string() << '\n';
   }
   std::string balanceWarning;
   const BalanceConfig balance = loadTrainerBalance(balanceWarning);
@@ -542,6 +600,24 @@ int AimTrainerApp::run() const {
       return std::string{};
     }
   );
+  (void)trainerConsole.registerCommand(
+    "trainer_start",
+    "Start the selected aim-trainer scenario.",
+    [&menu, &editor](const std::vector<std::string>&) {
+      const AimTrainerArmResult started = menu.start();
+      if (started.ok) editor.setOpen(false);
+      return started.ok ? std::string("aim trainer started") : started.error;
+    }
+  );
+  (void)trainerConsole.registerCommand(
+    "trainer_restart",
+    "Restart the selected aim-trainer scenario.",
+    [&menu, &editor](const std::vector<std::string>&) {
+      const AimTrainerArmResult restarted = menu.restart();
+      if (restarted.ok) editor.setOpen(false);
+      return restarted.ok ? std::string("aim trainer restarted") : restarted.error;
+    }
+  );
   const auto clearGameplayInput = [&] {
     forward = false;
     backward = false;
@@ -560,6 +636,7 @@ int AimTrainerApp::run() const {
   int pressedRow = -1;
   Weapon requestedWeapon = Weapon::LightningGun;
   std::uint32_t commandSequence = 0;
+  std::uint64_t renderedFrameSerial = 0U;
   float accumulator = 0.0F;
   auto previous = std::chrono::steady_clock::now();
   RenderSettings settings;
@@ -571,8 +648,256 @@ int AimTrainerApp::run() const {
   std::array<RocketExplosionResult, kDuelPlayerCount> explosions = {};
   std::array<WeaponFireResult, kDuelPlayerCount> fires = {};
   std::array<RemotePlayerView, kDuelPlayerCount> remotePlayers = {};
+  std::optional<TrainerControlOperation> activeControl;
+  std::optional<dev::CameraTransform> controlCamera;
+
+  const auto currentControlCamera = [&]() {
+    if (controlCamera.has_value()) return *controlCamera;
+    dev::CameraTransform camera;
+    camera.position = menu.frame().player.position + Vec3{0.0F, 0.0F, 0.65F};
+    camera.yawDegrees = yaw * kTrainerRadiansToDegrees;
+    camera.pitchDegrees = pitch * kTrainerRadiansToDegrees;
+    camera.fieldOfView = settings.fieldOfView;
+    return camera;
+  };
+  const auto captureRelativePath = [&repositoryRoot](
+    const std::filesystem::path& path
+  ) {
+    const std::filesystem::path relative = path.lexically_relative(repositoryRoot);
+    return relative.empty() ? path.generic_string() : relative.generic_string();
+  };
+  const auto timestampMilliseconds = []() -> std::int64_t {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+  };
+  const auto controlStatus = [&]() {
+    dev::JsonValue status = dev::JsonValue::objectValue();
+    status.object["control_protocol"] = dev::JsonValue::numberValue(1);
+    status.object["client_running"] = dev::JsonValue::booleanValue(true);
+    status.object["server_running"] = dev::JsonValue::booleanValue(false);
+    status.object["connected"] = dev::JsonValue::booleanValue(false);
+    status.object["connection_state"] = dev::JsonValue::numberValue(0);
+    status.object["connection_message"] =
+      dev::JsonValue::stringValue("local aim trainer");
+    status.object["map"] = dev::JsonValue::stringValue("aim_trainer");
+    status.object["map_revision"] = dev::JsonValue::numberValue(1);
+    status.object["game_mode"] = dev::JsonValue::stringValue("AIM_TRAINER");
+    status.object["match_state"] = dev::JsonValue::stringValue(
+      menu.frame().phase == AimTrainerPhase::Running ? "RUNNING" :
+      menu.frame().phase == AimTrainerPhase::Results ? "RESULTS" : "IDLE"
+    );
+    status.object["spectator"] = dev::JsonValue::booleanValue(false);
+    status.object["development_camera"] =
+      dev::JsonValue::booleanValue(controlCamera.has_value());
+    status.object["benchmark_enabled"] = dev::JsonValue::booleanValue(false);
+    status.object["camera"] = dev::cameraJson(currentControlCamera());
+    status.object["renderer"] =
+      dev::JsonValue::stringValue(std::string(renderer.backendName()));
+    status.object["requested_renderer"] =
+      dev::JsonValue::stringValue(std::string(renderer.requestedBackendName()));
+    status.object["actual_renderer"] =
+      dev::JsonValue::stringValue(std::string(renderer.backendName()));
+    status.object["gpu_name"] =
+      dev::JsonValue::stringValue(std::string(renderer.gpuName()));
+    status.object["graphics_driver_name"] =
+      dev::JsonValue::stringValue(std::string(renderer.graphicsDriverName()));
+    status.object["graphics_driver_version"] =
+      dev::JsonValue::stringValue(std::string(renderer.graphicsDriverVersion()));
+    status.object["graphics_driver_info"] =
+      dev::JsonValue::stringValue(std::string(renderer.graphicsDriverInfo()));
+    status.object["software_renderer"] =
+      dev::JsonValue::booleanValue(renderer.softwareRenderer());
+    status.object["vulkan_api_version"] =
+      dev::JsonValue::stringValue(std::string(renderer.vulkanApiVersion()));
+    status.object["vulkan_icd_path"] =
+      dev::JsonValue::stringValue(std::string(renderer.vulkanIcdPath()));
+    status.object["vulkan_icd_sha256"] =
+      dev::JsonValue::stringValue(std::string(renderer.vulkanIcdSha256()));
+    status.object["gpu_verification_state"] = dev::JsonValue::stringValue(
+      renderer.backendName() == "SDL_GPU/vulkan"
+        ? "pending-launcher-verification" : "not-verified"
+    );
+    status.object["gpu_verified"] = dev::JsonValue::booleanValue(false);
+    status.object["capture_output_directory"] =
+      dev::JsonValue::stringValue(captureDirectory.string());
+    status.object["capture_output_relative"] =
+      dev::JsonValue::stringValue(captureRelativePath(captureDirectory));
+    status.object["rendered_frame"] =
+      dev::JsonValue::numberValue(static_cast<double>(renderedFrameSerial));
+    status.object["player_position"] = dev::JsonValue::arrayValue({
+      dev::JsonValue::numberValue(menu.frame().player.position.x),
+      dev::JsonValue::numberValue(menu.frame().player.position.y),
+      dev::JsonValue::numberValue(menu.frame().player.position.z),
+    });
+    status.object["player_yaw"] =
+      dev::JsonValue::numberValue(yaw * kTrainerRadiansToDegrees);
+    status.object["player_pitch"] =
+      dev::JsonValue::numberValue(pitch * kTrainerRadiansToDegrees);
+    status.object["player_health"] =
+      dev::JsonValue::numberValue(menu.frame().player.health);
+    status.object["player_weapon"] = dev::JsonValue::stringValue(
+      std::string(weaponShortName(requestedWeapon))
+    );
+    return status;
+  };
+  const auto completeControlError = [
+    &developerControl,
+    &activeControl
+  ](std::string code, std::string message) {
+    if (!activeControl.has_value()) return;
+    developerControl.complete(
+      activeControl->queued.token,
+      dev::errorResponse(
+        activeControl->queued.request.id,
+        std::move(code),
+        std::move(message)
+      )
+    );
+    activeControl.reset();
+  };
 
   while (running) {
+    if (developerControl.running() && !activeControl.has_value()) {
+      if (std::optional<dev::QueuedControlRequest> queued =
+            developerControl.pollRequest(); queued.has_value()) {
+        TrainerControlOperation operation;
+        operation.queued = std::move(*queued);
+        activeControl = std::move(operation);
+      }
+    }
+    if (activeControl.has_value() &&
+        activeControl->stage == TrainerControlOperation::Stage::WaitFrames &&
+        renderedFrameSerial >= activeControl->targetRenderedFrame) {
+      dev::JsonValue result = dev::JsonValue::objectValue();
+      result.object["rendered_frame"] =
+        dev::JsonValue::numberValue(static_cast<double>(renderedFrameSerial));
+      result.object["waited_frames"] = dev::JsonValue::numberValue(
+        activeControl->queued.request.waitFrames
+      );
+      developerControl.complete(
+        activeControl->queued.token,
+        dev::successResponse(activeControl->queued.request.id, std::move(result))
+      );
+      activeControl.reset();
+    }
+    if (activeControl.has_value() &&
+        activeControl->stage == TrainerControlOperation::Stage::Start) {
+      const dev::ControlRequest& request = activeControl->queued.request;
+      switch (request.operation) {
+      case dev::ControlOperation::Status:
+        developerControl.complete(
+          activeControl->queued.token,
+          dev::successResponse(request.id, controlStatus())
+        );
+        activeControl.reset();
+        break;
+      case dev::ControlOperation::GetCamera:
+        developerControl.complete(
+          activeControl->queued.token,
+          dev::successResponse(request.id, dev::cameraJson(currentControlCamera()))
+        );
+        activeControl.reset();
+        break;
+      case dev::ControlOperation::SetCamera: {
+        controlCamera = request.camera;
+        if (!controlCamera->fieldOfView.has_value()) {
+          controlCamera->fieldOfView = settings.fieldOfView;
+        }
+        dev::JsonValue result = dev::cameraJson(*controlCamera);
+        result.object["mode"] =
+          dev::JsonValue::stringValue("development_camera");
+        developerControl.complete(
+          activeControl->queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControl.reset();
+        break;
+      }
+      case dev::ControlOperation::ExecConsole: {
+        const std::string output = trainerConsole.execute(request.consoleCommand);
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["command"] =
+          dev::JsonValue::stringValue(request.consoleCommand);
+        result.object["output"] = dev::JsonValue::stringValue(output);
+        developerControl.complete(
+          activeControl->queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControl.reset();
+        break;
+      }
+      case dev::ControlOperation::GetCvar:
+      case dev::ControlOperation::SetCvar:
+        completeControlError(
+          "unknown_cvar",
+          "the aim trainer has not registered client cvars yet"
+        );
+        break;
+      case dev::ControlOperation::SetPlayerView: {
+        controlCamera.reset();
+        yaw = request.playerYawDegrees * kTrainerDegreesToRadians;
+        pitch = request.playerPitchDegrees * kTrainerDegreesToRadians;
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["yaw"] =
+          dev::JsonValue::numberValue(request.playerYawDegrees);
+        result.object["pitch"] =
+          dev::JsonValue::numberValue(request.playerPitchDegrees);
+        developerControl.complete(
+          activeControl->queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControl.reset();
+        break;
+      }
+      case dev::ControlOperation::SetPlayerWeapon: {
+        const std::optional<Weapon> weapon = parseWeaponToken(request.playerWeapon);
+        if (!weapon.has_value()) {
+          completeControlError(
+            "invalid_weapon",
+            "unknown weapon: " + request.playerWeapon
+          );
+          break;
+        }
+        requestedWeapon = *weapon;
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["weapon"] = dev::JsonValue::stringValue(
+          std::string(weaponShortName(requestedWeapon))
+        );
+        developerControl.complete(
+          activeControl->queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControl.reset();
+        break;
+      }
+      case dev::ControlOperation::WaitFrames:
+        activeControl->targetRenderedFrame =
+          renderedFrameSerial + request.waitFrames;
+        activeControl->stage = TrainerControlOperation::Stage::WaitFrames;
+        break;
+      case dev::ControlOperation::SendInput:
+        controlCamera.reset();
+        activeControl->inputTicksRemaining = request.playerInput.ticks;
+        activeControl->stage = TrainerControlOperation::Stage::SendInput;
+        break;
+      case dev::ControlOperation::CaptureScreenshot: {
+        const std::string requestedName = request.captureName.empty()
+          ? "aim-trainer-" + std::to_string(timestampMilliseconds())
+          : request.captureName;
+        activeControl->capturePath = captureDirectory /
+          (dev::sanitizeGeneratedCaptureName(requestedName) + ".png");
+        activeControl->stage = TrainerControlOperation::Stage::Capture;
+        break;
+      }
+      default:
+        completeControlError(
+          "unsupported_in_aim_trainer",
+          "that developer-control operation requires the network game client"
+        );
+        break;
+      }
+    }
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_EVENT_QUIT) {
@@ -958,19 +1283,63 @@ int AimTrainerApp::run() const {
     for (int index = 0; index < plan.tickCount; ++index) {
       UserCommand command;
       command.sequence = ++commandSequence;
-      command.viewYawRadians = yaw;
-      command.viewPitchRadians = pitch;
-      command.forwardMove = (forward ? 1.0F : 0.0F) - (backward ? 1.0F : 0.0F);
-      command.rightMove = (right ? 1.0F : 0.0F) - (left ? 1.0F : 0.0F);
-      command.attack = attack;
-      command.jump = jump;
-      command.dash = dash;
-      command.crouch = crouch;
-      command.sneak = sneak;
-      command.zoomed = zoomed;
+      const bool controlled = activeControl.has_value() &&
+        activeControl->stage == TrainerControlOperation::Stage::SendInput;
+      if (controlled) {
+        const dev::PlayerInput& input = activeControl->queued.request.playerInput;
+        const bool firstTick = activeControl->inputTicksRemaining == input.ticks;
+        if (input.yawDegrees.has_value()) {
+          yaw = *input.yawDegrees * kTrainerDegreesToRadians;
+          pitch = *input.pitchDegrees * kTrainerDegreesToRadians;
+        }
+        if (!input.weapon.empty()) {
+          requestedWeapon = *parseWeaponToken(input.weapon);
+        }
+        command.viewYawRadians = yaw;
+        command.viewPitchRadians = pitch;
+        command.forwardMove = input.forward;
+        command.rightMove = input.right;
+        command.upMove = input.up;
+        command.attack = input.attack && (!input.attackOneTick || firstTick);
+        command.jump = input.jump && (!input.jumpOneTick || firstTick);
+        command.dash = input.dash && (!input.dashOneTick || firstTick);
+        command.crouch = input.crouch && (!input.crouchOneTick || firstTick);
+        command.sneak = input.sneak && (!input.sneakOneTick || firstTick);
+        command.zoomed = input.zoom && (!input.zoomOneTick || firstTick);
+        command.weapon = requestedWeapon;
+      } else {
+        command.viewYawRadians = yaw;
+        command.viewPitchRadians = pitch;
+        command.forwardMove = (forward ? 1.0F : 0.0F) - (backward ? 1.0F : 0.0F);
+        command.rightMove = (right ? 1.0F : 0.0F) - (left ? 1.0F : 0.0F);
+        command.attack = attack;
+        command.jump = jump;
+        command.dash = dash;
+        command.crouch = crouch;
+        command.sneak = sneak;
+        command.zoomed = zoomed;
+        command.weapon = requestedWeapon;
+      }
       command.planarAim = false;
-      command.weapon = requestedWeapon;
       menu.tick(command);
+      if (controlled && activeControl->inputTicksRemaining > 0U) {
+        --activeControl->inputTicksRemaining;
+      }
+    }
+    if (activeControl.has_value() &&
+        activeControl->stage == TrainerControlOperation::Stage::SendInput &&
+        activeControl->inputTicksRemaining == 0U) {
+      dev::JsonValue result = dev::JsonValue::objectValue();
+      result.object["ticks"] = dev::JsonValue::numberValue(
+        activeControl->queued.request.playerInput.ticks
+      );
+      result.object["last_command_sequence"] =
+        dev::JsonValue::numberValue(commandSequence);
+      developerControl.complete(
+        activeControl->queued.token,
+        dev::successResponse(activeControl->queued.request.id, std::move(result))
+      );
+      activeControl.reset();
     }
     if (
       beforeTicks == AimTrainerPhase::Running &&
@@ -992,6 +1361,21 @@ int AimTrainerApp::run() const {
       fires[index] = menu.frame().pendingFires[index];
     }
     settings.localSelectedWeapon = menu.frame().selectedWeapon;
+    PlayerState renderPlayer = menu.frame().player;
+    RenderSettings renderSettings = settings;
+    if (controlCamera.has_value()) {
+      renderPlayer = {};
+      renderPlayer.position =
+        controlCamera->position - Vec3{0.0F, 0.0F, 0.65F};
+      renderPlayer.viewYawRadians =
+        controlCamera->yawDegrees * kTrainerDegreesToRadians;
+      renderPlayer.viewPitchRadians =
+        controlCamera->pitchDegrees * kTrainerDegreesToRadians;
+      renderPlayer.health = 100;
+      renderSettings.fieldOfView =
+        controlCamera->fieldOfView.value_or(renderSettings.fieldOfView);
+      renderSettings.showOwnWeapons = false;
+    }
     HudRenderState hud;
     addTrainerHud(
       hud,
@@ -1002,10 +1386,23 @@ int AimTrainerApp::run() const {
       balanceWarning
     );
     addTrainerVideoHud(hud, videoMenu, window);
-    const ConsoleRenderState console = trainerConsoleRenderState(consoleState);
+    ConsoleRenderState console = trainerConsoleRenderState(consoleState);
+    std::optional<FrameCaptureRequest> captureRequest;
+    FrameCaptureResult captureResult;
+    if (activeControl.has_value() &&
+        activeControl->stage == TrainerControlOperation::Stage::Capture) {
+      const dev::ControlRequest& request = activeControl->queued.request;
+      captureRequest = FrameCaptureRequest{
+        activeControl->capturePath.string(),
+        request.hideHud,
+        request.hideOverlays,
+      };
+      if (request.hideHud) hud = {};
+      if (request.hideOverlays) console = {};
+    }
     renderer.render(
       map.arena,
-      menu.frame().player,
+      renderPlayer,
       remotePlayers,
       menu.frame().latestBeam,
       fires,
@@ -1016,12 +1413,66 @@ int AimTrainerApp::run() const {
       {},
       presentation.targetEffects,
       0U,
-      settings,
+      renderSettings,
       hud,
-      console
+      console,
+      {},
+      captureRequest.has_value() ? &*captureRequest : nullptr,
+      captureRequest.has_value() ? &captureResult : nullptr
     );
+    ++renderedFrameSerial;
+    if (captureRequest.has_value() && activeControl.has_value() &&
+        activeControl->stage == TrainerControlOperation::Stage::Capture) {
+      const dev::ControlRequest& request = activeControl->queued.request;
+      dev::JsonValue capture = dev::JsonValue::objectValue();
+      capture.object["ok"] = dev::JsonValue::booleanValue(captureResult.ok);
+      capture.object["path"] =
+        dev::JsonValue::stringValue(activeControl->capturePath.string());
+      capture.object["relative_path"] = dev::JsonValue::stringValue(
+        captureRelativePath(activeControl->capturePath)
+      );
+      capture.object["width"] =
+        dev::JsonValue::numberValue(captureResult.width);
+      capture.object["height"] =
+        dev::JsonValue::numberValue(captureResult.height);
+      capture.object["map"] = dev::JsonValue::stringValue("aim_trainer");
+      capture.object["map_revision"] = dev::JsonValue::numberValue(1);
+      capture.object["map_content_hash"] =
+        dev::JsonValue::numberValue(map.descriptor.contentHash);
+      capture.object["renderer"] =
+        dev::JsonValue::stringValue(std::string(renderer.backendName()));
+      capture.object["camera"] = dev::cameraJson(currentControlCamera());
+      capture.object["timestamp_ms"] = dev::JsonValue::numberValue(
+        static_cast<double>(timestampMilliseconds())
+      );
+      dev::JsonValue frameState = dev::JsonValue::objectValue();
+      frameState.object["rendered_frame_serial"] =
+        dev::JsonValue::numberValue(static_cast<double>(renderedFrameSerial));
+      frameState.object["scenario"] =
+        dev::JsonValue::stringValue(menu.draft().name);
+      frameState.object["score"] =
+        dev::JsonValue::numberValue(menu.frame().stats.score);
+      frameState.object["phase"] = dev::JsonValue::stringValue(
+        menu.frame().phase == AimTrainerPhase::Running ? "running" :
+        menu.frame().phase == AimTrainerPhase::Results ? "results" : "idle"
+      );
+      capture.object["frame_state"] = std::move(frameState);
+      if (captureResult.ok) {
+        developerControl.complete(
+          activeControl->queued.token,
+          dev::successResponse(request.id, std::move(capture))
+        );
+      } else {
+        developerControl.complete(
+          activeControl->queued.token,
+          dev::errorResponse(request.id, "capture_failed", captureResult.error)
+        );
+      }
+      activeControl.reset();
+    }
     menu.consumePresentationEvents();
   }
+  developerControl.stop();
   renderer.shutdown();
   SDL_DestroyWindow(window);
   SDL_Quit();

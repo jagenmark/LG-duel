@@ -1,15 +1,11 @@
 #pragma once
 
-#include <cstdint>
+#include "app/DeveloperControlOptions.hpp"
+
 #include <string>
 #include <string_view>
 
 namespace lg {
-
-struct DeveloperControlOptions {
-  bool enabled = false;
-  std::uint16_t port = 27961;
-};
 
 struct BenchmarkOptions {
   bool enabled = false;
