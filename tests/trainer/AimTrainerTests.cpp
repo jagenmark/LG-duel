@@ -201,6 +201,29 @@ int main() {
     );
   }
 
+  {
+    lg::AimTrainerViewAngles view;
+    bool reachedDirectlyBehind = false;
+    for (int step = 0; step < 2000; ++step) {
+      view = lg::applyAimTrainerMouseMotion(view, 1.0F, 0.0F);
+      reachedDirectlyBehind = reachedDirectlyBehind || std::cos(view.yaw) < -0.99F;
+    }
+    failures += expect(
+      reachedDirectlyBehind,
+      "trainer mouse yaw should reach the rear sector of a full 360-degree turn"
+    );
+  }
+
+  failures += expect(
+    lg::shouldResyncAimTrainerInput(
+      lg::AimTrainerWindowInputEvent::FocusGained
+    ) &&
+      !lg::shouldResyncAimTrainerInput(
+        lg::AimTrainerWindowInputEvent::Other
+      ),
+    "trainer input should restore relative mouse capture whenever focus returns"
+  );
+
   failures += expect(
     lg::aimTrainerEscapeAction(true, false) ==
       lg::AimTrainerEscapeAction::CloseScenarios,

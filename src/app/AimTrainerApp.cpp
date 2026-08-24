@@ -692,27 +692,40 @@ int AimTrainerApp::run() const {
   (void)trainerConsole.registerCommand(
     "trainer_start",
     "Start the selected aim-trainer scenario.",
-    [&menu, &editor](const std::vector<std::string>&) {
+    [&menu, &editor, &videoMenu, &consoleState, window](
+      const std::vector<std::string>&
+    ) {
       const AimTrainerArmResult started = menu.start();
-      if (started.ok) editor.setOpen(false);
+      if (started.ok) {
+        editor.setOpen(false);
+        syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+      }
       return started.ok ? std::string("aim trainer started") : started.error;
     }
   );
   (void)trainerConsole.registerCommand(
     "trainer_restart",
     "Restart the selected aim-trainer scenario.",
-    [&menu, &editor](const std::vector<std::string>&) {
+    [&menu, &editor, &videoMenu, &consoleState, window](
+      const std::vector<std::string>&
+    ) {
       const AimTrainerArmResult restarted = menu.restart();
-      if (restarted.ok) editor.setOpen(false);
+      if (restarted.ok) {
+        editor.setOpen(false);
+        syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+      }
       return restarted.ok ? std::string("aim trainer restarted") : restarted.error;
     }
   );
   (void)trainerConsole.registerCommand(
     "trainer_abort",
     "Abort the current aim-trainer run without recording a ranked result.",
-    [&menu, &editor](const std::vector<std::string>&) {
+    [&menu, &editor, &videoMenu, &consoleState, window](
+      const std::vector<std::string>&
+    ) {
       menu.abort();
       editor.setOpen(true);
+      syncMenuInput(window, editor, videoMenu.open, consoleState.open);
       return std::string("aim trainer aborted");
     }
   );
@@ -911,6 +924,8 @@ int AimTrainerApp::run() const {
       dev::JsonValue::stringValue(std::string(renderer.graphicsDriverInfo()));
     status.object["software_renderer"] =
       dev::JsonValue::booleanValue(renderer.softwareRenderer());
+    status.object["relative_mouse_mode"] =
+      dev::JsonValue::booleanValue(SDL_GetWindowRelativeMouseMode(window));
     status.object["vulkan_api_version"] =
       dev::JsonValue::stringValue(std::string(renderer.vulkanApiVersion()));
     status.object["vulkan_icd_path"] =
@@ -1172,6 +1187,16 @@ int AimTrainerApp::run() const {
     }
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+      if (
+        shouldResyncAimTrainerInput(
+          event.type == SDL_EVENT_WINDOW_FOCUS_GAINED
+            ? AimTrainerWindowInputEvent::FocusGained
+            : AimTrainerWindowInputEvent::Other
+        )
+      ) {
+        syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+        continue;
+      }
       if (event.type == SDL_EVENT_QUIT) {
         running = false;
         continue;

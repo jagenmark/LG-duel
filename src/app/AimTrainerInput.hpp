@@ -15,6 +15,17 @@ struct AimTrainerWheelInput {
   float remainder = 0.0F;
 };
 
+enum class AimTrainerWindowInputEvent {
+  Other,
+  FocusGained,
+};
+
+[[nodiscard]] inline bool shouldResyncAimTrainerInput(
+  AimTrainerWindowInputEvent event
+) {
+  return event == AimTrainerWindowInputEvent::FocusGained;
+}
+
 [[nodiscard]] inline bool aimTrainerUsesCompactHud(int viewportWidth) {
   return viewportWidth < 900;
 }
