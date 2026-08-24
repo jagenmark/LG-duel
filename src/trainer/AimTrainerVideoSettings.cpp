@@ -15,7 +15,9 @@ AimTrainerVideoSettingsLoadResult loadAimTrainerVideoSettings(
 
   int version = 0;
   int bloom = 1;
-  std::array<bool, 11> seen = {};
+  int showViewModel = 1;
+  int showBeam = 1;
+  std::array<bool, 13> seen = {};
   std::string key;
   while (input >> key) {
     if (key == "version") {
@@ -51,6 +53,12 @@ AimTrainerVideoSettingsLoadResult loadAimTrainerVideoSettings(
     } else if (key == "point_lights") {
       input >> result.settings.pointLights;
       seen[10] = true;
+    } else if (key == "show_viewmodel") {
+      input >> showViewModel;
+      seen[11] = true;
+    } else if (key == "show_beam") {
+      input >> showBeam;
+      seen[12] = true;
     } else {
       std::string ignored;
       std::getline(input, ignored);
@@ -61,9 +69,12 @@ AimTrainerVideoSettingsLoadResult loadAimTrainerVideoSettings(
       return result;
     }
   }
-  if (version != 1 || !std::all_of(seen.begin(), seen.end(), [](bool value) {
-        return value;
-      })) {
+  const bool hasLegacyFields = std::all_of(
+    seen.begin(), seen.begin() + 11, [](bool value) { return value; }
+  );
+  const bool hasPresentationFields = seen[11] && seen[12];
+  if (!hasLegacyFields || (version != 1 && version != 2) ||
+      (version == 2 && !hasPresentationFields)) {
     result.warning = "video settings are incomplete or use an unknown version; using defaults";
     result.settings = {};
     return result;
@@ -88,6 +99,8 @@ AimTrainerVideoSettingsLoadResult loadAimTrainerVideoSettings(
   result.settings.antiAliasing = std::clamp(result.settings.antiAliasing, 0, 2);
   result.settings.sunShadows = std::clamp(result.settings.sunShadows, 0, 2);
   result.settings.pointLights = std::clamp(result.settings.pointLights, 0, 2);
+  result.settings.showViewModel = showViewModel != 0;
+  result.settings.showBeam = showBeam != 0;
   result.loaded = true;
   return result;
 }
@@ -113,7 +126,7 @@ bool saveAimTrainerVideoSettings(
       return false;
     }
     output
-      << "version 1\n"
+      << "version 2\n"
       << "display_mode " << settings.displayMode << '\n'
       << "resolution_width " << settings.resolutionWidth << '\n'
       << "resolution_height " << settings.resolutionHeight << '\n'
@@ -123,7 +136,9 @@ bool saveAimTrainerVideoSettings(
       << "bloom " << (settings.bloom ? 1 : 0) << '\n'
       << "anti_aliasing " << settings.antiAliasing << '\n'
       << "sun_shadows " << settings.sunShadows << '\n'
-      << "point_lights " << settings.pointLights << '\n';
+      << "point_lights " << settings.pointLights << '\n'
+      << "show_viewmodel " << (settings.showViewModel ? 1 : 0) << '\n'
+      << "show_beam " << (settings.showBeam ? 1 : 0) << '\n';
     if (!output) {
       error = "could not write temporary video settings file";
       return false;

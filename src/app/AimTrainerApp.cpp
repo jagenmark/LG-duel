@@ -42,9 +42,9 @@ constexpr float kTrainerDegreesToRadians = 0.01745329252F;
 constexpr float kTrainerRadiansToDegrees = 57.2957795131F;
 
 #if LG_DUEL_HAS_SDL3
-constexpr std::size_t kTrainerVideoSettingCount = 11U;
-constexpr std::size_t kTrainerVideoApplyRow = 9U;
-constexpr std::size_t kTrainerVideoCloseRow = 10U;
+constexpr std::size_t kTrainerVideoSettingCount = 13U;
+constexpr std::size_t kTrainerVideoApplyRow = 11U;
+constexpr std::size_t kTrainerVideoCloseRow = 12U;
 
 struct TrainerResolution {
   int width = 1280;
@@ -66,6 +66,8 @@ struct TrainerVideoMenu {
   int antiAliasing = 0;
   int sunShadows = 0;
   int pointLights = 1;
+  bool showViewModel = true;
+  bool showBeam = true;
 };
 
 struct TrainerConsoleState {
@@ -106,6 +108,8 @@ struct TrainerControlOperation {
     menu.antiAliasing,
     menu.sunShadows,
     menu.pointLights,
+    menu.showViewModel,
+    menu.showBeam,
   };
 }
 
@@ -122,6 +126,8 @@ void restoreTrainerVideoSettings(
   menu.antiAliasing = saved.antiAliasing;
   menu.sunShadows = saved.sunShadows;
   menu.pointLights = saved.pointLights;
+  menu.showViewModel = saved.showViewModel;
+  menu.showBeam = saved.showBeam;
 }
 
 void appendTrainerConsoleOutput(
@@ -162,6 +168,8 @@ void syncTrainerVideoMenu(
   menu.antiAliasing = settings.antiAliasingQuality;
   menu.sunShadows = settings.sunShadowQuality;
   menu.pointLights = settings.pointLightQuality;
+  menu.showViewModel = settings.showOwnWeapons;
+  menu.showBeam = settings.beamAlpha > 0.0F;
 }
 
 [[nodiscard]] std::vector<TrainerResolution> trainerResolutionOptions(
@@ -248,6 +256,8 @@ void adjustTrainerVideoMenu(TrainerVideoMenu& menu, SDL_Window* window, int dire
   case 6U: menu.antiAliasing = (menu.antiAliasing + direction + 3) % 3; break;
   case 7U: menu.sunShadows = (menu.sunShadows + direction + 3) % 3; break;
   case 8U: menu.pointLights = (menu.pointLights + direction + 3) % 3; break;
+  case 9U: menu.showViewModel = !menu.showViewModel; break;
+  case 10U: menu.showBeam = !menu.showBeam; break;
   default: break;
   }
 }
@@ -255,7 +265,8 @@ void adjustTrainerVideoMenu(TrainerVideoMenu& menu, SDL_Window* window, int dire
 void applyTrainerVideoMenu(
   const TrainerVideoMenu& menu,
   SDL_Window* window,
-  RenderSettings& settings
+  RenderSettings& settings,
+  ConsoleSystem* console = nullptr
 ) {
   if (menu.fullscreenMode == 0) {
     (void)SDL_SetWindowFullscreen(window, false);
@@ -291,6 +302,16 @@ void applyTrainerVideoMenu(
   settings.antiAliasingQuality = menu.antiAliasing;
   settings.sunShadowQuality = menu.sunShadows;
   settings.pointLightQuality = menu.pointLights;
+  settings.showOwnWeapons = menu.showViewModel;
+  settings.beamAlpha = menu.showBeam ? 1.0F : 0.0F;
+  if (console != nullptr) {
+    (void)console->execute(
+      std::string("r_show_weapons ") + (menu.showViewModel ? "1" : "0")
+    );
+    (void)console->execute(
+      std::string("r_beam_alpha ") + (menu.showBeam ? "1" : "0")
+    );
+  }
 }
 
 void addTrainerVideoHud(
@@ -336,6 +357,8 @@ void addTrainerVideoHud(
       menu.sunShadows == 1 ? "Low" : "High"),
     item(8U, "Live point lights", menu.pointLights == 0 ? "Combat only" :
       menu.pointLights == 1 ? "16 lights" : "32 lights"),
+    item(9U, "View model", menu.showViewModel ? "Shown" : "Hidden"),
+    item(10U, "Lightning beam", menu.showBeam ? "Shown" : "Hidden"),
     item(kTrainerVideoApplyRow, "Apply changes", "Enter", true),
     item(kTrainerVideoCloseRow, "Close", "Esc", true),
   };
@@ -729,13 +752,31 @@ int AimTrainerApp::run() const {
       return std::string("aim trainer aborted");
     }
   );
+  (void)trainerConsole.registerCommand(
+    "trainer_save_preset",
+    "Save the selected trainer setup as a named local preset.",
+    [&menu](const std::vector<std::string>& arguments) {
+      if (arguments.size() < 2U) {
+        return std::string("usage: trainer_save_preset <name>");
+      }
+      std::string name = arguments[1];
+      for (std::size_t index = 2U; index < arguments.size(); ++index) {
+        name += ' ';
+        name += arguments[index];
+      }
+      const AimTrainerStoreReply saved = menu.saveAs(std::move(name));
+      if (saved.ok) return std::string("trainer preset saved");
+      return saved.warning.empty() ? std::string("could not save trainer preset")
+                                   : saved.warning;
+    }
+  );
   RenderSettings settings;
   settings.playerModel = 1;
   settings.drawRemoteWeapons = false;
   settings.showOwnWeapons = true;
   settings.localSelectedWeapon = Weapon::LightningGun;
   if (loadedVideoSettings.loaded) {
-    applyTrainerVideoMenu(videoMenu, window, settings);
+    applyTrainerVideoMenu(videoMenu, window, settings, &trainerConsole);
   }
   const auto clearGameplayInput = [&] {
     forward = false;
@@ -779,7 +820,7 @@ int AimTrainerApp::run() const {
       adjustTrainerVideoMenu(videoMenu, window, 1);
     } else if (action == "activate") {
       if (videoMenu.selectedRow == kTrainerVideoApplyRow) {
-        applyTrainerVideoMenu(videoMenu, window, settings);
+        applyTrainerVideoMenu(videoMenu, window, settings, &trainerConsole);
         videoSettingsWarning.clear();
         (void)saveAimTrainerVideoSettings(
           videoSettingsPath,
@@ -1308,7 +1349,7 @@ int AimTrainerApp::run() const {
             if (!pressed && row >= 0) {
               videoMenu.selectedRow = static_cast<std::size_t>(row);
               if (videoMenu.selectedRow == kTrainerVideoApplyRow) {
-                applyTrainerVideoMenu(videoMenu, window, settings);
+                applyTrainerVideoMenu(videoMenu, window, settings, &trainerConsole);
                 videoSettingsWarning.clear();
                 (void)saveAimTrainerVideoSettings(
                   videoSettingsPath,
@@ -1703,6 +1744,8 @@ int AimTrainerApp::run() const {
       fires[index] = menu.frame().pendingFires[index];
     }
     settings.localSelectedWeapon = menu.frame().selectedWeapon;
+    settings.showOwnWeapons = trainerConsole.getBool("r_show_weapons");
+    settings.beamAlpha = trainerConsole.getFloat("r_beam_alpha");
     PlayerState renderPlayer = menu.frame().player;
     RenderSettings renderSettings = settings;
     renderSettings.presentationTimeSeconds =

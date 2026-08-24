@@ -16,6 +16,8 @@ struct AimTrainerVideoSettings {
   int antiAliasing = 0;
   int sunShadows = 0;
   int pointLights = 1;
+  bool showViewModel = true;
+  bool showBeam = true;
 };
 
 struct AimTrainerVideoSettingsLoadResult {

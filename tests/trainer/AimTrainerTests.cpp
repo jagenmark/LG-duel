@@ -286,6 +286,8 @@ int main() {
     saved.antiAliasing = 2;
     saved.sunShadows = 2;
     saved.pointLights = 2;
+    saved.showViewModel = false;
+    saved.showBeam = false;
     std::string error;
     const bool wrote = lg::saveAimTrainerVideoSettings(path, saved, error);
     const lg::AimTrainerVideoSettingsLoadResult loaded =
@@ -301,8 +303,32 @@ int main() {
         loaded.settings.bloom == saved.bloom &&
         loaded.settings.antiAliasing == saved.antiAliasing &&
         loaded.settings.sunShadows == saved.sunShadows &&
-        loaded.settings.pointLights == saved.pointLights,
+        loaded.settings.pointLights == saved.pointLights &&
+        loaded.settings.showViewModel == saved.showViewModel &&
+        loaded.settings.showBeam == saved.showBeam,
       "applied trainer video settings should survive a client restart"
+    );
+    const std::filesystem::path legacyPath = root / "legacy-video.cfg";
+    writeText(
+      legacyPath,
+      "version 1\n"
+      "display_mode 0\n"
+      "resolution_width 1280\n"
+      "resolution_height 720\n"
+      "texture_filter 2\n"
+      "texture_anisotropy 8\n"
+      "display_gamma 1\n"
+      "bloom 1\n"
+      "anti_aliasing 0\n"
+      "sun_shadows 0\n"
+      "point_lights 1\n"
+    );
+    const lg::AimTrainerVideoSettingsLoadResult legacy =
+      lg::loadAimTrainerVideoSettings(legacyPath);
+    failures += expect(
+      legacy.loaded && legacy.warning.empty() &&
+        legacy.settings.showViewModel && legacy.settings.showBeam,
+      "old trainer video settings should keep the view model and beam visible"
     );
     removeTree(root);
   }
