@@ -5891,7 +5891,25 @@ void addTrainerWorkerTargetInstances(
   GltfSkinnedModel::PoseScratch& poseScratch
 ) {
   constexpr std::uint8_t kTrainerTargetPlayerIndex = 255U;
-  const OutlineState noOutline = {};
+  const OutlineState outlineState = {
+    OutlineGroup::Enemy,
+    settings.enemyOutlineEnabled
+      ? OutlineVisibility::VisibleOnly
+      : OutlineVisibility::None,
+    settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+      ? settings.playerOutlineWidth
+      : settings.enemyOutlineWidth,
+    std::clamp(settings.enemyOutlineAlpha, 0.0F, 1.0F),
+    1.0F,
+    0.0F,
+  };
+  const bool wantsOutline =
+    settings.drawPlayerOutlines &&
+    settings.playerOutlineMode != PlayerOutlineMode::Disabled &&
+    settings.enemyOutlineEnabled &&
+    outlineState.visibility != OutlineVisibility::None &&
+    outlineState.widthPixels > 0.0F &&
+    outlineState.alpha > 0.0F;
   for (const TransientEffect& effect : effects) {
     if (effect.type != TransientEffectType::TrainerWorkerTarget) continue;
     if (
@@ -5929,8 +5947,8 @@ void addTrainerWorkerTargetInstances(
         settings.presentationTimeSeconds,
         nullptr,
         kTrainerTargetPlayerIndex,
-        noOutline,
-        false,
+        outlineState,
+        wantsOutline,
         0.0F,
         poseScratch,
         nullptr
@@ -5943,8 +5961,8 @@ void addTrainerWorkerTargetInstances(
         false,
         0.0F,
         kTrainerTargetPlayerIndex,
-        noOutline,
-        false
+        outlineState,
+        wantsOutline
       );
     }
   }

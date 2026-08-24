@@ -7625,9 +7625,14 @@ int main() {
       trainerWorkerFirstFrame.gltfPlayerModelStats.activeInstances == 1U &&
       trainerWorkerFirstFrame.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
       trainerWorkerFirstFrame.gltfPlayerModelStats.rigidFallbackInstances == 0U &&
+      !trainerWorkerFirstFrame.gltfPlayerModelInstances.empty() &&
+      trainerWorkerFirstFrame.gltfPlayerModelInstances.front().outlined &&
+      !trainerWorkerFirstFrame.outlineMaskDraws.empty() &&
+      trainerWorkerFirstFrame.outlineMaskDraws.front().state.group ==
+        lg::OutlineGroup::Enemy &&
       trainerWorkerFirstFrame.gltfBonePalette !=
         trainerWorkerLaterFrame.gltfBonePalette,
-    "trainer workers should use the animated 3D Worker model instead of a static fallback"
+    "trainer workers should use the animated, outlined 3D Worker model"
   );
 
   std::array<lg::TransientEffect, 8> explosionEffects = {};
