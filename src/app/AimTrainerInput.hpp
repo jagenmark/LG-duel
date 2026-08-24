@@ -9,6 +9,21 @@ struct AimTrainerViewAngles {
   float pitch = 0.0F;
 };
 
+enum class AimTrainerEscapeAction {
+  CancelText,
+  OpenScenarios,
+  CloseScenarios,
+};
+
+[[nodiscard]] inline AimTrainerEscapeAction aimTrainerEscapeAction(
+  bool scenarioMenuOpen,
+  bool editingText
+) {
+  if (!scenarioMenuOpen) return AimTrainerEscapeAction::OpenScenarios;
+  if (editingText) return AimTrainerEscapeAction::CancelText;
+  return AimTrainerEscapeAction::CloseScenarios;
+}
+
 [[nodiscard]] inline AimTrainerViewAngles applyAimTrainerMouseMotion(
   AimTrainerViewAngles angles,
   float deltaX,

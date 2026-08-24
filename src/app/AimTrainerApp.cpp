@@ -591,13 +591,26 @@ int AimTrainerApp::run() const {
         syncMenuInput(window, editor, videoMenu.open);
         continue;
       }
+      if (firstPress && event.key.scancode == SDL_SCANCODE_ESCAPE) {
+        switch (aimTrainerEscapeAction(editor.open(), editor.editingText())) {
+        case AimTrainerEscapeAction::CancelText:
+          editor.cancelText();
+          break;
+        case AimTrainerEscapeAction::OpenScenarios:
+          clearGameplayInput();
+          editor.setOpen(true);
+          break;
+        case AimTrainerEscapeAction::CloseScenarios:
+          editor.setOpen(false);
+          break;
+        }
+        keepEditorSelectionVisible(window, editor);
+        syncMenuInput(window, editor, videoMenu.open);
+        continue;
+      }
       if (editor.open()) {
         if (!firstPress) continue;
-        if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
-          if (editor.editingText()) editor.cancelText();
-          else if (menu.frame().phase == AimTrainerPhase::Running) editor.setOpen(false);
-          else running = false;
-        } else if (event.key.scancode == SDL_SCANCODE_UP) {
+        if (event.key.scancode == SDL_SCANCODE_UP) {
           editor.moveSelection(-1);
         } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
           editor.moveSelection(1);
@@ -612,13 +625,6 @@ int AimTrainerApp::run() const {
           editor.backspace();
         }
         keepEditorSelectionVisible(window, editor);
-        syncMenuInput(window, editor, videoMenu.open);
-        continue;
-      }
-
-      if (firstPress && event.key.scancode == SDL_SCANCODE_ESCAPE) {
-        clearGameplayInput();
-        editor.setOpen(true);
         syncMenuInput(window, editor, videoMenu.open);
         continue;
       }

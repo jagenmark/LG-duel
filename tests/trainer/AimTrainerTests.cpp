@@ -200,6 +200,12 @@ int main() {
     );
   }
 
+  failures += expect(
+    lg::aimTrainerEscapeAction(true, false) ==
+      lg::AimTrainerEscapeAction::CloseScenarios,
+    "Escape should close the idle scenario menu instead of quitting"
+  );
+
   // Exact default duration, one natural result, and no second write.
   {
     const std::filesystem::path root = temporaryRoot("exact-duration");
