@@ -12,6 +12,7 @@ namespace lg {
 struct AimTrainerPresentation {
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> projectiles = {};
   std::vector<TransientEffect> targetEffects;
+  double animationTimeSeconds = 0.0;
   std::size_t workerCount = 0;
   std::size_t orbCount = 0;
 };

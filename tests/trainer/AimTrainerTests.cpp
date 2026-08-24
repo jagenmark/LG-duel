@@ -207,6 +207,20 @@ int main() {
     "Escape should close the idle scenario menu instead of quitting"
   );
 
+  {
+    lg::AimTrainerFrame animatedFrame;
+    animatedFrame.elapsedTicks = 42U;
+    const lg::AimTrainerPresentation presentation =
+      lg::buildAimTrainerPresentation(animatedFrame);
+    failures += expect(
+      near(
+        static_cast<float>(presentation.animationTimeSeconds),
+        static_cast<float>(animatedFrame.elapsedTicks) * lg::kFixedTickSeconds
+      ),
+      "trainer presentation should advance the same animation clock as its run"
+    );
+  }
+
   failures += expect(
     lg::shouldHandleAimTrainerMenuKeyDown(true, true, true),
     "held scenario-menu arrow keys should keep moving through rows"

@@ -1,9 +1,13 @@
 #include "trainer/AimTrainerPresentation.hpp"
 
+#include "shared/Constants.hpp"
+
 namespace lg {
 
 AimTrainerPresentation buildAimTrainerPresentation(const AimTrainerFrame& frame) {
   AimTrainerPresentation result;
+  result.animationTimeSeconds =
+    static_cast<double>(frame.elapsedTicks) * kFixedTickSeconds;
   result.targetEffects.reserve(frame.targets.size());
   for (const AimTargetView& target : frame.targets) {
     if (!target.active) continue;

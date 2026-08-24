@@ -1680,6 +1680,8 @@ int AimTrainerApp::run() const {
     settings.localSelectedWeapon = menu.frame().selectedWeapon;
     PlayerState renderPlayer = menu.frame().player;
     RenderSettings renderSettings = settings;
+    renderSettings.presentationTimeSeconds =
+      presentation.animationTimeSeconds;
     if (controlCamera.has_value()) {
       renderPlayer = {};
       renderPlayer.position =

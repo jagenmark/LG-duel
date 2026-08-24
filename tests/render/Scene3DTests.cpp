@@ -7575,6 +7575,61 @@ int main() {
     "trainer orb targets should use a round dedicated mesh at their gameplay radius"
   );
 
+  const lg::TransientEffect trainerWorker = {
+    lg::TransientEffectType::TrainerWorkerTarget,
+    player.position + lg::Vec3{3.0F, 0.0F, 0.0F},
+    0.0F,
+    0.0F,
+    1.0F,
+    1.0F,
+    {32, 220, 235, 255},
+    10U,
+    {0.0F, 2.0F, 0.0F},
+    {},
+    {},
+    1.57079632679F,
+  };
+  const std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> noTrainerRemotes = {};
+  lg::RenderSettings trainerWorkerSettings = settings;
+  trainerWorkerSettings.playerModel = 1;
+  trainerWorkerSettings.presentationTimeSeconds = 0.0;
+  const lg::Scene3D trainerWorkerFirstFrame = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noTrainerRemotes,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(&trainerWorker, 1U),
+    trainerWorkerSettings
+  );
+  trainerWorkerSettings.presentationTimeSeconds = 0.25;
+  const lg::Scene3D trainerWorkerLaterFrame = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noTrainerRemotes,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(&trainerWorker, 1U),
+    trainerWorkerSettings
+  );
+  failures += expect(
+    lg::workerPlayerModel().loaded() &&
+      trainerWorkerFirstFrame.gltfPlayerModelStats.activeInstances == 1U &&
+      trainerWorkerFirstFrame.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
+      trainerWorkerFirstFrame.gltfPlayerModelStats.rigidFallbackInstances == 0U &&
+      trainerWorkerFirstFrame.gltfBonePalette !=
+        trainerWorkerLaterFrame.gltfBonePalette,
+    "trainer workers should use the animated 3D Worker model instead of a static fallback"
+  );
+
   std::array<lg::TransientEffect, 8> explosionEffects = {};
   explosionEffects[0] = {
     lg::TransientEffectType::RocketExplosionFlash,
