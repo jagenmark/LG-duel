@@ -460,7 +460,10 @@ void AimTrainer::respawnTarget(TargetRuntime& target) {
 
 void AimTrainer::updateTargetMotion(TargetRuntime& target) {
   const AimTargetGroup& group = scenario_.groups[target.view.groupIndex];
-  if (group.motion == AimTargetMotion::Stationary) return;
+  if (group.motion == AimTargetMotion::Stationary) {
+    faceWorkerAtPlayer(target);
+    return;
+  }
   if ((group.motion == AimTargetMotion::RandomWaypoint ||
        group.motion == AimTargetMotion::Air) &&
       frame_.elapsedTicks >= target.nextWaypointTick) {
@@ -496,17 +499,7 @@ void AimTrainer::updateTargetMotion(TargetRuntime& target) {
       (target.view.position - previousPosition) / kFixedTickSeconds;
     target.view.worker.onGround = false;
     target.view.worker.movementMode = MovementMode::Airborne;
-    const Vec3 horizontalVelocity = {
-      target.view.worker.velocity.x,
-      target.view.worker.velocity.y,
-      0.0F,
-    };
-    if (length(horizontalVelocity) > 0.00001F) {
-      target.view.worker.viewYawRadians = std::atan2(
-        horizontalVelocity.y,
-        horizontalVelocity.x
-      );
-    }
+    faceWorkerAtPlayer(target);
     return;
   }
   Vec3 direction = group.motion == AimTargetMotion::Strafe
@@ -543,17 +536,14 @@ void AimTrainer::updateTargetMotion(TargetRuntime& target) {
   target.view.worker.velocity =
     (target.view.position - previousPosition) / kFixedTickSeconds;
   target.view.worker.velocity.z = 0.0F;
-  const Vec3 horizontalVelocity = {
-    target.view.worker.velocity.x,
-    target.view.worker.velocity.y,
-    0.0F,
-  };
-  if (length(horizontalVelocity) > 0.00001F) {
-    target.view.worker.viewYawRadians = std::atan2(
-      horizontalVelocity.y,
-      horizontalVelocity.x
-    );
-  }
+  faceWorkerAtPlayer(target);
+}
+
+void AimTrainer::faceWorkerAtPlayer(TargetRuntime& target) {
+  if (target.view.visual != AimTargetVisual::Worker) return;
+  const Vec3 toPlayer = frame_.player.position - target.view.position;
+  if (std::hypot(toPlayer.x, toPlayer.y) <= 0.00001F) return;
+  target.view.worker.viewYawRadians = std::atan2(toPlayer.y, toPlayer.x);
 }
 
 Vec3 AimTrainer::randomTargetPoint(const AimTargetGroup& group, bool keepAway) {

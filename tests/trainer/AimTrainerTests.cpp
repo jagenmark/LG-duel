@@ -751,15 +751,41 @@ int main() {
     const lg::AimTargetView& target = trainer.view().targets[0];
     const lg::AimTrainerPresentation presentation =
       lg::buildAimTrainerPresentation(trainer.view());
+    const lg::Vec3 toPlayer = trainer.view().player.position - target.position;
+    const float facingDot = (
+      std::cos(target.worker.viewYawRadians) * toPlayer.x +
+      std::sin(target.worker.viewYawRadians) * toPlayer.y
+    ) / std::hypot(toPlayer.x, toPlayer.y);
     failures += expect(
       near(target.position.z, target.worker.bounds.halfHeight) &&
         near(target.worker.position.z, target.worker.bounds.halfHeight) &&
         near(target.worker.velocity.y, worker.groups[0].strafeSpeed) &&
-        near(target.worker.viewYawRadians, 1.57079632679F) &&
+        facingDot > 0.999F &&
         presentation.targetEffects.size() == 1U &&
         near(presentation.targetEffects[0].velocity.y, worker.groups[0].strafeSpeed) &&
-        near(presentation.targetEffects[0].rotationRadians, 1.57079632679F),
-      "Worker targets should stand on the floor and carry travel speed and facing to rendering"
+        near(
+          presentation.targetEffects[0].rotationRadians,
+          target.worker.viewYawRadians
+        ),
+      "Worker targets should stand on the floor, move, and face the player"
+    );
+  }
+
+  // Stationary Workers should face the player too.
+  {
+    lg::AimScenario worker = directOrbScenario();
+    worker.groups[0].visual = lg::AimTargetVisual::Worker;
+    worker.groups[0].motion = lg::AimTargetMotion::Stationary;
+    lg::AimTrainer trainer(arena, balance);
+    failures += expect(
+      trainer.arm(worker).ok && trainer.start(),
+      "stationary Worker scenario should start"
+    );
+    (void)trainer.tick({});
+    const lg::AimTargetView& target = trainer.view().targets[0];
+    failures += expect(
+      std::fabs(std::cos(target.worker.viewYawRadians) + 1.0F) < 0.001F,
+      "stationary Worker should turn toward the player"
     );
   }
 

@@ -187,6 +187,7 @@ private:
   [[nodiscard]] Vec3 groundWorkerPosition(Vec3 requested) const;
   void respawnTarget(TargetRuntime& target);
   void updateTargetMotion(TargetRuntime& target);
+  void faceWorkerAtPlayer(TargetRuntime& target);
   [[nodiscard]] Vec3 randomTargetPoint(const AimTargetGroup& group, bool keepAway);
   [[nodiscard]] std::uint32_t randomU32();
   [[nodiscard]] float randomFloat(float minimum, float maximum);
