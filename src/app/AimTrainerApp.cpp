@@ -20,6 +20,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -27,9 +28,14 @@ namespace lg {
 namespace {
 
 #if LG_DUEL_HAS_SDL3
-constexpr std::size_t kTrainerVideoSettingCount = 10U;
-constexpr std::size_t kTrainerVideoApplyRow = 8U;
-constexpr std::size_t kTrainerVideoCloseRow = 9U;
+constexpr std::size_t kTrainerVideoSettingCount = 11U;
+constexpr std::size_t kTrainerVideoApplyRow = 9U;
+constexpr std::size_t kTrainerVideoCloseRow = 10U;
+
+struct TrainerResolution {
+  int width = 1280;
+  int height = 720;
+};
 
 struct TrainerVideoMenu {
   bool open = false;
@@ -37,7 +43,8 @@ struct TrainerVideoMenu {
   std::size_t scrollRows = 0U;
   int hoveredRow = -1;
   int pressedRow = -1;
-  bool fullscreen = false;
+  int fullscreenMode = 0;
+  TrainerResolution resolution;
   int textureFilter = 2;
   int textureAnisotropy = 8;
   float displayGamma = 1.0F;
@@ -52,7 +59,10 @@ void syncTrainerVideoMenu(
   SDL_Window* window,
   const RenderSettings& settings
 ) {
-  menu.fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0U;
+  const bool fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0U;
+  menu.fullscreenMode = !fullscreen ? 0 :
+    SDL_GetWindowFullscreenMode(window) == nullptr ? 1 : 2;
+  (void)SDL_GetWindowSize(window, &menu.resolution.width, &menu.resolution.height);
   menu.textureFilter = settings.textureFilter;
   menu.textureAnisotropy = settings.textureAnisotropy;
   menu.displayGamma = settings.displayGamma;
@@ -62,12 +72,74 @@ void syncTrainerVideoMenu(
   menu.pointLights = settings.pointLightQuality;
 }
 
-void adjustTrainerVideoMenu(TrainerVideoMenu& menu, int direction) {
+[[nodiscard]] std::vector<TrainerResolution> trainerResolutionOptions(
+  SDL_Window* window,
+  TrainerResolution requested
+) {
+  std::set<std::pair<int, int>> unique;
+  const SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+  if (display != 0) {
+    int modeCount = 0;
+    SDL_DisplayMode** modes = SDL_GetFullscreenDisplayModes(display, &modeCount);
+    for (int index = 0; modes != nullptr && index < modeCount; ++index) {
+      if (modes[index] != nullptr && modes[index]->w > 0 && modes[index]->h > 0) {
+        unique.emplace(modes[index]->w, modes[index]->h);
+      }
+    }
+    if (modes != nullptr) SDL_free(modes);
+    if (const SDL_DisplayMode* desktop = SDL_GetDesktopDisplayMode(display)) {
+      unique.emplace(desktop->w, desktop->h);
+    }
+  }
+  for (const TrainerResolution preset : {
+         TrainerResolution{1280, 720},
+         TrainerResolution{1600, 900},
+         TrainerResolution{1920, 1080},
+         TrainerResolution{2560, 1440},
+         TrainerResolution{3840, 2160},
+       }) {
+    unique.emplace(preset.width, preset.height);
+  }
+  unique.emplace(requested.width, requested.height);
+
+  std::vector<TrainerResolution> options;
+  options.reserve(unique.size());
+  for (const auto& [width, height] : unique) options.push_back({width, height});
+  std::sort(options.begin(), options.end(), [](TrainerResolution left, TrainerResolution right) {
+    const int leftArea = left.width * left.height;
+    const int rightArea = right.width * right.height;
+    return leftArea != rightArea ? leftArea < rightArea :
+      left.width != right.width ? left.width < right.width : left.height < right.height;
+  });
+  return options;
+}
+
+[[nodiscard]] bool isNativeResolution(SDL_Window* window, TrainerResolution resolution) {
+  const SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+  const SDL_DisplayMode* desktop = display != 0 ? SDL_GetDesktopDisplayMode(display) : nullptr;
+  return desktop != nullptr && desktop->w == resolution.width && desktop->h == resolution.height;
+}
+
+void adjustTrainerVideoMenu(TrainerVideoMenu& menu, SDL_Window* window, int direction) {
   if (direction == 0) return;
   switch (menu.selectedRow) {
-  case 0U: menu.fullscreen = !menu.fullscreen; break;
-  case 1U: menu.textureFilter = (menu.textureFilter + direction + 3) % 3; break;
-  case 2U: {
+  case 0U: menu.fullscreenMode = (menu.fullscreenMode + direction + 3) % 3; break;
+  case 1U: {
+    const std::vector<TrainerResolution> options =
+      trainerResolutionOptions(window, menu.resolution);
+    const auto current = std::find_if(
+      options.begin(), options.end(), [&menu](TrainerResolution option) {
+        return option.width == menu.resolution.width && option.height == menu.resolution.height;
+      }
+    );
+    const int index = current == options.end()
+      ? 0 : static_cast<int>(current - options.begin());
+    const int count = static_cast<int>(options.size());
+    menu.resolution = options[static_cast<std::size_t>((index + direction + count) % count)];
+    break;
+  }
+  case 2U: menu.textureFilter = (menu.textureFilter + direction + 3) % 3; break;
+  case 3U: {
     static constexpr std::array<int, 5> values = {1, 2, 4, 8, 16};
     const auto found = std::find(values.begin(), values.end(), menu.textureAnisotropy);
     const int index = found == values.end()
@@ -75,15 +147,15 @@ void adjustTrainerVideoMenu(TrainerVideoMenu& menu, int direction) {
     menu.textureAnisotropy = values[static_cast<std::size_t>((index + direction + 5) % 5)];
     break;
   }
-  case 3U:
+  case 4U:
     menu.displayGamma = std::clamp(
       menu.displayGamma + 0.05F * static_cast<float>(direction), 0.5F, 1.5F
     );
     break;
-  case 4U: menu.bloom = !menu.bloom; break;
-  case 5U: menu.antiAliasing = (menu.antiAliasing + direction + 3) % 3; break;
-  case 6U: menu.sunShadows = (menu.sunShadows + direction + 3) % 3; break;
-  case 7U: menu.pointLights = (menu.pointLights + direction + 3) % 3; break;
+  case 5U: menu.bloom = !menu.bloom; break;
+  case 6U: menu.antiAliasing = (menu.antiAliasing + direction + 3) % 3; break;
+  case 7U: menu.sunShadows = (menu.sunShadows + direction + 3) % 3; break;
+  case 8U: menu.pointLights = (menu.pointLights + direction + 3) % 3; break;
   default: break;
   }
 }
@@ -93,7 +165,33 @@ void applyTrainerVideoMenu(
   SDL_Window* window,
   RenderSettings& settings
 ) {
-  (void)SDL_SetWindowFullscreen(window, menu.fullscreen);
+  if (menu.fullscreenMode == 0) {
+    (void)SDL_SetWindowFullscreen(window, false);
+    (void)SDL_SyncWindow(window);
+    (void)SDL_SetWindowFullscreenMode(window, nullptr);
+    (void)SDL_SetWindowSize(window, menu.resolution.width, menu.resolution.height);
+  } else if (menu.fullscreenMode == 1) {
+    (void)SDL_SetWindowFullscreenMode(window, nullptr);
+    (void)SDL_SetWindowFullscreen(window, true);
+  } else {
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+    int modeCount = 0;
+    SDL_DisplayMode** modes = display != 0
+      ? SDL_GetFullscreenDisplayModes(display, &modeCount) : nullptr;
+    const SDL_DisplayMode* chosen = nullptr;
+    for (int index = 0; modes != nullptr && index < modeCount; ++index) {
+      if (modes[index] != nullptr &&
+          modes[index]->w == menu.resolution.width &&
+          modes[index]->h == menu.resolution.height &&
+          (chosen == nullptr || modes[index]->refresh_rate > chosen->refresh_rate)) {
+        chosen = modes[index];
+      }
+    }
+    (void)SDL_SetWindowFullscreenMode(window, chosen);
+    (void)SDL_SetWindowFullscreen(window, true);
+    if (modes != nullptr) SDL_free(modes);
+  }
+  (void)SDL_SyncWindow(window);
   settings.textureFilter = menu.textureFilter;
   settings.textureAnisotropy = menu.textureAnisotropy;
   settings.displayGamma = menu.displayGamma;
@@ -103,7 +201,11 @@ void applyTrainerVideoMenu(
   settings.pointLightQuality = menu.pointLights;
 }
 
-void addTrainerVideoHud(HudRenderState& hud, const TrainerVideoMenu& menu) {
+void addTrainerVideoHud(
+  HudRenderState& hud,
+  const TrainerVideoMenu& menu,
+  SDL_Window* window
+) {
   if (!menu.open) return;
   const auto item = [&menu](
     std::size_t row,
@@ -120,18 +222,22 @@ void addTrainerVideoHud(HudRenderState& hud, const TrainerVideoMenu& menu) {
   hud.settingsHoveredRow = menu.hoveredRow;
   hud.settingsPressedRow = menu.pressedRow;
   hud.settingsItems = {
-    item(0U, "Display mode", menu.fullscreen ? "Borderless fullscreen" : "Windowed"),
-    item(1U, "Texture filter", menu.textureFilter == 0 ? "Nearest" :
+    item(0U, "Display mode", menu.fullscreenMode == 0 ? "Windowed" :
+      menu.fullscreenMode == 1 ? "Borderless fullscreen" : "Exclusive fullscreen"),
+    item(1U, "Resolution", std::to_string(menu.resolution.width) + "x" +
+      std::to_string(menu.resolution.height) +
+      (isNativeResolution(window, menu.resolution) ? " (native)" : "")),
+    item(2U, "Texture filter", menu.textureFilter == 0 ? "Nearest" :
       menu.textureFilter == 1 ? "Bilinear" : "Trilinear"),
-    item(2U, "Texture anisotropy", std::to_string(menu.textureAnisotropy) + "x"),
-    item(3U, "Brightness / gamma", std::to_string(
+    item(3U, "Texture anisotropy", std::to_string(menu.textureAnisotropy) + "x"),
+    item(4U, "Brightness / gamma", std::to_string(
       static_cast<int>(std::lround(menu.displayGamma * 100.0F))) + "%"),
-    item(4U, "Bright-effect bloom", menu.bloom ? "On" : "Off"),
-    item(5U, "Anti-aliasing", menu.antiAliasing == 0 ? "Off" :
+    item(5U, "Bright-effect bloom", menu.bloom ? "On" : "Off"),
+    item(6U, "Anti-aliasing", menu.antiAliasing == 0 ? "Off" :
       menu.antiAliasing == 1 ? "2x MSAA" : "4x MSAA"),
-    item(6U, "Sun shadows", menu.sunShadows == 0 ? "Off" :
+    item(7U, "Sun shadows", menu.sunShadows == 0 ? "Off" :
       menu.sunShadows == 1 ? "Low" : "High"),
-    item(7U, "Live point lights", menu.pointLights == 0 ? "Combat only" :
+    item(8U, "Live point lights", menu.pointLights == 0 ? "Combat only" :
       menu.pointLights == 1 ? "16 lights" : "32 lights"),
     item(kTrainerVideoApplyRow, "Apply changes", "Enter", true),
     item(kTrainerVideoCloseRow, "Close", "Esc", true),
@@ -485,7 +591,7 @@ int AimTrainerApp::run() const {
               } else {
                 const int direction = event.button.x <
                   layout.panelX + layout.panelWidth * 0.75F ? -1 : 1;
-                adjustTrainerVideoMenu(videoMenu, direction);
+                adjustTrainerVideoMenu(videoMenu, window, direction);
               }
               syncMenuInput(window, editor, videoMenu.open);
             }
@@ -552,16 +658,16 @@ int AimTrainerApp::run() const {
           videoMenu.selectedRow =
             (videoMenu.selectedRow + 1U) % kTrainerVideoSettingCount;
         } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
-          adjustTrainerVideoMenu(videoMenu, -1);
+          adjustTrainerVideoMenu(videoMenu, window, -1);
         } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
-          adjustTrainerVideoMenu(videoMenu, 1);
+          adjustTrainerVideoMenu(videoMenu, window, 1);
         } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
           if (videoMenu.selectedRow == kTrainerVideoApplyRow) {
             applyTrainerVideoMenu(videoMenu, window, settings);
           } else if (videoMenu.selectedRow == kTrainerVideoCloseRow) {
             videoMenu.open = false;
           } else {
-            adjustTrainerVideoMenu(videoMenu, 1);
+            adjustTrainerVideoMenu(videoMenu, window, 1);
           }
         }
         syncMenuInput(window, editor, videoMenu.open);
@@ -701,7 +807,7 @@ int AimTrainerApp::run() const {
       pressedRow,
       balanceWarning
     );
-    addTrainerVideoHud(hud, videoMenu);
+    addTrainerVideoHud(hud, videoMenu, window);
     ConsoleRenderState console;
     renderer.render(
       map.arena,
