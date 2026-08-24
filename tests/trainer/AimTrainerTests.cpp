@@ -206,6 +206,29 @@ int main() {
     "Escape should close the idle scenario menu instead of quitting"
   );
 
+  failures += expect(
+    lg::shouldHandleAimTrainerMenuKeyDown(true, true, true),
+    "held scenario-menu arrow keys should keep moving through rows"
+  );
+  failures += expect(
+    !lg::shouldHandleAimTrainerMenuKeyDown(true, true, false),
+    "held command keys should not trigger menu commands again"
+  );
+  {
+    const lg::AimTrainerWheelInput wheel =
+      lg::accumulateAimTrainerWheel(0.0F, 0.1F);
+    failures += expect(
+      wheel.rowDelta == 0 && near(wheel.remainder, 0.1F),
+      "small trackpad deltas should accumulate instead of jumping three rows"
+    );
+    const lg::AimTrainerWheelInput accumulated =
+      lg::accumulateAimTrainerWheel(0.6F, 0.5F);
+    failures += expect(
+      accumulated.rowDelta == -1 && near(accumulated.remainder, 0.1F),
+      "trackpad deltas should move one row after they add up to a full step"
+    );
+  }
+
   // Exact default duration, one natural result, and no second write.
   {
     const std::filesystem::path root = temporaryRoot("exact-duration");

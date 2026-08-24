@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 
 namespace lg {
 
@@ -8,6 +9,28 @@ struct AimTrainerViewAngles {
   float yaw = 0.0F;
   float pitch = 0.0F;
 };
+
+struct AimTrainerWheelInput {
+  int rowDelta = 0;
+  float remainder = 0.0F;
+};
+
+[[nodiscard]] inline bool shouldHandleAimTrainerMenuKeyDown(
+  bool pressed,
+  bool repeat,
+  bool repeatable
+) {
+  return pressed && (!repeat || repeatable);
+}
+
+[[nodiscard]] inline AimTrainerWheelInput accumulateAimTrainerWheel(
+  float remainder,
+  float wheelY
+) {
+  const float total = remainder + wheelY;
+  const int wholeSteps = static_cast<int>(std::trunc(total));
+  return {-wholeSteps, total - static_cast<float>(wholeSteps)};
+}
 
 enum class AimTrainerEscapeAction {
   CancelText,

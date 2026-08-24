@@ -464,6 +464,8 @@ int AimTrainerApp::run() const {
   );
   AimTrainerEditor editor(menu);
   TrainerVideoMenu videoMenu;
+  float videoWheelRemainder = 0.0F;
+  float scenarioWheelRemainder = 0.0F;
   syncMenuInput(window, editor, videoMenu.open);
 
   bool running = true;
@@ -553,18 +555,37 @@ int AimTrainerApp::run() const {
       }
       if (event.type == SDL_EVENT_MOUSE_WHEEL && videoMenu.open) {
         const OptionMenuLayout layout = trainerVideoLayout(window, videoMenu);
-        videoMenu.scrollRows = optionMenuScrollForWheel(
-          layout, videoMenu.scrollRows, event.wheel.y
-        );
+        const AimTrainerWheelInput wheel =
+          accumulateAimTrainerWheel(videoWheelRemainder, event.wheel.y);
+        videoWheelRemainder = wheel.remainder;
+        if (wheel.rowDelta < 0) {
+          const std::size_t rows = static_cast<std::size_t>(-wheel.rowDelta);
+          videoMenu.scrollRows = videoMenu.scrollRows > rows
+            ? videoMenu.scrollRows - rows : 0U;
+        } else if (wheel.rowDelta > 0) {
+          videoMenu.scrollRows = std::min(
+            videoMenu.scrollRows + static_cast<std::size_t>(wheel.rowDelta),
+            layout.maxScrollRows
+          );
+        }
         continue;
       }
       if (event.type == SDL_EVENT_MOUSE_WHEEL && editor.open()) {
         const OptionMenuLayout layout = editorLayout(window, editor);
-        editor.setScrollRows(optionMenuScrollForWheel(
-          layout,
-          editor.scrollRows(),
-          event.wheel.y
-        ));
+        const AimTrainerWheelInput wheel =
+          accumulateAimTrainerWheel(scenarioWheelRemainder, event.wheel.y);
+        scenarioWheelRemainder = wheel.remainder;
+        std::size_t scrollRows = editor.scrollRows();
+        if (wheel.rowDelta < 0) {
+          const std::size_t rows = static_cast<std::size_t>(-wheel.rowDelta);
+          scrollRows = scrollRows > rows ? scrollRows - rows : 0U;
+        } else if (wheel.rowDelta > 0) {
+          scrollRows = std::min(
+            scrollRows + static_cast<std::size_t>(wheel.rowDelta),
+            layout.maxScrollRows
+          );
+        }
+        editor.setScrollRows(scrollRows);
         continue;
       }
       if (
@@ -637,6 +658,7 @@ int AimTrainerApp::run() const {
       if (firstPress && event.key.scancode == SDL_SCANCODE_F10) {
         videoMenu.open = !videoMenu.open;
         if (videoMenu.open) {
+          videoWheelRemainder = 0.0F;
           clearGameplayInput();
           editor.setOpen(false);
           syncTrainerVideoMenu(videoMenu, window, settings);
@@ -647,7 +669,14 @@ int AimTrainerApp::run() const {
         continue;
       }
       if (videoMenu.open) {
-        if (!firstPress) continue;
+        const bool repeatable =
+          event.key.scancode == SDL_SCANCODE_UP ||
+          event.key.scancode == SDL_SCANCODE_DOWN ||
+          event.key.scancode == SDL_SCANCODE_LEFT ||
+          event.key.scancode == SDL_SCANCODE_RIGHT;
+        if (!shouldHandleAimTrainerMenuKeyDown(pressed, event.key.repeat, repeatable)) {
+          continue;
+        }
         if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
           videoMenu.open = false;
         } else if (event.key.scancode == SDL_SCANCODE_UP) {
@@ -703,6 +732,7 @@ int AimTrainerApp::run() const {
           editor.cancelText();
           break;
         case AimTrainerEscapeAction::OpenScenarios:
+          scenarioWheelRemainder = 0.0F;
           clearGameplayInput();
           editor.setOpen(true);
           break;
@@ -715,7 +745,14 @@ int AimTrainerApp::run() const {
         continue;
       }
       if (editor.open()) {
-        if (!firstPress) continue;
+        const bool repeatable =
+          event.key.scancode == SDL_SCANCODE_UP ||
+          event.key.scancode == SDL_SCANCODE_DOWN ||
+          event.key.scancode == SDL_SCANCODE_LEFT ||
+          event.key.scancode == SDL_SCANCODE_RIGHT;
+        if (!shouldHandleAimTrainerMenuKeyDown(pressed, event.key.repeat, repeatable)) {
+          continue;
+        }
         if (event.key.scancode == SDL_SCANCODE_UP) {
           editor.moveSelection(-1);
         } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
