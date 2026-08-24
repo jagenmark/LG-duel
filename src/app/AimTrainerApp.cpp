@@ -1,6 +1,7 @@
 #include "app/AimTrainerApp.hpp"
 #include "app/AimTrainerInput.hpp"
 
+#include "console/ConsoleSystem.hpp"
 #include "render/OptionMenuLayout.hpp"
 #include "render/Renderer.hpp"
 #include "shared/Constants.hpp"
@@ -18,9 +19,11 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <deque>
 #include <filesystem>
 #include <iostream>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -53,6 +56,37 @@ struct TrainerVideoMenu {
   int sunShadows = 0;
   int pointLights = 1;
 };
+
+struct TrainerConsoleState {
+  bool open = false;
+  std::string input;
+  std::size_t cursorIndex = 0U;
+  std::deque<std::string> output;
+  std::vector<std::string> history;
+  std::size_t historyIndex = 0U;
+};
+
+void appendTrainerConsoleOutput(
+  TrainerConsoleState& state,
+  std::string_view text
+) {
+  std::istringstream stream{std::string(text)};
+  std::string line;
+  while (std::getline(stream, line)) state.output.push_back(std::move(line));
+  while (state.output.size() > 128U) state.output.pop_front();
+}
+
+[[nodiscard]] ConsoleRenderState trainerConsoleRenderState(
+  const TrainerConsoleState& state
+) {
+  ConsoleRenderState rendered;
+  rendered.open = state.open;
+  rendered.showCat = false;
+  rendered.input = state.input;
+  rendered.cursorIndex = state.cursorIndex;
+  rendered.lines.assign(state.output.begin(), state.output.end());
+  return rendered;
+}
 
 void syncTrainerVideoMenu(
   TrainerVideoMenu& menu,
@@ -403,10 +437,14 @@ void keepEditorSelectionVisible(SDL_Window* window, AimTrainerEditor& editor) {
 void syncMenuInput(
   SDL_Window* window,
   const AimTrainerEditor& editor,
-  bool videoMenuOpen
+  bool videoMenuOpen,
+  bool consoleOpen = false
 ) {
-  (void)SDL_SetWindowRelativeMouseMode(window, !editor.open() && !videoMenuOpen);
-  if (editor.editingText()) {
+  (void)SDL_SetWindowRelativeMouseMode(
+    window,
+    !editor.open() && !videoMenuOpen && !consoleOpen
+  );
+  if (editor.editingText() || consoleOpen) {
     (void)SDL_StartTextInput(window);
   } else {
     (void)SDL_StopTextInput(window);
@@ -481,6 +519,29 @@ int AimTrainerApp::run() const {
   bool crouch = false;
   bool sneak = false;
   bool zoomed = false;
+  bool suppressConsoleToggleText = false;
+  TrainerConsoleState consoleState;
+  ConsoleSystem trainerConsole;
+  appendTrainerConsoleOutput(
+    consoleState,
+    "LG Duel aim trainer console. Type cmdlist for commands."
+  );
+  (void)trainerConsole.registerCommand(
+    "quit",
+    "Quit the aim trainer.",
+    [&running](const std::vector<std::string>&) {
+      running = false;
+      return std::string{};
+    }
+  );
+  (void)trainerConsole.registerCommand(
+    "clear",
+    "Clear console output.",
+    [&consoleState](const std::vector<std::string>&) {
+      consoleState.output.clear();
+      return std::string{};
+    }
+  );
   const auto clearGameplayInput = [&] {
     forward = false;
     backward = false;
@@ -518,12 +579,27 @@ int AimTrainerApp::run() const {
         running = false;
         continue;
       }
+      if (event.type == SDL_EVENT_TEXT_INPUT && consoleState.open) {
+        const std::string_view text = event.text.text;
+        const bool toggleText =
+          text == "`" || text == "~" || text == "§" || text == "½";
+        if (suppressConsoleToggleText && toggleText) {
+          suppressConsoleToggleText = false;
+        } else {
+          suppressConsoleToggleText = false;
+          consoleState.input.insert(consoleState.cursorIndex, text);
+          consoleState.cursorIndex += text.size();
+        }
+        continue;
+      }
       if (event.type == SDL_EVENT_TEXT_INPUT && editor.editingText()) {
         editor.insertText(event.text.text);
         continue;
       }
       if (event.type == SDL_EVENT_MOUSE_MOTION) {
-        if (videoMenu.open) {
+        if (consoleState.open) {
+          continue;
+        } else if (videoMenu.open) {
           const OptionMenuLayout layout = trainerVideoLayout(window, videoMenu);
           videoMenu.hoveredRow = optionMenuPointInScrollbarTrack(
             layout, event.motion.x, event.motion.y
@@ -595,7 +671,9 @@ int AimTrainerApp::run() const {
         event.type == SDL_EVENT_MOUSE_BUTTON_UP
       ) {
         const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-        if (videoMenu.open) {
+        if (consoleState.open) {
+          continue;
+        } else if (videoMenu.open) {
           if (event.button.button == SDL_BUTTON_LEFT) {
             const OptionMenuLayout layout = trainerVideoLayout(window, videoMenu);
             const int row = optionMenuRowAt(
@@ -656,6 +734,83 @@ int AimTrainerApp::run() const {
       if (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP) continue;
       const bool pressed = event.type == SDL_EVENT_KEY_DOWN;
       const bool firstPress = pressed && !event.key.repeat;
+
+      if (firstPress && event.key.scancode == SDL_SCANCODE_GRAVE) {
+        consoleState.open = !consoleState.open;
+        suppressConsoleToggleText = consoleState.open;
+        if (consoleState.open) {
+          clearGameplayInput();
+          editor.setOpen(false);
+          videoMenu.open = false;
+          consoleState.historyIndex = consoleState.history.size();
+        }
+        syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+        continue;
+      }
+      if (consoleState.open) {
+        if (!pressed) continue;
+        if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+          consoleState.open = false;
+        } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
+          if (consoleState.cursorIndex > 0U) {
+            consoleState.input.erase(consoleState.cursorIndex - 1U, 1U);
+            --consoleState.cursorIndex;
+          }
+        } else if (event.key.scancode == SDL_SCANCODE_DELETE) {
+          if (consoleState.cursorIndex < consoleState.input.size()) {
+            consoleState.input.erase(consoleState.cursorIndex, 1U);
+          }
+        } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
+          if (consoleState.cursorIndex > 0U) --consoleState.cursorIndex;
+        } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
+          consoleState.cursorIndex = std::min(
+            consoleState.cursorIndex + 1U,
+            consoleState.input.size()
+          );
+        } else if (event.key.scancode == SDL_SCANCODE_HOME) {
+          consoleState.cursorIndex = 0U;
+        } else if (event.key.scancode == SDL_SCANCODE_END) {
+          consoleState.cursorIndex = consoleState.input.size();
+        } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
+          if (!consoleState.input.empty()) {
+            appendTrainerConsoleOutput(consoleState, "] " + consoleState.input);
+            const std::string result = trainerConsole.execute(consoleState.input);
+            if (!result.empty()) appendTrainerConsoleOutput(consoleState, result);
+            consoleState.history.push_back(consoleState.input);
+            consoleState.historyIndex = consoleState.history.size();
+            consoleState.input.clear();
+            consoleState.cursorIndex = 0U;
+          }
+        } else if (event.key.scancode == SDL_SCANCODE_UP &&
+                   !consoleState.history.empty()) {
+          if (consoleState.historyIndex > 0U) --consoleState.historyIndex;
+          consoleState.input = consoleState.history[consoleState.historyIndex];
+          consoleState.cursorIndex = consoleState.input.size();
+        } else if (event.key.scancode == SDL_SCANCODE_DOWN &&
+                   !consoleState.history.empty()) {
+          if (consoleState.historyIndex + 1U < consoleState.history.size()) {
+            ++consoleState.historyIndex;
+            consoleState.input = consoleState.history[consoleState.historyIndex];
+          } else {
+            consoleState.historyIndex = consoleState.history.size();
+            consoleState.input.clear();
+          }
+          consoleState.cursorIndex = consoleState.input.size();
+        } else if (event.key.scancode == SDL_SCANCODE_TAB) {
+          const std::vector<std::string> matches =
+            trainerConsole.complete(consoleState.input);
+          if (matches.size() == 1U) {
+            consoleState.input = matches.front();
+            consoleState.cursorIndex = consoleState.input.size();
+          } else if (!matches.empty()) {
+            std::string line;
+            for (const std::string& match : matches) line += match + ' ';
+            appendTrainerConsoleOutput(consoleState, line);
+          }
+        }
+        syncMenuInput(window, editor, videoMenu.open, consoleState.open);
+        continue;
+      }
 
       if (firstPress && event.key.scancode == SDL_SCANCODE_F10) {
         videoMenu.open = !videoMenu.open;
@@ -847,7 +1002,7 @@ int AimTrainerApp::run() const {
       balanceWarning
     );
     addTrainerVideoHud(hud, videoMenu, window);
-    ConsoleRenderState console;
+    const ConsoleRenderState console = trainerConsoleRenderState(consoleState);
     renderer.render(
       map.arena,
       menu.frame().player,
