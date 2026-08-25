@@ -859,7 +859,8 @@ def _tail(path: Path, limit: int = 30) -> str:
 
 
 def _launch_process(executable: Path, arguments: list[str], stdout_path: Path, stderr_path: Path,
-                    environment: dict[str, str], working_directory: Path | None = None) -> subprocess.Popen[str]:
+                    environment: dict[str, str], working_directory: Path | None = None,
+                    *, survive_parent_exit: bool = False) -> subprocess.Popen[str]:
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     stdout = stdout_path.open("w", encoding="utf-8")
     stderr = stderr_path.open("w", encoding="utf-8")
@@ -867,6 +868,7 @@ def _launch_process(executable: Path, arguments: list[str], stdout_path: Path, s
         return subprocess.Popen(
             [str(executable), *arguments], cwd=working_directory or BUILD_DIR, env=environment,
             stdout=stdout, stderr=stderr, text=True, creationflags=creationflags,
+            start_new_session=survive_parent_exit and os.name == "posix",
         )
     finally:
         stdout.close()
@@ -1705,6 +1707,7 @@ def _ensure_client_unlocked(
             server_process = _launch_process(
                 server_exe, [str(server_port)], STATE_DIR / "server.stdout.log",
                 STATE_DIR / "server.stderr.log", environment, launch_build_dir,
+                survive_parent_exit=True,
             )
             server_entry = _owned_process_entry(server_process, server_exe)
             pending_state["server"] = server_entry
@@ -1718,6 +1721,7 @@ def _ensure_client_unlocked(
         client_process = _launch_process(
             client_exe, client_arguments, STATE_DIR / "client.stdout.log",
             STATE_DIR / "client.stderr.log", environment, launch_build_dir,
+            survive_parent_exit=True,
         )
         client_entry = _owned_process_entry(client_process, client_exe)
         pending_state["client"] = client_entry

@@ -26,6 +26,56 @@ confirmation, or when no developer-control operation can perform the task.
 5. On a failure, read `status` and the worktree's logs, then retry only the
    failed bounded request. Stop the owned session when done.
 
+### Agent Exec-Session Lifetime
+
+`lg_launch.py start` starts the server and client, waits for a ready reply,
+then exits. Some agent command runners clean up the exec process group when
+that session ends. In such a runner, a short `start` command once reported a
+ready client, then lost both game processes. A later control request started a
+new client, which made live cvars look as if they had reset.
+
+The launcher starts each owned process in a new POSIX session. This lets a
+short `start` command survive process-group cleanup. After every agent launch,
+run a bounded status check before changing state:
+
+```bash
+python scripts/lg_launch.py --json start \
+  --server-port 28060 --control-port 28061 \
+  --renderer fallback --allow-fallback --timeout 20
+python scripts/lg_control.py --port 28061 --timeout 3 --allow-fallback status
+```
+
+Shell backgrounding, `nohup`, and `disown` alone do not fix process-group
+cleanup. Some runners may also clean a wider job or control group. If the
+status check above fails only after the launch exec ends, keep that exec open
+for the full control run. In a Bash-based agent runner, start a TTY exec with a
+short yield and run:
+
+```bash
+python scripts/lg_launch.py --json start \
+  --server-port 28060 --control-port 28061 \
+  --renderer fallback --allow-fallback --timeout 20 \
+  && tail -f /dev/null
+```
+
+Leave that exec session open. Run each bounded `lg_control.py` request in a
+separate exec session. When done, stop the owned game processes first:
+
+```bash
+python scripts/lg_launch.py --json stop
+```
+
+Then close the held launch session. This order lets the launcher clear its
+owned-process record. If the launch session closes first, the runner can kill
+the game and leave `build/dev-control/processes.json` stale. A later control
+request may start a new client from saved or default config, so reset cvars do
+not prove that the first client stayed alive.
+
+To tell runner cleanup from a game crash, check whether both game processes
+vanish when the launch exec ends and stay up when its process session or exec
+stays open. Clean client/server logs and no matching core dump add support. A
+game crash does not depend on the launch shell's life.
+
 ### Isolated Worktree Session
 
 The default control port is `27961`, so it conflicts when several worktrees

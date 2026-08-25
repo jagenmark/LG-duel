@@ -33,6 +33,40 @@ class LaunchTests(unittest.TestCase):
                     lg_launch._executable_path(build, "lg_duel_client"), fixture
                 )
 
+    def test_launch_process_new_session_is_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "game"
+            executable.touch()
+            process = mock.Mock()
+            with mock.patch.object(lg_launch.os, "name", "posix"), \
+                 mock.patch.object(
+                     lg_launch.subprocess, "Popen", return_value=process
+                 ) as popen:
+                result = lg_launch._launch_process(
+                    executable,
+                    ["--test"],
+                    root / "stdout.log",
+                    root / "stderr.log",
+                    {},
+                    root,
+                )
+                default_call = popen.call_args
+                lg_launch._launch_process(
+                    executable,
+                    ["--test"],
+                    root / "stdout.log",
+                    root / "stderr.log",
+                    {},
+                    root,
+                    survive_parent_exit=True,
+                )
+                detached_call = popen.call_args
+
+        self.assertIs(result, process)
+        self.assertFalse(default_call.kwargs["start_new_session"])
+        self.assertTrue(detached_call.kwargs["start_new_session"])
+
     def setUp(self) -> None:
         self.real_lifecycle_lock = lg_launch._lifecycle_lock
         lifecycle_patch = mock.patch.object(
@@ -302,6 +336,9 @@ class LaunchTests(unittest.TestCase):
         self.assertTrue(result["gpu_verified"])
         self.assertEqual(launch.call_count, 2)
         self.assertTrue(all(call.args[5] == build.resolve() for call in launch.call_args_list))
+        self.assertTrue(all(
+            call.kwargs["survive_parent_exit"] for call in launch.call_args_list
+        ))
         self.assertEqual(result["build_directory"], str(build.resolve()))
         self.assertFalse(written[0]["server"]["owned"])
         self.assertTrue(written[0]["server"]["pending_launch"])
@@ -1235,6 +1272,10 @@ GPU1:
         self.assertEqual(launch.call_args_list[1].args[1], [
             "127.0.0.1", "28060", "--dev-control", "--control-port", "28061",
         ])
+        self.assertTrue(all(
+            not call.kwargs.get("survive_parent_exit", False)
+            for call in launch.call_args_list
+        ))
 
     def test_scenario_launch_rejects_any_listening_control_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
