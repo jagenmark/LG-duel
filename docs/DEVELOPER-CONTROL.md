@@ -342,7 +342,7 @@ and camera, `lg_exec_console`, `lg_get_cvar`, `lg_set_cvar`, `lg_send_input`,
 screenshot, map-view capture, and benchmark tools. Each has
 a closed typed JSON schema. Results include text plus `structuredContent`;
 captures return compact WebP agent copies by default. The saved PNG stays at
-full size. The default agent copy uses quality 92
+full size and uses lossless PNG compression. The default agent copy uses quality 92
 and at most 1,440,000 pixels (1600x900 for a 16:9 frame), records its source
 and delivered sizes and dimensions, and can shrink further to stay within the
 shared 1 MiB base64 budget. That budget covers all images in one reply, so a

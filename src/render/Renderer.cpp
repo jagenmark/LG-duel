@@ -1,6 +1,6 @@
 #include "render/Renderer.hpp"
 
-#include "dev/PngWriter.hpp"
+#include "render/CaptureWriter.hpp"
 #include "app/TextInput.hpp"
 #include "render/BitmapFont.hpp"
 #include "render/GltfSkinnedModel.hpp"
@@ -11250,7 +11250,7 @@ void appendCommandBatches(
             std::swap(rgba[index], rgba[index + 2U]);
           }
         }
-        captureResult->ok = dev::writeRgbaPng(
+        captureResult->ok = render::writeRgbaCapturePng(
           captureRequest->path, outputWidth, outputHeight, rgba, captureResult->error
         );
       }
@@ -14035,7 +14035,7 @@ void Renderer::render(
           );
         }
         SDL_DestroySurface(rgbaSurface);
-        captureResult->ok = dev::writeRgbaPng(
+        captureResult->ok = render::writeRgbaCapturePng(
           captureRequest->path,
           captureResult->width,
           captureResult->height,
