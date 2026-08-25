@@ -3876,6 +3876,8 @@ RenderSettings renderSettings(
   settings.fieldOfView = console.getFloat("cl_fov");
   settings.healthTextScale = console.getFloat("cl_health_size");
   settings.healthStyle = console.getInt("cl_health_style");
+  settings.healthGroupOffsetX = console.getFloat("cl_health_offset_x");
+  settings.healthGroupOffsetY = console.getFloat("cl_health_offset_y");
   settings.speedTextScale = console.getFloat("cl_speed_size");
   settings.weaponBarScale = console.getFloat("cl_weapon_bar_size");
   settings.fpsTextScale = console.getFloat("cl_showfps_size");

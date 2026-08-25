@@ -1724,6 +1724,8 @@ int main() {
     for (int style = 3; style <= 5; ++style) {
       lg::RenderSettings artSettings = settings;
       artSettings.healthStyle = style;
+      artSettings.healthGroupOffsetX = 40.0F;
+      artSettings.healthGroupOffsetY = -30.0F;
       const lg::DrawList2D artUi = lg::buildScreenUi(
         1280,
         720,
@@ -1744,6 +1746,10 @@ int main() {
       failures += expect(
         healthImage != nullptr && healthImage->destination.width > 0.0F &&
           healthImage->destination.width < 374.0F &&
+          healthImage->destination.x >= 196.0F &&
+          healthImage->destination.x <= 202.0F &&
+          healthImage->destination.y >= 642.0F &&
+          healthImage->destination.y <= 648.0F &&
           findText(artUi, "50") != nullptr,
         "art health styles should draw their mapped image with live half-health width and value"
       );
@@ -1755,12 +1761,12 @@ int main() {
             healthValue->position.x - healthPlus->position.x - 34.0F
           ) < 0.001F &&
           std::abs(healthValue->position.y - healthPlus->position.y) < 0.001F &&
-          std::abs(healthValue->position.x - 114.0F) < 0.001F &&
+          std::abs(healthValue->position.x - 154.0F) < 0.001F &&
           std::abs(healthValue->scale - 2.6F) < 0.001F &&
           std::abs(healthPlus->scale - 2.6F) < 0.001F &&
-          healthValue->position.y > 670.0F &&
-          healthValue->position.y < 690.0F,
-        "art health styles should align the nearby plus and health number with the bar"
+          healthValue->position.y > 640.0F &&
+          healthValue->position.y < 660.0F,
+        "art health styles should move the aligned plus, value, and bar as one offset group"
       );
       if (style == 3 && healthImage != nullptr) {
         failures += expect(

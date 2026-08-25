@@ -1639,8 +1639,9 @@ void addArtHealthBar(
   );
   const float barWidth = 374.0F * scale;
   const float barHeight = 23.0F * scale;
-  const float left = 18.0F * scale;
-  const float bottom = static_cast<float>(height) - 25.0F * scale;
+  const float left = 18.0F * scale + settings.healthGroupOffsetX;
+  const float bottom = static_cast<float>(height) - 25.0F * scale +
+    settings.healthGroupOffsetY;
   const float top = bottom - barHeight;
   const float numberX = left + 96.0F * scale;
   const float plusX = numberX - 34.0F * scale;

@@ -152,6 +152,8 @@ struct RenderSettings {
   float teammateLeanScale = 1.0F;
   float healthTextScale = 2.0F;
   int healthStyle = 0;
+  float healthGroupOffsetX = 0.0F;
+  float healthGroupOffsetY = 0.0F;
   float speedTextScale = 1.5F;
   float weaponBarScale = 1.75F;
   float fpsTextScale = 1.6F;

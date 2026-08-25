@@ -571,6 +571,19 @@ int main() {
     "health HUD style cvar should expose the three classic and three art layouts"
   );
   failures += expect(
+    console.execute("cl_health_offset_x") ==
+        "cl_health_offset_x = 0 (default 0)" &&
+      console.execute("cl_health_offset_x 2001") ==
+        "value out of range for cl_health_offset_x" &&
+      console.execute("cl_health_offset_x 125.5") ==
+        "cl_health_offset_x = 125.5" &&
+      console.execute("cl_health_offset_y -2001") ==
+        "value out of range for cl_health_offset_y" &&
+      console.execute("cl_health_offset_y -80") ==
+        "cl_health_offset_y = -80",
+    "art health HUD group offsets should be saved, bounded screen-pixel controls"
+  );
+  failures += expect(
     console.execute("crosshair_style") ==
         "crosshair_style = 0 (default 0)" &&
       console.execute("crosshair_style 4") ==
