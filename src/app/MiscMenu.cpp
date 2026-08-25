@@ -80,6 +80,14 @@ std::vector<MiscMenuItem> miscMenuItems(const ConsoleSystem &console,
   constexpr std::array<const char *, 6> collisionModes = {
       "Off", "All", "Visible solids", "Player clip", "Weapon clip", "Triggers",
   };
+  constexpr std::array<const char *, 6> healthStyles = {
+      "Classic bar",
+      "Centered number",
+      "Crosshair",
+      "Segmented art",
+      "Filled art",
+      "Outlined art",
+  };
   constexpr std::array<const char *, 3> groundDebugModes = {
       "Off",
       "Basic",
@@ -103,6 +111,13 @@ std::vector<MiscMenuItem> miscMenuItems(const ConsoleSystem &console,
               console.getInt("r_weapon_pos"))],
           "Moves the local first-person weapon between center, right, and "
           "left.",
+          false,
+      },
+      {
+          "Health HUD",
+          healthStyles[static_cast<std::size_t>(
+              console.getInt("cl_health_style"))],
+          "Chooses the classic health layouts or one of the three image bars.",
           false,
       },
       {
@@ -203,6 +218,10 @@ bool adjustMiscMenuValue(ConsoleSystem &console, MiscMenuRow row,
   case MiscMenuRow::WeaponPosition:
     setInt(console, "r_weapon_pos",
            wrappedValue(console.getInt("r_weapon_pos"), direction, 3));
+    return true;
+  case MiscMenuRow::HealthStyle:
+    setInt(console, "cl_health_style",
+           wrappedValue(console.getInt("cl_health_style"), direction, 6));
     return true;
   case MiscMenuRow::CollisionDebug:
     setInt(console, "r_show_collision",

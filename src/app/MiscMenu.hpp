@@ -10,6 +10,7 @@ class ConsoleSystem;
 
 enum class MiscMenuRow : std::size_t {
   WeaponPosition = 0U,
+  HealthStyle,
   CollisionDebug,
   GroundDebug,
   LagCompensation,

@@ -506,6 +506,25 @@ void addRect(
   drawList.overlayCommands.emplace_back(FilledQuad2D{points, color});
 }
 
+void addImage(
+  DrawList2D& drawList,
+  HudImage image,
+  ScreenRect destination,
+  RenderColor color = {},
+  ScreenRect source = {0.0F, 0.0F, 1.0F, 1.0F}
+) {
+  if (destination.width <= 0.0F || destination.height <= 0.0F ||
+      source.width <= 0.0F || source.height <= 0.0F) {
+    return;
+  }
+  drawList.overlayCommands.emplace_back(Image2D{
+    image,
+    destination,
+    source,
+    color,
+  });
+}
+
 void addLine(
   DrawList2D& drawList,
   ScreenPoint start,
@@ -1579,6 +1598,165 @@ void addLocalHealthBar(
   );
 }
 
+void addArtHealthBar(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const PlayerState& localPlayer,
+  const HudRenderState& hud,
+  const RenderSettings& settings
+) {
+  const float viewportScale = std::clamp(
+    static_cast<float>(height) / 720.0F,
+    0.75F,
+    1.5F
+  );
+  const float requestedScale =
+    viewportScale * std::clamp(settings.healthTextScale, 0.5F, 20.0F) * 0.5F;
+  // Keep the complete authored layout on-screen at large health sizes. The
+  // default scale remains one, so the normal layout is unchanged.
+  constexpr float kArtLayoutWidth = 530.0F;
+  constexpr float kArtLayoutHeight = 52.0F;
+  constexpr float kArtLayoutMargin = 8.0F;
+  const float maximumHorizontalScale = std::max(
+    0.0F,
+    (static_cast<float>(width) - kArtLayoutMargin) / kArtLayoutWidth
+  );
+  const float maximumVerticalScale = std::max(
+    0.0F,
+    (static_cast<float>(height) - kArtLayoutMargin) / kArtLayoutHeight
+  );
+  const float scale = std::min({
+    requestedScale,
+    maximumHorizontalScale,
+    maximumVerticalScale,
+  });
+  const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
+  const float healthRatio = std::clamp(
+    static_cast<float>(localPlayer.health) / maxHealth,
+    0.0F,
+    1.0F
+  );
+  const float barWidth = 374.0F * scale;
+  const float barHeight = 23.0F * scale;
+  const float left = 18.0F * scale + settings.healthGroupOffsetX;
+  const float bottom = static_cast<float>(height) - 25.0F * scale +
+    settings.healthGroupOffsetY;
+  const float top = bottom - barHeight;
+  const float numberX = left + 96.0F * scale;
+  const float plusX = numberX - 34.0F * scale;
+  const float dividerX = left + 122.0F * scale;
+  const float barX = dividerX + 16.0F * scale;
+  const float textScale = std::max(1.0F, 2.6F * scale);
+  const float textY = top + 2.0F * scale;
+  const std::string value = std::to_string(std::max(0, localPlayer.health));
+
+  addText(
+    drawList,
+    plusX,
+    textY,
+    "+",
+    {245, 247, 248, 255},
+    textScale
+  );
+  addText(
+    drawList,
+    numberX,
+    textY,
+    value,
+    {245, 247, 248, 255},
+    textScale,
+    TextHorizontalAlignment::Center
+  );
+  addLine(
+    drawList,
+    {dividerX, top - 3.0F * scale},
+    {dividerX, bottom + 3.0F * scale},
+    {210, 216, 221, 210},
+    std::max(1.0F, scale)
+  );
+
+  if (settings.healthStyle == 3) {
+    addImage(
+      drawList,
+      HudImage::HealthSegmented,
+      {barX, top, barWidth * healthRatio, barHeight},
+      {255, 255, 255, 255},
+      {0.0F, 0.0F, healthRatio, 1.0F}
+    );
+    return;
+  }
+
+  const float bevel = std::min(8.0F * scale, barWidth * 0.08F);
+  const std::array<ScreenPoint, 4> frame = {{
+    {barX + bevel, top},
+    {barX + barWidth, top},
+    {barX + barWidth - bevel, bottom},
+    {barX, bottom},
+  }};
+  if (settings.healthStyle == 4) {
+    drawList.overlayCommands.emplace_back(FilledQuad2D{
+      frame,
+      {14, 16, 18, 205},
+    });
+  }
+  const RenderColor outline = settings.healthStyle == 5
+    ? RenderColor{244, 246, 247, 255}
+    : RenderColor{92, 98, 104, 215};
+  for (std::size_t edge = 0; edge < frame.size(); ++edge) {
+    addLine(
+      drawList,
+      frame[edge],
+      frame[(edge + 1U) % frame.size()],
+      outline,
+      std::max(1.0F, 1.25F * scale)
+    );
+  }
+
+  if (healthRatio <= 0.0F) {
+    return;
+  }
+  const float insetX = 6.0F * scale;
+  const float insetY = settings.healthStyle == 5
+    ? 6.0F * scale
+    : 4.0F * scale;
+  const float fillWidth = std::max(
+    0.0F,
+    (barWidth - insetX * 2.0F) * healthRatio
+  );
+  const HudImage image = settings.healthStyle == 5
+    ? HudImage::HealthOutlined
+    : HudImage::HealthFilled;
+  // Each source image also contains its own frame. Sample only the textured
+  // fill so that it does not draw a second rectangular border inside the
+  // shaped frame above.
+  const ScreenRect fillSource = settings.healthStyle == 5
+    ? ScreenRect{
+        12.0F / 747.0F,
+        12.0F / 45.0F,
+        (508.0F / 747.0F) * healthRatio,
+        20.0F / 45.0F,
+      }
+    : ScreenRect{
+        7.0F / 746.0F,
+        6.0F / 35.0F,
+        (540.0F / 746.0F) * healthRatio,
+        23.0F / 35.0F,
+      };
+  addImage(
+    drawList,
+    image,
+    {
+      barX + insetX,
+      top + insetY,
+      fillWidth,
+      std::max(0.0F, barHeight - insetY * 2.0F),
+    },
+    {255, 255, 255, 255},
+    fillSource
+  );
+}
+
 void addLocalHealthNumber(
   DrawList2D& drawList,
   int width,
@@ -1781,7 +1959,7 @@ void addDashIndicator(
   );
 }
 
-void addWeaponIcon(
+[[maybe_unused]] void addProceduralWeaponIcon(
   DrawList2D& drawList,
   float centerX,
   float centerY,
@@ -1987,6 +2165,55 @@ void addWeaponIcon(
     line(-16.0F, -16.0F, 16.0F, 16.0F, 3.0F);
     line(-16.0F, 16.0F, 16.0F, -16.0F, 3.0F);
   }
+}
+
+[[nodiscard]] HudImage weaponHudImage(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::MachineGun: return HudImage::WeaponMachineGun;
+  case Weapon::Shotgun: return HudImage::WeaponShotgun;
+  case Weapon::GrenadeLauncher: return HudImage::WeaponGrenadeLauncher;
+  case Weapon::RocketLauncher: return HudImage::WeaponRocketLauncher;
+  case Weapon::LightningGun: return HudImage::WeaponLightningGun;
+  case Weapon::Railgun: return HudImage::WeaponSniperRifle;
+  case Weapon::PlasmaGun: return HudImage::WeaponPlasmaGun;
+  case Weapon::FreezeGun: return HudImage::WeaponFreezeGun;
+  case Weapon::Revolver: return HudImage::WeaponRevolver;
+  }
+  return HudImage::WeaponMachineGun;
+}
+
+[[nodiscard]] float weaponHudImageAspect(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::MachineGun: return 347.0F / 133.0F;
+  case Weapon::Shotgun: return 323.0F / 124.0F;
+  case Weapon::GrenadeLauncher: return 297.0F / 122.0F;
+  case Weapon::RocketLauncher: return 345.0F / 134.0F;
+  case Weapon::LightningGun: return 324.0F / 124.0F;
+  case Weapon::Railgun: return 357.0F / 127.0F;
+  case Weapon::PlasmaGun: return 297.0F / 133.0F;
+  case Weapon::FreezeGun: return 332.0F / 112.0F;
+  case Weapon::Revolver: return 261.0F / 143.0F;
+  }
+  return 2.5F;
+}
+
+void addWeaponIcon(
+  DrawList2D& drawList,
+  float centerX,
+  float centerY,
+  Weapon weapon,
+  RenderColor color,
+  float scale
+) {
+  const float aspect = weaponHudImageAspect(weapon);
+  const float width = std::min(44.0F * scale, 34.0F * scale * aspect);
+  const float height = width / aspect;
+  addImage(
+    drawList,
+    weaponHudImage(weapon),
+    {centerX - width * 0.5F, centerY - height * 0.5F, width, height},
+    color
+  );
 }
 
 void addSelectedWeaponIndicator(
@@ -3530,7 +3757,9 @@ void addHud(
   }
 
   const float bottomY = static_cast<float>(height) - 24.0F;
-  if (settings.healthStyle == 2) {
+  if (settings.healthStyle >= 3) {
+    addArtHealthBar(drawList, width, height, localPlayer, hud, settings);
+  } else if (settings.healthStyle == 2) {
     addCrosshairHealthAndAmmo(
       drawList,
       width,

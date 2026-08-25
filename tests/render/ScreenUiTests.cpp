@@ -141,6 +141,10 @@ const lg::Text2D* findTextWithRedAtLeast(
 }
 
 bool commandTouchesWeaponHud(const lg::DrawCommand2D& command) {
+  if (const auto* image = std::get_if<lg::Image2D>(&command)) {
+    return image->destination.x < 80.0F &&
+      image->destination.y > 30.0F && image->destination.y < 620.0F;
+  }
   if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
     for (const lg::ScreenPoint& point : quad->points) {
       if (point.x < 80.0F && point.y > 80.0F && point.y < 340.0F) {
@@ -409,7 +413,9 @@ int main() {
   hud.bottomCenterLines = {"HEALTH 100"};
   hud.fpsText = "111fps";
   hud.speedText = "320 ups";
-  hud.weaponValues = {{"11", "22", "33", "44", "55", "66", "77", "88"}};
+  hud.weaponValues = {{
+    "11", "22", "33", "44", "55", "66", "77", "88", "99",
+  }};
   hud.scoreboardOpen = true;
   {
     lg::HudRenderState settingsHud;
@@ -1377,10 +1383,12 @@ int main() {
     bool foundLegacySpeedText = false;
     bool foundYellowHealthFill = false;
     const lg::Text2D* topCenterScore = nullptr;
-    std::array<bool, 8> foundWeaponValues = {};
+    std::array<bool, 9> foundWeaponValues = {};
+    std::array<bool, 9> foundWeaponImages = {};
+    std::array<bool, 9> foundWeaponImageTextPairs = {};
     std::size_t weaponHudShapeCount = 0;
     const lg::Text2D* fpsText = nullptr;
-    constexpr std::array<std::string_view, 8> weaponValues = {
+    constexpr std::array<std::string_view, 9> weaponValues = {
       "11",
       "22",
       "33",
@@ -1389,8 +1397,12 @@ int main() {
       "66",
       "77",
       "88",
+      "99",
     };
-    for (const lg::DrawCommand2D& command : ui.overlayCommands) {
+    for (std::size_t commandIndex = 0;
+         commandIndex < ui.overlayCommands.size();
+         ++commandIndex) {
+      const lg::DrawCommand2D& command = ui.overlayCommands[commandIndex];
       if (const auto* text = std::get_if<lg::Text2D>(&command)) {
         foundHealthLabel =
           foundHealthLabel || text->text == "ENEMY HP 50";
@@ -1417,6 +1429,22 @@ int main() {
             (text->text == weaponValues[index] && text->position.x < 80.0F);
         }
       } else {
+        if (const auto* image = std::get_if<lg::Image2D>(&command)) {
+          const std::size_t imageIndex =
+            static_cast<std::size_t>(image->image);
+          if (imageIndex < foundWeaponImages.size()) {
+            foundWeaponImages[imageIndex] = true;
+            if (commandIndex + 1U < ui.overlayCommands.size()) {
+              const auto* ammoText = std::get_if<lg::Text2D>(
+                &ui.overlayCommands[commandIndex + 1U]
+              );
+              foundWeaponImageTextPairs[imageIndex] =
+                ammoText != nullptr &&
+                ammoText->text == weaponValues[imageIndex] &&
+                ammoText->position.x < 80.0F;
+            }
+          }
+        }
         if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
           foundYellowHealthFill =
             foundYellowHealthFill ||
@@ -1458,8 +1486,24 @@ int main() {
       "score should render centered at the top of the HUD"
     );
     failures += expect(
-      weaponHudShapeCount >= 20,
-      "weapon HUD should draw compact left-edge icon silhouettes"
+      weaponHudShapeCount >= 9,
+      "weapon HUD should draw all nine compact left-edge icon images"
+    );
+    failures += expect(
+      std::all_of(
+        foundWeaponImages.begin(),
+        foundWeaponImages.end(),
+        [](bool found) { return found; }
+      ),
+      "weapon HUD should map every weapon to its supplied image"
+    );
+    failures += expect(
+      std::all_of(
+        foundWeaponImageTextPairs.begin(),
+        foundWeaponImageTextPairs.end(),
+        [](bool found) { return found; }
+      ),
+      "every weapon image should be followed by its ammo text for a separate texture batch"
     );
     bool foundAllWeaponValues = true;
     for (bool foundWeaponValue : foundWeaponValues) {
@@ -1467,10 +1511,10 @@ int main() {
     }
     failures += expect(
       foundAllWeaponValues,
-      "selected weapon indicator should show all eight weapon values"
+      "selected weapon indicator should show all nine weapon values"
     );
 
-    constexpr std::array<lg::Weapon, 8> weapons = {{
+    constexpr std::array<lg::Weapon, 9> weapons = {{
       lg::Weapon::MachineGun,
       lg::Weapon::Shotgun,
       lg::Weapon::GrenadeLauncher,
@@ -1479,6 +1523,7 @@ int main() {
       lg::Weapon::Railgun,
       lg::Weapon::PlasmaGun,
       lg::Weapon::FreezeGun,
+      lg::Weapon::Revolver,
     }};
 
     for (std::size_t index = 0; index < weapons.size(); ++index) {
@@ -1668,6 +1713,126 @@ int main() {
         std::abs(infiniteAmmo->scale - 8.4F) < 0.001F,
       "health style 2 should optically scale the compact infinity ammo mark"
     );
+  }
+
+  {
+    constexpr std::array<lg::HudImage, 3> healthImages = {{
+      lg::HudImage::HealthSegmented,
+      lg::HudImage::HealthFilled,
+      lg::HudImage::HealthOutlined,
+    }};
+    for (int style = 3; style <= 5; ++style) {
+      lg::RenderSettings artSettings = settings;
+      artSettings.healthStyle = style;
+      artSettings.healthGroupOffsetX = 40.0F;
+      artSettings.healthGroupOffsetY = -30.0F;
+      const lg::DrawList2D artUi = lg::buildScreenUi(
+        1280,
+        720,
+        opponent,
+        artSettings,
+        hud,
+        console
+      );
+      const lg::Image2D* healthImage = nullptr;
+      for (const lg::DrawCommand2D& command : artUi.overlayCommands) {
+        const auto* image = std::get_if<lg::Image2D>(&command);
+        if (image != nullptr &&
+            image->image == healthImages[static_cast<std::size_t>(style - 3)]) {
+          healthImage = image;
+          break;
+        }
+      }
+      failures += expect(
+        healthImage != nullptr && healthImage->destination.width > 0.0F &&
+          healthImage->destination.width < 374.0F &&
+          healthImage->destination.x >= 196.0F &&
+          healthImage->destination.x <= 202.0F &&
+          healthImage->destination.y >= 642.0F &&
+          healthImage->destination.y <= 648.0F &&
+          findText(artUi, "50") != nullptr,
+        "art health styles should draw their mapped image with live half-health width and value"
+      );
+      const lg::Text2D* healthPlus = findText(artUi, "+");
+      const lg::Text2D* healthValue = findText(artUi, "50");
+      failures += expect(
+        healthPlus != nullptr && healthValue != nullptr &&
+          std::abs(
+            healthValue->position.x - healthPlus->position.x - 34.0F
+          ) < 0.001F &&
+          std::abs(healthValue->position.y - healthPlus->position.y) < 0.001F &&
+          std::abs(healthValue->position.x - 154.0F) < 0.001F &&
+          std::abs(healthValue->scale - 2.6F) < 0.001F &&
+          std::abs(healthPlus->scale - 2.6F) < 0.001F &&
+          healthValue->position.y > 640.0F &&
+          healthValue->position.y < 660.0F,
+        "art health styles should move the aligned plus, value, and bar as one offset group"
+      );
+      if (style == 3 && healthImage != nullptr) {
+        failures += expect(
+          std::abs(healthImage->source.width - 0.5F) < 0.001F &&
+            std::abs(healthImage->destination.width - 187.0F) < 0.001F,
+          "segmented art health should keep its default size and crop to the live health ratio"
+        );
+      } else if (healthImage != nullptr) {
+        failures += expect(
+          healthImage->source.x > 0.0F &&
+            healthImage->source.y > 0.0F &&
+            healthImage->source.width < 0.5F &&
+            healthImage->source.height < 1.0F,
+          "filled art should sample only its texture and not redraw the PNG frame"
+        );
+      }
+    }
+  }
+
+  {
+    constexpr std::array<lg::HudImage, 3> healthImages = {{
+      lg::HudImage::HealthSegmented,
+      lg::HudImage::HealthFilled,
+      lg::HudImage::HealthOutlined,
+    }};
+    lg::PlayerState fullHealthPlayer = opponent;
+    fullHealthPlayer.health = 100;
+    for (int style = 3; style <= 5; ++style) {
+      lg::RenderSettings maximumHealthSizeSettings = settings;
+      maximumHealthSizeSettings.healthStyle = style;
+      maximumHealthSizeSettings.healthTextScale = 20.0F;
+      const lg::DrawList2D maximumHealthSizeUi = lg::buildScreenUi(
+        1280,
+        720,
+        fullHealthPlayer,
+        maximumHealthSizeSettings,
+        hud,
+        console
+      );
+      const lg::Image2D* healthImage = nullptr;
+      for (const lg::DrawCommand2D& command :
+           maximumHealthSizeUi.overlayCommands) {
+        const auto* image = std::get_if<lg::Image2D>(&command);
+        if (image != nullptr &&
+            image->image == healthImages[static_cast<std::size_t>(style - 3)]) {
+          healthImage = image;
+          break;
+        }
+      }
+      const lg::Text2D* healthValue = findText(maximumHealthSizeUi, "100");
+      failures += expect(
+        healthImage != nullptr &&
+          healthImage->destination.x >= 0.0F &&
+          healthImage->destination.y >= 0.0F &&
+          healthImage->destination.x + healthImage->destination.width <=
+            1280.0F &&
+          healthImage->destination.y + healthImage->destination.height <=
+            720.0F &&
+          healthValue != nullptr &&
+          healthValue->position.x >= 0.0F &&
+          healthValue->position.x <= 1280.0F &&
+          healthValue->position.y >= 0.0F &&
+          healthValue->position.y <= 720.0F,
+        "art health styles should fit their full layout at cl_health_size 20"
+      );
+    }
   }
 
   {

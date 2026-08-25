@@ -152,6 +152,8 @@ struct RenderSettings {
   float teammateLeanScale = 1.0F;
   float healthTextScale = 2.0F;
   int healthStyle = 0;
+  float healthGroupOffsetX = 0.0F;
+  float healthGroupOffsetY = 0.0F;
   float speedTextScale = 1.5F;
   float weaponBarScale = 1.75F;
   float fpsTextScale = 1.6F;
@@ -1317,6 +1319,7 @@ private:
   void* gpuSkyResources_ = nullptr;
   void* gpuGltfPlayerResources_ = nullptr;
   void* gpuFontAtlas_ = nullptr;
+  void* gpuHudImages_ = nullptr;
   void* gpuFontSampler_ = nullptr;
   void* gpuWorldTextureAtlas_ = nullptr;
   void* gpuStaticWorld_ = nullptr;
@@ -1339,6 +1342,7 @@ private:
   void* gpuPointShadowTexture_ = nullptr;
   void* gpuPointShadowFallbackTexture_ = nullptr;
   void* gpuPointShadowSampler_ = nullptr;
+  void* sdlHudImages_ = nullptr;
   std::uint32_t gpuDepthFormat_ = 0;
   std::uint32_t gpuDepthWidth_ = 0;
   std::uint32_t gpuDepthHeight_ = 0;

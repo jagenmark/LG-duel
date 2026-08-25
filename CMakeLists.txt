@@ -127,6 +127,7 @@ add_library(lg_duel_client_app
   src/app/TracerPresentation.cpp
   src/render/BitmapFont.cpp
   src/render/ChatLayout.cpp
+  src/render/CaptureWriter.cpp
   src/render/CombatEffects.cpp
   src/render/ConsoleLayout.cpp
   src/render/ConsoleCat.cpp
@@ -358,6 +359,9 @@ add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
     "$<TARGET_FILE_DIR:lg_duel_client>/assets/fonts"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/ui"
+    "$<TARGET_FILE_DIR:lg_duel_client>/assets/ui"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${LG_DUEL_TEXTURES_SOURCE}"
     "$<TARGET_FILE_DIR:lg_duel_client>/textures"

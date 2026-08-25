@@ -33,7 +33,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_viewmodel_landing_scale", "Jump float and landing compression scale for the first-person weapon.", 0.65F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_camera_position_response", "Optional subtle translation-only camera response to viewmodel motion; zero disables it.", 0.0F, archivedClient, 0.0F, 0.15F});
   console.registerCvar({"cl_health_size", "Health HUD scale.", 2.0F, archivedClient, 0.5F, 20.0F});
-  console.registerCvar({"cl_health_style", "Health HUD style: 0 bottom-left bar, 1 centered number, 2 crosshair number and ammo.", 0, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"cl_health_style", "Health HUD style: 0 bottom-left bar, 1 centered number, 2 crosshair number and ammo, 3 segmented art bar, 4 filled art bar, 5 outlined art bar.", 0, archivedClient, 0.0F, 5.0F});
+  console.registerCvar({"cl_health_offset_x", "Art health HUD group horizontal screen offset.", 0.0F, archivedClient, -2000.0F, 2000.0F});
+  console.registerCvar({"cl_health_offset_y", "Art health HUD group vertical screen offset.", 0.0F, archivedClient, -2000.0F, 2000.0F});
   console.registerCvar({"cl_speed_size", "Crosshair speed text scale.", 1.5F, archivedClient, 0.5F, 6.0F});
   console.registerCvar({"cl_weapon_bar_size", "Left weapon/ammo HUD scale.", 1.75F, archivedClient, 0.5F, 4.0F});
   console.registerCvar({"r_ui_font", "UI TTF/OTF font file. Looks in assets/fonts, assets/font, or accepts an absolute local path.", std::string{"bahnschrift.ttf"}, archivedClient, {}, {}});
