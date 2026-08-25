@@ -96,6 +96,7 @@ add_library(lg_duel_core
   src/trainer/AimTrainerMenu.cpp
   src/trainer/AimTrainerPresentation.cpp
   src/trainer/AimTrainerStore.cpp
+  src/trainer/AimTrainerVideoSettings.cpp
 )
 
 target_include_directories(lg_duel_core

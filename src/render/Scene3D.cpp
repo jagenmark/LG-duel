@@ -197,6 +197,72 @@ constexpr StaticMeshAsset kExplosionCoreAsset = {
   RenderPass::OpaqueWorld,
 };
 
+constexpr std::size_t kTrainerOrbSides = 24U;
+constexpr std::size_t kTrainerOrbBands = 12U;
+
+[[nodiscard]] std::array<
+  Vertex3D,
+  kTrainerOrbSides * kTrainerOrbBands * 6U
+> makeTrainerOrbMesh() {
+  std::array<Vertex3D, kTrainerOrbSides * kTrainerOrbBands * 6U> vertices = {};
+  std::size_t cursor = 0U;
+  constexpr float kTwoPi = 6.28318530718F;
+  constexpr float kHalfPi = 1.57079632679F;
+  const auto point = [](float yaw, float pitch) {
+    const float horizontal = std::cos(pitch);
+    return Vec3{
+      std::cos(yaw) * horizontal,
+      std::sin(yaw) * horizontal,
+      std::sin(pitch),
+    };
+  };
+  for (std::size_t band = 0U; band < kTrainerOrbBands; ++band) {
+    const float pitch = -kHalfPi + kTwoPi * 0.5F *
+      static_cast<float>(band) / static_cast<float>(kTrainerOrbBands);
+    const float nextPitch = -kHalfPi + kTwoPi * 0.5F *
+      static_cast<float>(band + 1U) / static_cast<float>(kTrainerOrbBands);
+    for (std::size_t side = 0U; side < kTrainerOrbSides; ++side) {
+      const float yaw = kTwoPi *
+        static_cast<float>(side) / static_cast<float>(kTrainerOrbSides);
+      const float nextYaw = kTwoPi *
+        static_cast<float>(side + 1U) / static_cast<float>(kTrainerOrbSides);
+      const Vec3 lowerLeft = point(yaw, pitch);
+      const Vec3 lowerRight = point(nextYaw, pitch);
+      const Vec3 upperRight = point(nextYaw, nextPitch);
+      const Vec3 upperLeft = point(yaw, nextPitch);
+      appendCachedTriangle(
+        vertices,
+        cursor,
+        lowerLeft,
+        lowerRight,
+        upperRight,
+        {255, 255, 255, 255}
+      );
+      appendCachedTriangle(
+        vertices,
+        cursor,
+        lowerLeft,
+        upperRight,
+        upperLeft,
+        {255, 255, 255, 255}
+      );
+    }
+  }
+  return vertices;
+}
+
+const auto kTrainerOrbMeshVertices = makeTrainerOrbMesh();
+
+const StaticMeshAsset kTrainerOrbAsset = {
+  MeshHandle::TrainerOrb,
+  std::span<const Vertex3D>(
+    kTrainerOrbMeshVertices.data(),
+    kTrainerOrbMeshVertices.size()
+  ),
+  {{}, 1.0F},
+  RenderPass::OpaqueWorld,
+};
+
 constexpr std::array<Vec3, 6> kRocketRingDirections = {{
   {0.0F,  1.0F,  0.0F},
   {0.0F,  0.5F,  0.8660254F},
@@ -4173,6 +4239,8 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     return &kPlasmaCoreAsset;
   case MeshHandle::ExplosionCore:
     return &kExplosionCoreAsset;
+  case MeshHandle::TrainerOrb:
+    return &kTrainerOrbAsset;
   case MeshHandle::RocketProjectile:
     return &kRocketProjectileAsset;
   case MeshHandle::GrenadeProjectile:
@@ -5518,7 +5586,7 @@ void addTransientEffectInstances(
       appendSimpleInstance(
         scene,
         {
-          MeshHandle::ExplosionCore,
+          MeshHandle::TrainerOrb,
           BillboardHandle::Invalid,
           RenderPass::OpaqueWorld,
           effect.position,
@@ -5823,7 +5891,25 @@ void addTrainerWorkerTargetInstances(
   GltfSkinnedModel::PoseScratch& poseScratch
 ) {
   constexpr std::uint8_t kTrainerTargetPlayerIndex = 255U;
-  const OutlineState noOutline = {};
+  const OutlineState outlineState = {
+    OutlineGroup::Enemy,
+    settings.enemyOutlineEnabled
+      ? OutlineVisibility::VisibleOnly
+      : OutlineVisibility::None,
+    settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+      ? settings.playerOutlineWidth
+      : settings.enemyOutlineWidth,
+    std::clamp(settings.enemyOutlineAlpha, 0.0F, 1.0F),
+    1.0F,
+    0.0F,
+  };
+  const bool wantsOutline =
+    settings.drawPlayerOutlines &&
+    settings.playerOutlineMode != PlayerOutlineMode::Disabled &&
+    settings.enemyOutlineEnabled &&
+    outlineState.visibility != OutlineVisibility::None &&
+    outlineState.widthPixels > 0.0F &&
+    outlineState.alpha > 0.0F;
   for (const TransientEffect& effect : effects) {
     if (effect.type != TransientEffectType::TrainerWorkerTarget) continue;
     if (
@@ -5835,8 +5921,11 @@ void addTrainerWorkerTargetInstances(
     }
     PlayerState worker;
     worker.position = effect.position;
+    worker.velocity = effect.velocity;
     worker.health = 1;
-    worker.viewYawRadians = static_cast<float>(effect.seed % 628U) * 0.01F;
+    worker.viewYawRadians = effect.rotationRadians;
+    worker.onGround = true;
+    worker.movementMode = MovementMode::Grounded;
     if (
       settings.frustumCullRemotePlayers &&
       !sphereIntersectsPerspectiveFrustum(
@@ -5858,8 +5947,8 @@ void addTrainerWorkerTargetInstances(
         settings.presentationTimeSeconds,
         nullptr,
         kTrainerTargetPlayerIndex,
-        noOutline,
-        false,
+        outlineState,
+        wantsOutline,
         0.0F,
         poseScratch,
         nullptr
@@ -5872,8 +5961,8 @@ void addTrainerWorkerTargetInstances(
         false,
         0.0F,
         kTrainerTargetPlayerIndex,
-        noOutline,
-        false
+        outlineState,
+        wantsOutline
       );
     }
   }

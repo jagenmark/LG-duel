@@ -79,11 +79,11 @@ int main(int argc, char** argv) {
 
   try {
     if (aimTrainer) {
-      if (positional != 0 || developerControl.enabled || benchmark.enabled) {
-        std::cerr << "--aim-trainer cannot be combined with network or developer options\n";
+      if (positional != 0 || benchmark.enabled) {
+        std::cerr << "--aim-trainer cannot be combined with network or benchmark options\n";
         return 1;
       }
-      const lg::AimTrainerApp app;
+      const lg::AimTrainerApp app(developerControl);
       return app.run();
     }
     const lg::GameApp app(std::string(host), port, developerControl, benchmark);

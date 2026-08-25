@@ -501,6 +501,17 @@ def gpu_environment(selection: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def resolve_client_vulkan_selection(
+    *, runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run
+) -> dict[str, Any] | None:
+    try:
+        return resolve_vulkan_selection(runner=runner)
+    except LaunchError:
+        if platform.system() != "Linux" or os.environ.get("LG_DUEL_VULKAN_CONFIG"):
+            raise
+        return None
+
+
 def verify_control_status(
     status: dict[str, Any],
     *,
@@ -527,7 +538,24 @@ def verify_control_status(
             "SDL_Renderer, D3D11, SwiftShader, and other fallbacks are not accepted"
         )
     if selection is None:
-        raise LaunchError("GPU status cannot be verified without a resolved Vulkan selection")
+        if platform.system() != "Linux":
+            raise LaunchError(
+                "GPU status cannot be verified without a resolved Vulkan selection"
+            )
+        if status.get("software_renderer") is not False:
+            raise LaunchError(
+                "Linux runtime GPU check failed: software_renderer is not false"
+            )
+        gpu_name = status.get("gpu_name")
+        if not isinstance(gpu_name, str) or not gpu_name.strip():
+            raise LaunchError("Linux runtime GPU check failed: gpu_name is empty")
+        enriched.update({
+            "gpu_verification_state": "runtime-verified",
+            "gpu_verified": True,
+            "vulkan_selection_source": "linux-sdl-runtime",
+            "vulkan_metadata_status": "runtime-only",
+        })
+        return enriched
     checks = {
         "gpu_name": selection.get("gpu_name"),
         "graphics_driver_version": selection.get("graphics_driver_version"),
@@ -859,14 +887,17 @@ def _tail(path: Path, limit: int = 30) -> str:
 
 
 def _launch_process(executable: Path, arguments: list[str], stdout_path: Path, stderr_path: Path,
-                    environment: dict[str, str], working_directory: Path | None = None) -> subprocess.Popen[str]:
+                    environment: dict[str, str], working_directory: Path | None = None,
+                    *, survive_parent_exit: bool = False) -> subprocess.Popen[str]:
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     stdout = stdout_path.open("w", encoding="utf-8")
     stderr = stderr_path.open("w", encoding="utf-8")
     try:
         return subprocess.Popen(
             [str(executable), *arguments], cwd=working_directory or BUILD_DIR, env=environment,
-            stdout=stdout, stderr=stderr, text=True, creationflags=creationflags,
+            stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, text=True,
+            creationflags=creationflags,
+            start_new_session=survive_parent_exit and os.name == "posix",
         )
     finally:
         stdout.close()
@@ -1208,11 +1239,16 @@ def _stop_spawned_process(process: subprocess.Popen[str] | None) -> None:
             pass
 
 
-def _readiness_issues(status: dict[str, Any]) -> list[str]:
+def _readiness_issues(
+    status: dict[str, Any], *, aim_trainer: bool = False
+) -> list[str]:
     issues: list[str] = []
     if status.get("control_protocol") != 1:
         issues.append("control_protocol is not 1")
-    for field in ("client_running", "server_running", "connected"):
+    required_running_fields = ("client_running",) if aim_trainer else (
+        "client_running", "server_running", "connected"
+    )
+    for field in required_running_fields:
         if status.get(field) is not True:
             issues.append(f"{field} is not true")
     map_name = status.get("map")
@@ -1245,6 +1281,7 @@ def _wait_for_ready_status(
     selection: dict[str, Any] | None,
     allow_fallback: bool,
     benchmark: bool,
+    aim_trainer: bool = False,
     client_process: subprocess.Popen[str] | None = None,
 ) -> dict[str, Any]:
     saw_response = False
@@ -1271,7 +1308,7 @@ def _wait_for_ready_status(
                     selection=selection,
                     allow_fallback=allow_fallback,
                 )
-        last_issues = _readiness_issues(raw)
+        last_issues = _readiness_issues(raw, aim_trainer=aim_trainer)
         if not isinstance(actual_renderer, str) or not actual_renderer:
             last_issues.append("renderer is empty")
         if last_issues:
@@ -1459,7 +1496,11 @@ def status_with_state(*, port: int = 27961, timeout: float = 2.0) -> dict[str, A
         if isinstance(launch, dict):
             requested = str(launch.get("requested_renderer", "gpu"))
             selection = None
-            if requested == "gpu":
+            runtime_linux_gpu = (
+                requested == "gpu"
+                and launch.get("vulkan_selection_source") == "linux-sdl-runtime"
+            )
+            if requested == "gpu" and not runtime_linux_gpu:
                 selection = {
                     "source": launch.get("vulkan_selection_source"),
                     "gpu_name": launch.get("gpu_name"),
@@ -1505,6 +1546,7 @@ def _ensure_client_unlocked(
     renderer: str = "gpu",
     allow_fallback: bool = False,
     benchmark: bool = False,
+    aim_trainer: bool = False,
     manage_server: bool = True,
     server_port: int = 27960,
     control_port: int = 27961,
@@ -1515,6 +1557,10 @@ def _ensure_client_unlocked(
         raise LaunchError("renderer must be 'gpu' or 'fallback'")
     if timeout <= 0:
         raise LaunchError("startup timeout must be greater than zero")
+    if aim_trainer and benchmark:
+        raise LaunchError("aim trainer and benchmark modes cannot be combined")
+    if aim_trainer:
+        manage_server = False
     if renderer == "fallback" and not allow_fallback:
         # The renderer spelling itself is the PowerShell opt-in; normalize it
         # to the same explicit flag used by MCP callers.
@@ -1530,6 +1576,14 @@ def _ensure_client_unlocked(
     except ControlError:
         raw = None
     if raw is not None:
+        active_is_trainer = raw.get("game_mode") == "AIM_TRAINER"
+        if active_is_trainer != aim_trainer:
+            requested_mode = "aim trainer" if aim_trainer else "network client"
+            active_mode = "aim trainer" if active_is_trainer else "network client"
+            raise LaunchError(
+                f"control port {control_port} belongs to an {active_mode}, "
+                f"not the requested {requested_mode}"
+            )
         if raw.get("benchmark_enabled") is True and not benchmark:
             raise LaunchError(
                 "the active development-control client is reserved for benchmarking; "
@@ -1537,7 +1591,7 @@ def _ensure_client_unlocked(
             )
     selection = (
         _probe_default_vulkan() if renderer == "gpu" and benchmark
-        else resolve_vulkan_selection() if renderer == "gpu"
+        else resolve_client_vulkan_selection() if renderer == "gpu"
         else None
     )
     if raw is not None:
@@ -1568,6 +1622,7 @@ def _ensure_client_unlocked(
                 selection=selection,
                 allow_fallback=allow_fallback,
                 benchmark=benchmark,
+                aim_trainer=aim_trainer,
             )
         except LaunchError as error:
             stderr = _tail(STATE_DIR / "client.stderr.log")
@@ -1651,7 +1706,9 @@ def _ensure_client_unlocked(
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
     if renderer == "gpu":
-        environment.update(gpu_environment(selection or {}))
+        environment["LG_DUEL_RENDER_BACKEND"] = "gpu"
+        if selection is not None:
+            environment.update(gpu_environment(selection))
         environment.pop("VK_ICD_FILENAMES", None)
         environment.pop("VK_ADD_DRIVER_FILES", None)
     else:
@@ -1687,6 +1744,7 @@ def _ensure_client_unlocked(
         "server_port": server_port,
         "control_port": control_port,
         "benchmark": benchmark,
+        "aim_trainer": aim_trainer,
         "phase": "starting",
     }
     last_recorded_state: dict[str, Any] | None = None
@@ -1705,19 +1763,24 @@ def _ensure_client_unlocked(
             server_process = _launch_process(
                 server_exe, [str(server_port)], STATE_DIR / "server.stdout.log",
                 STATE_DIR / "server.stderr.log", environment, launch_build_dir,
+                survive_parent_exit=True,
             )
             server_entry = _owned_process_entry(server_process, server_exe)
             pending_state["server"] = server_entry
             checkpoint_starting_state()
-        client_arguments = [
-            "127.0.0.1", str(server_port), "--dev-control",
-            "--control-port", str(control_port),
-        ]
+        client_arguments = (
+            ["--aim-trainer", "--control-port", str(control_port)]
+            if aim_trainer else [
+                "127.0.0.1", str(server_port), "--dev-control",
+                "--control-port", str(control_port),
+            ]
+        )
         if benchmark:
             client_arguments.append("--benchmark")
         client_process = _launch_process(
             client_exe, client_arguments, STATE_DIR / "client.stdout.log",
             STATE_DIR / "client.stderr.log", environment, launch_build_dir,
+            survive_parent_exit=True,
         )
         client_entry = _owned_process_entry(client_process, client_exe)
         pending_state["client"] = client_entry
@@ -1747,6 +1810,7 @@ def _ensure_client_unlocked(
             selection=selection,
             allow_fallback=allow_fallback,
             benchmark=benchmark,
+            aim_trainer=aim_trainer,
             client_process=client_process,
         )
     except LaunchError as error:
@@ -1789,6 +1853,7 @@ def ensure_client(
     renderer: str = "gpu",
     allow_fallback: bool = False,
     benchmark: bool = False,
+    aim_trainer: bool = False,
     manage_server: bool = True,
     server_port: int = 27960,
     control_port: int = 27961,
@@ -1800,6 +1865,7 @@ def ensure_client(
             renderer=renderer,
             allow_fallback=allow_fallback,
             benchmark=benchmark,
+            aim_trainer=aim_trainer,
             manage_server=manage_server,
             server_port=server_port,
             control_port=control_port,
@@ -1881,6 +1947,7 @@ def _restart_owned_unlocked(
         renderer=renderer,
         allow_fallback=allow_fallback,
         benchmark=bool(state.get("benchmark", False)),
+        aim_trainer=bool(state.get("aim_trainer", False)),
         manage_server=manage_server,
         server_port=int(state.get("server_port", 27960)),
         control_port=int(state.get("control_port", 27961)),
@@ -1913,6 +1980,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="launch and own only the client; connect to a separately managed server",
     )
     start.add_argument("--benchmark", action="store_true")
+    start.add_argument("--aim-trainer", action="store_true")
     start.add_argument("--timeout", type=float, default=20.0)
     status = commands.add_parser("status")
     status.add_argument("--control-port", type=int, default=27961)
@@ -1927,13 +1995,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    json_requested = "--json" in raw
+    raw = [value for value in raw if value != "--json"]
+    if json_requested:
+        raw.insert(0, "--json")
     parser = build_parser()
-    arguments = parser.parse_args(argv)
+    arguments = parser.parse_args(raw)
     try:
         if arguments.action == "start":
             result = ensure_client(
                 renderer=arguments.renderer, allow_fallback=arguments.allow_fallback,
                 benchmark=arguments.benchmark, server_port=arguments.server_port,
+                aim_trainer=arguments.aim_trainer,
                 control_port=arguments.control_port, timeout=arguments.timeout,
                 manage_server=not arguments.external_server,
             )

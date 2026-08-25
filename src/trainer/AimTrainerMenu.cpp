@@ -168,6 +168,13 @@ AimTrainerArmResult AimTrainerMenu::repeat() {
   return start();
 }
 
+AimTrainerArmResult AimTrainerMenu::restart() {
+  if (runtime_.view().phase == AimTrainerPhase::Running) {
+    runtime_.abort();
+  }
+  return start();
+}
+
 void AimTrainerMenu::abort() {
   runtime_.abort();
 }

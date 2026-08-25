@@ -26,6 +26,56 @@ confirmation, or when no developer-control operation can perform the task.
 5. On a failure, read `status` and the worktree's logs, then retry only the
    failed bounded request. Stop the owned session when done.
 
+### Agent Exec-Session Lifetime
+
+`lg_launch.py start` starts the server and client, waits for a ready reply,
+then exits. Some agent command runners clean up the exec process group when
+that session ends. In such a runner, a short `start` command once reported a
+ready client, then lost both game processes. A later control request started a
+new client, which made live cvars look as if they had reset.
+
+The launcher starts each owned process in a new POSIX session. This lets a
+short `start` command survive process-group cleanup. After every agent launch,
+run a bounded status check before changing state:
+
+```bash
+python scripts/lg_launch.py --json start \
+  --server-port 28060 --control-port 28061 \
+  --renderer fallback --allow-fallback --timeout 20
+python scripts/lg_control.py --port 28061 --timeout 3 --allow-fallback status
+```
+
+Shell backgrounding, `nohup`, and `disown` alone do not fix process-group
+cleanup. Some runners may also clean a wider job or control group. If the
+status check above fails only after the launch exec ends, keep that exec open
+for the full control run. In a Bash-based agent runner, start a TTY exec with a
+short yield and run:
+
+```bash
+python scripts/lg_launch.py --json start \
+  --server-port 28060 --control-port 28061 \
+  --renderer fallback --allow-fallback --timeout 20 \
+  && tail -f /dev/null
+```
+
+Leave that exec session open. Run each bounded `lg_control.py` request in a
+separate exec session. When done, stop the owned game processes first:
+
+```bash
+python scripts/lg_launch.py --json stop
+```
+
+Then close the held launch session. This order lets the launcher clear its
+owned-process record. If the launch session closes first, the runner can kill
+the game and leave `build/dev-control/processes.json` stale. A later control
+request may start a new client from saved or default config, so reset cvars do
+not prove that the first client stayed alive.
+
+To tell runner cleanup from a game crash, check whether both game processes
+vanish when the launch exec ends and stay up when its process session or exec
+stays open. Clean client/server logs and no matching core dump add support. A
+game crash does not depend on the launch shell's life.
+
 ### Isolated Worktree Session
 
 The default control port is `27961`, so it conflicts when several worktrees
@@ -173,6 +223,34 @@ The owned-process workflow is:
 .\scripts\lg-control.ps1 stop
 ```
 
+On Linux, use the matching shell wrapper. It routes lifecycle commands to the
+verified launcher and all other commands to the bounded control client:
+
+```bash
+./scripts/lg-control.sh start --control-port 28061
+./scripts/lg-control.sh status --control-port 28061
+./scripts/lg-control.sh --port 28061 capture --name client-check
+./scripts/lg-control.sh stop
+```
+
+The aim trainer uses the same control protocol without starting a network
+server:
+
+```bash
+./scripts/lg-control.sh start --aim-trainer --control-port 28161
+./scripts/lg-control.sh --aim-trainer --port 28161 exec-console trainer_start
+./scripts/lg-control.sh --aim-trainer --port 28161 wait-frames 2
+./scripts/lg-control.sh --aim-trainer --port 28161 capture --name trainer-check --show-hud
+./scripts/lg-control.sh stop
+```
+
+The Linux wrapper also accepts `--json` after the command, matching the
+PowerShell wrapper's common call shape.
+
+Trainer control supports status, console commands, frame waits, screenshots,
+camera and player-view changes, weapon changes, and fixed-tick input. Operations
+that require a server or network session return `unsupported_in_aim_trainer`.
+
 `start` defaults to a verified `SDL_GPU/vulkan` session. The shared launcher
 selects the same Intel ICD accepted by a valid local benchmark, checks its
 manifest hash, probes the configured device with `vulkaninfo`, and passes that
@@ -180,6 +258,11 @@ single-manifest loader environment to the client. Once control answers, it
 requires the exact renderer, GPU, driver, Vulkan version, manifest path/hash,
 and `software_renderer: false` before reporting readiness. It performs the same
 attestation before attaching to an already-running client.
+
+On Linux systems without `vulkaninfo` or a saved ICD record, the launcher lets
+SDL use the system Vulkan loader. It then checks that the live client reports
+`SDL_GPU/vulkan`, a named GPU, and no software renderer. An explicit
+`LG_DUEL_VULKAN_CONFIG` still requires the full ICD checks.
 
 The launcher uses `build/default`, launches hidden processes with control
 enabled, records ownership and verified launch metadata in

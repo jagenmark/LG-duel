@@ -1,9 +1,13 @@
 #include "trainer/AimTrainerPresentation.hpp"
 
+#include "shared/Constants.hpp"
+
 namespace lg {
 
 AimTrainerPresentation buildAimTrainerPresentation(const AimTrainerFrame& frame) {
   AimTrainerPresentation result;
+  result.animationTimeSeconds =
+    static_cast<double>(frame.elapsedTicks) * kFixedTickSeconds;
   result.targetEffects.reserve(frame.targets.size());
   for (const AimTargetView& target : frame.targets) {
     if (!target.active) continue;
@@ -11,13 +15,17 @@ AimTrainerPresentation buildAimTrainerPresentation(const AimTrainerFrame& frame)
       ++result.workerCount;
       result.targetEffects.push_back({
         TransientEffectType::TrainerWorkerTarget,
-        target.position,
+        target.worker.position,
         0.0F,
         0.0F,
         1.0F,
         1.0F,
         {target.color.red, target.color.green, target.color.blue, 255U},
         target.id,
+        target.worker.velocity,
+        {},
+        {},
+        target.worker.viewYawRadians,
       });
       continue;
     }

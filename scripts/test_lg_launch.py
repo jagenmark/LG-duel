@@ -33,6 +33,72 @@ class LaunchTests(unittest.TestCase):
                     lg_launch._executable_path(build, "lg_duel_client"), fixture
                 )
 
+    def test_launch_process_new_session_is_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "game"
+            executable.touch()
+            process = mock.Mock()
+            with mock.patch.object(lg_launch.os, "name", "posix"), \
+                 mock.patch.object(
+                     lg_launch.subprocess, "Popen", return_value=process
+                 ) as popen:
+                result = lg_launch._launch_process(
+                    executable,
+                    ["--test"],
+                    root / "stdout.log",
+                    root / "stderr.log",
+                    {},
+                    root,
+                )
+                default_call = popen.call_args
+                lg_launch._launch_process(
+                    executable,
+                    ["--test"],
+                    root / "stdout.log",
+                    root / "stderr.log",
+                    {},
+                    root,
+                    survive_parent_exit=True,
+                )
+                detached_call = popen.call_args
+
+        self.assertIs(result, process)
+        self.assertFalse(default_call.kwargs["start_new_session"])
+        self.assertTrue(detached_call.kwargs["start_new_session"])
+        self.assertEqual(default_call.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(detached_call.kwargs["stdin"], subprocess.DEVNULL)
+
+    def test_linux_client_can_use_runtime_vulkan_check_without_vulkaninfo(self) -> None:
+        with mock.patch.object(
+            lg_launch, "resolve_vulkan_selection",
+            side_effect=lg_launch.LaunchError("vulkaninfo is unavailable"),
+        ), mock.patch.object(
+            lg_launch.platform, "system", return_value="Linux"
+        ), mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(lg_launch.resolve_client_vulkan_selection())
+
+    def test_explicit_linux_vulkan_config_still_requires_preflight(self) -> None:
+        with mock.patch.object(
+            lg_launch, "resolve_vulkan_selection",
+            side_effect=lg_launch.LaunchError("bad config"),
+        ), mock.patch.object(
+            lg_launch.platform, "system", return_value="Linux"
+        ), mock.patch.dict(
+            os.environ, {"LG_DUEL_VULKAN_CONFIG": "/tmp/explicit.json"}, clear=True
+        ):
+            with self.assertRaisesRegex(lg_launch.LaunchError, "bad config"):
+                lg_launch.resolve_client_vulkan_selection()
+
+    def test_linux_runtime_gpu_status_is_verified(self) -> None:
+        status = self.status()
+        with mock.patch.object(lg_launch.platform, "system", return_value="Linux"):
+            verified = lg_launch.verify_control_status(
+                status, requested_renderer="gpu", selection=None
+            )
+        self.assertTrue(verified["gpu_verified"])
+        self.assertEqual(verified["gpu_verification_state"], "runtime-verified")
+
     def setUp(self) -> None:
         self.real_lifecycle_lock = lg_launch._lifecycle_lock
         lifecycle_patch = mock.patch.object(
@@ -217,6 +283,21 @@ class LaunchTests(unittest.TestCase):
         self.assertTrue(result["gpu_verified"])
         sender.assert_called_once()
 
+    def test_aim_trainer_readiness_does_not_require_a_server(self) -> None:
+        status = self.status()
+        status.update({
+            "server_running": False,
+            "connected": False,
+            "game_mode": "AIM_TRAINER",
+        })
+        self.assertEqual(
+            lg_launch._readiness_issues(status, aim_trainer=True), []
+        )
+        self.assertIn(
+            "server_running is not true",
+            lg_launch._readiness_issues(status),
+        )
+
     def test_readiness_fails_promptly_on_named_wrong_renderer(self) -> None:
         wrong = self.status("SDL_Renderer/direct3d11")
         wrong["connected"] = False
@@ -260,6 +341,34 @@ class LaunchTests(unittest.TestCase):
             r"C:\verified\igvk64.dll",
         )
 
+    def test_status_keeps_linux_runtime_gpu_attestation(self) -> None:
+        launch = {
+            **self.status(),
+            "requested_renderer": "gpu",
+            "gpu_verification_state": "runtime-verified",
+            "vulkan_selection_source": "linux-sdl-runtime",
+        }
+        state = {
+            "phase": "ready",
+            "control_port": 27961,
+            "client": {"pid": 10, "owned": True, "path": "client"},
+            "launch": launch,
+        }
+        with mock.patch.object(
+            lg_launch, "send_request", return_value=self.status()
+        ), mock.patch.object(
+            lg_launch, "_read_state", return_value=state
+        ), mock.patch.object(
+            lg_launch, "_entry_matches", return_value=True
+        ), mock.patch.object(
+            lg_launch.platform, "system", return_value="Linux"
+        ):
+            result = lg_launch.status_with_state()
+        self.assertTrue(result["gpu_verified"])
+        self.assertEqual(result["gpu_verification_state"], "runtime-verified")
+        self.assertEqual(result["vulkan_metadata_status"], "runtime-only")
+        self.assertNotIn("vulkan_icd_manifest_records", result)
+
     def test_verified_gpu_startup_launches_owned_processes(self) -> None:
         class FakeProcess:
             def __init__(self, pid: int) -> None:
@@ -302,6 +411,9 @@ class LaunchTests(unittest.TestCase):
         self.assertTrue(result["gpu_verified"])
         self.assertEqual(launch.call_count, 2)
         self.assertTrue(all(call.args[5] == build.resolve() for call in launch.call_args_list))
+        self.assertTrue(all(
+            call.kwargs["survive_parent_exit"] for call in launch.call_args_list
+        ))
         self.assertEqual(result["build_directory"], str(build.resolve()))
         self.assertFalse(written[0]["server"]["owned"])
         self.assertTrue(written[0]["server"]["pending_launch"])
@@ -404,6 +516,45 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(written[0]["server"]["pid"], 0)
         self.assertTrue(written[0]["client"]["pending_launch"])
         self.assertTrue(written[1]["client"]["owned"])
+
+    def test_aim_trainer_launch_uses_no_server_or_network_arguments(self) -> None:
+        class FakeProcess:
+            pid = 302
+
+            def poll(self):
+                return None
+
+        trainer_status = self.status()
+        trainer_status.update({
+            "server_running": False,
+            "connected": False,
+            "game_mode": "AIM_TRAINER",
+        })
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary) / "build"
+            state_dir = Path(temporary) / "state"
+            build.mkdir()
+            (build / "lg_duel_client.exe").touch()
+            with mock.patch.object(lg_launch, "BUILD_DIR", build), \
+                 mock.patch.object(lg_launch, "STATE_DIR", state_dir), \
+                 mock.patch.object(lg_launch, "resolve_vulkan_selection", return_value=self.selection()), \
+                 mock.patch.object(
+                     lg_launch, "send_request",
+                     side_effect=[ControlError("offline"), trainer_status],
+                 ), \
+                 mock.patch.object(lg_launch, "_read_state", return_value=None), \
+                 mock.patch.object(lg_launch, "_existing_server_entry", return_value=None), \
+                 mock.patch.object(lg_launch, "_launch_process", return_value=FakeProcess()) as launch, \
+                 mock.patch.object(lg_launch, "_process_creation_time", return_value=1002), \
+                 mock.patch.object(lg_launch, "_write_state"):
+                lg_launch.ensure_client(
+                    renderer="gpu", aim_trainer=True, timeout=1
+                )
+        launch.assert_called_once()
+        self.assertEqual(
+            launch.call_args.args[1],
+            ["--aim-trainer", "--control-port", "27961"],
+        )
 
     def test_vulkan_failure_includes_selected_icd(self) -> None:
         failed = subprocess.CompletedProcess(
@@ -1171,7 +1322,8 @@ GPU1:
             result = lg_launch.restart_owned(renderer="gpu", timeout=3)
         self.assertEqual(result, {"stopped": ["client"], "status": status})
         ensure.assert_called_once_with(
-            renderer="gpu", allow_fallback=False, benchmark=False, manage_server=False,
+            renderer="gpu", allow_fallback=False, benchmark=False,
+            aim_trainer=False, manage_server=False,
             server_port=28060, control_port=28061, timeout=3,
         )
 
@@ -1235,6 +1387,10 @@ GPU1:
         self.assertEqual(launch.call_args_list[1].args[1], [
             "127.0.0.1", "28060", "--dev-control", "--control-port", "28061",
         ])
+        self.assertTrue(all(
+            not call.kwargs.get("survive_parent_exit", False)
+            for call in launch.call_args_list
+        ))
 
     def test_scenario_launch_rejects_any_listening_control_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -5625,11 +5625,12 @@ template <typename Vertex>
 
 [[nodiscard]] GpuSimpleResources* createGpuSimpleResources(SDL_GPUDevice* device) {
   auto* resources = new GpuSimpleResources();
-  const std::array<MeshHandle, 6> projectileMeshHandles = {{
+  const std::array<MeshHandle, 7> projectileMeshHandles = {{
     MeshHandle::PlasmaCore,
     MeshHandle::RocketProjectile,
     MeshHandle::GrenadeProjectile,
     MeshHandle::ExplosionCore,
+    MeshHandle::TrainerOrb,
     MeshHandle::MachineGunTracer,
     MeshHandle::ShotgunTracer,
   }};

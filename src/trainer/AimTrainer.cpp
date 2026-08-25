@@ -176,6 +176,9 @@ void AimTrainer::consumePresentationEvents() {
   frame_.pendingFires.clear();
   frame_.latestFire = {};
   frame_.fireEventPending = false;
+  frame_.hitConfirmPending = false;
+  frame_.pendingHitConfirmHeadshot = false;
+  frame_.pendingHitConfirmDamage = 0U;
 }
 
 void AimTrainer::markStorageWarning(std::string message) {
@@ -414,6 +417,11 @@ void AimTrainer::resetRun() {
   resultRecorded_ = false;
 }
 
+Vec3 AimTrainer::groundWorkerPosition(Vec3 requested) const {
+  requested.z = CollisionBounds{}.halfHeight;
+  return requested;
+}
+
 void AimTrainer::respawnTarget(TargetRuntime& target) {
   const AimTargetGroup& group = scenario_.groups[target.view.groupIndex];
   target.view.active = true;
@@ -421,55 +429,142 @@ void AimTrainer::respawnTarget(TargetRuntime& target) {
   if (group.spawnMode == AimSpawnMode::FixedList) {
     target.view.position = group.fixedSpawns[target.spawnOrdinal % group.fixedSpawns.size()];
   } else {
-    target.view.position = {
-      randomFloat(group.randomMinimum.x, group.randomMaximum.x),
-      randomFloat(group.randomMinimum.y, group.randomMaximum.y),
-      randomFloat(group.randomMinimum.z, group.randomMaximum.z),
-    };
+    target.view.position = randomTargetPoint(
+      group,
+      group.motion == AimTargetMotion::Air
+    );
   }
   ++target.spawnOrdinal;
   target.waypoint = target.view.position;
+  if (group.motion == AimTargetMotion::RandomWaypoint ||
+      group.motion == AimTargetMotion::Air) {
+    target.waypoint = randomTargetPoint(
+      group,
+      group.motion == AimTargetMotion::Air
+    );
+  }
+  target.airVelocity = {};
   target.strafeDirectionSign = 1.0F;
   target.nextWaypointTick = frame_.elapsedTicks + std::max(1U, group.waypointTicks);
   target.view.worker = {};
+  if (target.view.visual == AimTargetVisual::Worker) {
+    if (group.motion != AimTargetMotion::Air) {
+      target.view.position = groundWorkerPosition(target.view.position);
+    }
+  }
   target.view.worker.position = target.view.position;
-  target.view.worker.position.z = std::max(
-    target.view.worker.bounds.halfHeight, target.view.position.z
-  );
-  target.view.worker.onGround = true;
-  target.view.worker.movementMode = MovementMode::Grounded;
+  target.view.worker.onGround = group.motion != AimTargetMotion::Air;
+  target.view.worker.movementMode = target.view.worker.onGround
+    ? MovementMode::Grounded : MovementMode::Airborne;
 }
 
 void AimTrainer::updateTargetMotion(TargetRuntime& target) {
   const AimTargetGroup& group = scenario_.groups[target.view.groupIndex];
-  if (group.motion == AimTargetMotion::Stationary) return;
-  if (group.motion == AimTargetMotion::RandomWaypoint &&
+  if (group.motion == AimTargetMotion::Stationary) {
+    faceWorkerAtPlayer(target);
+    return;
+  }
+  if ((group.motion == AimTargetMotion::RandomWaypoint ||
+       group.motion == AimTargetMotion::Air) &&
       frame_.elapsedTicks >= target.nextWaypointTick) {
-    target.waypoint = {
-      randomFloat(group.randomMinimum.x, group.randomMaximum.x),
-      randomFloat(group.randomMinimum.y, group.randomMaximum.y),
-      randomFloat(group.randomMinimum.z, group.randomMaximum.z),
-    };
+    target.waypoint = randomTargetPoint(
+      group,
+      group.motion == AimTargetMotion::Air
+    );
     target.nextWaypointTick = frame_.elapsedTicks + std::max(1U, group.waypointTicks);
+  }
+  if (group.motion == AimTargetMotion::Air) {
+    const float movementScale = target.view.visual == AimTargetVisual::Worker
+      ? freezeMovementScale(target.view.worker, balance_.freezeGun)
+      : 1.0F;
+    const Vec3 desiredVelocity = normalize(target.waypoint - target.view.position) *
+      group.strafeSpeed * movementScale;
+    const float steering = std::min(1.0F, 5.0F * kFixedTickSeconds);
+    target.airVelocity += (desiredVelocity - target.airVelocity) * steering;
+    if (length(target.airVelocity) <= 0.00001F) return;
+    const Vec3 previousPosition = target.view.position;
+    target.view.position += target.airVelocity * kFixedTickSeconds;
+    const Vec3 unclamped = target.view.position;
+    target.view.position.x = std::clamp(
+      target.view.position.x, group.randomMinimum.x, group.randomMaximum.x);
+    target.view.position.y = std::clamp(
+      target.view.position.y, group.randomMinimum.y, group.randomMaximum.y);
+    target.view.position.z = std::clamp(
+      target.view.position.z, group.randomMinimum.z, group.randomMaximum.z);
+    if (target.view.position.x != unclamped.x) target.airVelocity.x *= -0.65F;
+    if (target.view.position.y != unclamped.y) target.airVelocity.y *= -0.65F;
+    if (target.view.position.z != unclamped.z) target.airVelocity.z *= -0.65F;
+    target.view.worker.position = target.view.position;
+    target.view.worker.velocity =
+      (target.view.position - previousPosition) / kFixedTickSeconds;
+    target.view.worker.onGround = false;
+    target.view.worker.movementMode = MovementMode::Airborne;
+    faceWorkerAtPlayer(target);
+    return;
   }
   Vec3 direction = group.motion == AimTargetMotion::Strafe
     ? normalize(group.strafeDirection) * target.strafeDirectionSign
     : normalize(target.waypoint - target.view.position);
+  if (target.view.visual == AimTargetVisual::Worker) {
+    direction.z = 0.0F;
+    direction = normalize(direction);
+  }
   if (length(direction) <= 0.00001F) return;
   const float movementScale = target.view.visual == AimTargetVisual::Worker
     ? freezeMovementScale(target.view.worker, balance_.freezeGun)
     : 1.0F;
+  const Vec3 previousPosition = target.view.position;
   target.view.position += direction * group.strafeSpeed * movementScale * kFixedTickSeconds;
   const Vec3 unclamped = target.view.position;
   target.view.position.x = std::clamp(target.view.position.x, group.randomMinimum.x, group.randomMaximum.x);
   target.view.position.y = std::clamp(target.view.position.y, group.randomMinimum.y, group.randomMaximum.y);
-  target.view.position.z = std::clamp(target.view.position.z, group.randomMinimum.z, group.randomMaximum.z);
+  if (target.view.visual == AimTargetVisual::Worker) {
+    target.view.position = groundWorkerPosition(target.view.position);
+  } else {
+    target.view.position.z = std::clamp(
+      target.view.position.z,
+      group.randomMinimum.z,
+      group.randomMaximum.z
+    );
+  }
   if (group.motion == AimTargetMotion::Strafe &&
       (target.view.position.x != unclamped.x || target.view.position.y != unclamped.y ||
        target.view.position.z != unclamped.z)) {
     target.strafeDirectionSign = -target.strafeDirectionSign;
   }
   target.view.worker.position = target.view.position;
+  target.view.worker.velocity =
+    (target.view.position - previousPosition) / kFixedTickSeconds;
+  target.view.worker.velocity.z = 0.0F;
+  faceWorkerAtPlayer(target);
+}
+
+void AimTrainer::faceWorkerAtPlayer(TargetRuntime& target) {
+  if (target.view.visual != AimTargetVisual::Worker) return;
+  const Vec3 toPlayer = frame_.player.position - target.view.position;
+  if (std::hypot(toPlayer.x, toPlayer.y) <= 0.00001F) return;
+  target.view.worker.viewYawRadians = std::atan2(toPlayer.y, toPlayer.x);
+}
+
+Vec3 AimTrainer::randomTargetPoint(const AimTargetGroup& group, bool keepAway) {
+  Vec3 point;
+  for (int attempt = 0; attempt < 8; ++attempt) {
+    point = {
+      randomFloat(group.randomMinimum.x, group.randomMaximum.x),
+      randomFloat(group.randomMinimum.y, group.randomMaximum.y),
+      randomFloat(group.randomMinimum.z, group.randomMaximum.z),
+    };
+    const Vec3 fromPlayer = point - startPlayer_.position;
+    if (!keepAway || std::hypot(fromPlayer.x, fromPlayer.y) >= 2.0F) {
+      return point;
+    }
+  }
+  point.x = std::clamp(
+    startPlayer_.position.x + 2.0F,
+    group.randomMinimum.x,
+    group.randomMaximum.x
+  );
+  return point;
 }
 
 std::uint32_t AimTrainer::randomU32() {
@@ -530,6 +625,15 @@ void AimTrainer::applyHitBatch(const WeaponRuntimeTick& tick) {
       );
     }
     frame_.stats.damage += damage;
+    if (damage > 0U) {
+      frame_.hitConfirmPending = true;
+      frame_.pendingHitConfirmHeadshot =
+        frame_.pendingHitConfirmHeadshot || hit.headshot;
+      frame_.pendingHitConfirmDamage = static_cast<std::uint32_t>(std::min(
+        static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max()),
+        static_cast<std::uint64_t>(frame_.pendingHitConfirmDamage) + damage
+      ));
+    }
     bool cleared = false;
     if (group.life == AimTargetLife::OneHit) {
       cleared = true;

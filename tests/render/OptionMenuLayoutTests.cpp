@@ -62,5 +62,12 @@ int main() {
           game.maxScrollRows,
       "wheel down should stop at the final full page");
 
+  const lg::OptionMenuLayout shortNativeMenu =
+      lg::buildOptionMenuLayout(1920, 1200, 11U, 0U);
+  failures += expect(
+      shortNativeMenu.panelHeight < 600.0F &&
+          shortNativeMenu.visibleRows >= 11U,
+      "a short native-resolution menu should fit its rows instead of leaving a large empty panel");
+
   return failures == 0 ? 0 : 1;
 }
