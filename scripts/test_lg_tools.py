@@ -1711,6 +1711,42 @@ class LgToolTests(unittest.TestCase):
             with self.subTest(material=material):
                 self.assertFalse(requires_texture(material))
 
+    def test_windows_package_includes_the_complete_png_hud_asset_set(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        package = (root / "scripts" / "package-windows.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'Copy-Item $uiSource (Join-Path $outputPath "assets/ui") -Recurse',
+            package,
+        )
+        ui_start = package.index("$requiredUiFiles = @(")
+        ui_end = package.index("$requiredFiles = @(\n", ui_start)
+        packaged_ui_files = set(
+            re.findall(
+                r'^\s+"(assets/ui/[^\"]+)"[,]?$',
+                package[ui_start:ui_end],
+                re.MULTILINE,
+            )
+        )
+        self.assertSetEqual(
+            {
+                "assets/ui/hp_bar_segmented.png",
+                "assets/ui/hp_bar_filled.png",
+                "assets/ui/hp_bar_outlined.png",
+                "assets/ui/weapon_machine_gun.png",
+                "assets/ui/weapon_shotgun.png",
+                "assets/ui/weapon_grenade_launcher.png",
+                "assets/ui/weapon_rocket_launcher.png",
+                "assets/ui/weapon_lightning_gun.png",
+                "assets/ui/weapon_sniper_rifle.png",
+                "assets/ui/weapon_plasma_gun.png",
+                "assets/ui/weapon_freeze_gun.png",
+                "assets/ui/weapon_revolver.png",
+            },
+            packaged_ui_files,
+        )
+
     def test_sky_assets_stay_client_only(self) -> None:
         root = Path(__file__).resolve().parents[1]
         cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")

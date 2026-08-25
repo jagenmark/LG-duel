@@ -1749,10 +1749,60 @@ int main() {
       );
       if (style == 3 && healthImage != nullptr) {
         failures += expect(
-          std::abs(healthImage->source.width - 0.5F) < 0.001F,
-          "segmented art health should crop its source to the live health ratio"
+          std::abs(healthImage->source.width - 0.5F) < 0.001F &&
+            std::abs(healthImage->destination.width - 187.0F) < 0.001F,
+          "segmented art health should keep its default size and crop to the live health ratio"
         );
       }
+    }
+  }
+
+  {
+    constexpr std::array<lg::HudImage, 3> healthImages = {{
+      lg::HudImage::HealthSegmented,
+      lg::HudImage::HealthFilled,
+      lg::HudImage::HealthOutlined,
+    }};
+    lg::PlayerState fullHealthPlayer = opponent;
+    fullHealthPlayer.health = 100;
+    for (int style = 3; style <= 5; ++style) {
+      lg::RenderSettings maximumHealthSizeSettings = settings;
+      maximumHealthSizeSettings.healthStyle = style;
+      maximumHealthSizeSettings.healthTextScale = 20.0F;
+      const lg::DrawList2D maximumHealthSizeUi = lg::buildScreenUi(
+        1280,
+        720,
+        fullHealthPlayer,
+        maximumHealthSizeSettings,
+        hud,
+        console
+      );
+      const lg::Image2D* healthImage = nullptr;
+      for (const lg::DrawCommand2D& command :
+           maximumHealthSizeUi.overlayCommands) {
+        const auto* image = std::get_if<lg::Image2D>(&command);
+        if (image != nullptr &&
+            image->image == healthImages[static_cast<std::size_t>(style - 3)]) {
+          healthImage = image;
+          break;
+        }
+      }
+      const lg::Text2D* healthValue = findText(maximumHealthSizeUi, "100");
+      failures += expect(
+        healthImage != nullptr &&
+          healthImage->destination.x >= 0.0F &&
+          healthImage->destination.y >= 0.0F &&
+          healthImage->destination.x + healthImage->destination.width <=
+            1280.0F &&
+          healthImage->destination.y + healthImage->destination.height <=
+            720.0F &&
+          healthValue != nullptr &&
+          healthValue->position.x >= 0.0F &&
+          healthValue->position.x <= 1280.0F &&
+          healthValue->position.y >= 0.0F &&
+          healthValue->position.y <= 720.0F,
+        "art health styles should fit their full layout at cl_health_size 20"
+      );
     }
   }
 

@@ -249,6 +249,11 @@ $fontSource = Join-Path (Split-Path -Parent $client) "assets/fonts"
 if (Test-Path $fontSource) {
   Copy-Item $fontSource (Join-Path $outputPath "assets/fonts") -Recurse
 }
+$uiSource = Join-Path (Split-Path -Parent $client) "assets/ui"
+if (-not (Test-Path $uiSource)) {
+  throw "The runtime UI image directory was not found beside lg_duel_client.exe."
+}
+Copy-Item $uiSource (Join-Path $outputPath "assets/ui") -Recurse
 Copy-Item $sdl.FullName (Join-Path $outputPath "SDL3.dll")
 Copy-Item $sdlLicense.FullName (Join-Path $outputPath "SDL3-LICENSE.txt")
 Copy-Item (Join-Path $repoRoot "config") (Join-Path $outputPath "config") -Recurse
@@ -273,10 +278,26 @@ $requiredShaderFiles = @(
     ForEach-Object { "shaders/$($_.Name)" }
 )
 
+$requiredUiFiles = @(
+  "assets/ui/hp_bar_segmented.png",
+  "assets/ui/hp_bar_filled.png",
+  "assets/ui/hp_bar_outlined.png",
+  "assets/ui/weapon_machine_gun.png",
+  "assets/ui/weapon_shotgun.png",
+  "assets/ui/weapon_grenade_launcher.png",
+  "assets/ui/weapon_rocket_launcher.png",
+  "assets/ui/weapon_lightning_gun.png",
+  "assets/ui/weapon_sniper_rifle.png",
+  "assets/ui/weapon_plasma_gun.png",
+  "assets/ui/weapon_freeze_gun.png",
+  "assets/ui/weapon_revolver.png"
+)
+
 $requiredFiles = @(
   "lg_duel_client.exe",
   "lg_duel_server.exe";
   $requiredShaderFiles;
+  $requiredUiFiles;
   "SDL3.dll",
   "SDL3-LICENSE.txt",
   "config/balance.cfg",

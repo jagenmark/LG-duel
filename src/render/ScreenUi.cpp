@@ -1611,18 +1611,33 @@ void addArtHealthBar(
     0.75F,
     1.5F
   );
-  const float scale =
+  const float requestedScale =
     viewportScale * std::clamp(settings.healthTextScale, 0.5F, 20.0F) * 0.5F;
+  // Keep the complete authored layout on-screen at large health sizes. The
+  // default scale remains one, so the normal layout is unchanged.
+  constexpr float kArtLayoutWidth = 530.0F;
+  constexpr float kArtLayoutHeight = 52.0F;
+  constexpr float kArtLayoutMargin = 8.0F;
+  const float maximumHorizontalScale = std::max(
+    0.0F,
+    (static_cast<float>(width) - kArtLayoutMargin) / kArtLayoutWidth
+  );
+  const float maximumVerticalScale = std::max(
+    0.0F,
+    (static_cast<float>(height) - kArtLayoutMargin) / kArtLayoutHeight
+  );
+  const float scale = std::min({
+    requestedScale,
+    maximumHorizontalScale,
+    maximumVerticalScale,
+  });
   const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
   const float healthRatio = std::clamp(
     static_cast<float>(localPlayer.health) / maxHealth,
     0.0F,
     1.0F
   );
-  const float barWidth = std::min(
-    374.0F * scale,
-    std::max(120.0F, static_cast<float>(width) - 182.0F * scale)
-  );
+  const float barWidth = 374.0F * scale;
   const float barHeight = 23.0F * scale;
   const float left = 18.0F * scale;
   const float bottom = static_cast<float>(height) - 25.0F * scale;
@@ -1630,7 +1645,7 @@ void addArtHealthBar(
   const float numberX = left + 76.0F * scale;
   const float dividerX = left + 122.0F * scale;
   const float barX = dividerX + 16.0F * scale;
-  const float textScale = std::max(1.0F, settings.healthTextScale * viewportScale);
+  const float textScale = std::max(1.0F, 2.0F * scale);
   const std::string value = std::to_string(std::max(0, localPlayer.health));
 
   addText(

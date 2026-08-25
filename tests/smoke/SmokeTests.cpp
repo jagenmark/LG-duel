@@ -1,11 +1,19 @@
 #include "app/GameApp.hpp"
 #include "render/CaptureWriter.hpp"
 
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -18,6 +26,24 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+[[nodiscard]] std::uint64_t currentProcessId() {
+#if defined(_WIN32)
+  return static_cast<std::uint64_t>(_getpid());
+#else
+  return static_cast<std::uint64_t>(getpid());
+#endif
+}
+
+[[nodiscard]] std::filesystem::path temporaryCapturePath() {
+  const std::uint64_t timestamp = static_cast<std::uint64_t>(
+    std::chrono::steady_clock::now().time_since_epoch().count()
+  );
+  return std::filesystem::temp_directory_path() /
+    ("lg-duel-compressed-capture-test-" +
+      std::to_string(currentProcessId()) + "-" +
+      std::to_string(timestamp) + ".png");
+}
+
 } // namespace
 
 int main() {
@@ -27,8 +53,7 @@ int main() {
   failures += expect(app.name() == "LG Duel Client", "app name should be stable");
 
 #if LG_DUEL_HAS_SDL3
-  const std::filesystem::path capturePath =
-    std::filesystem::temp_directory_path() / "lg-duel-compressed-capture-test.png";
+  const std::filesystem::path capturePath = temporaryCapturePath();
   constexpr std::uint32_t captureWidth = 1920U;
   constexpr std::uint32_t captureHeight = 1200U;
   std::vector<std::uint8_t> capturePixels(
@@ -59,7 +84,11 @@ int main() {
     "capture PNG should compress repeated scene pixels"
   );
   std::error_code removeError;
-  std::filesystem::remove(capturePath, removeError);
+  const bool removed = std::filesystem::remove(capturePath, removeError);
+  failures += expect(
+    !removeError && removed && !std::filesystem::exists(capturePath),
+    "capture writer should remove only its unique temporary PNG"
+  );
 #endif
 
   return failures == 0 ? 0 : 1;
