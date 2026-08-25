@@ -763,7 +763,8 @@ class LgToolTests(unittest.TestCase):
         self.assertEqual(
             names,
             {
-                "lg_start", "lg_status", "lg_load_map", "lg_reload_map", "lg_get_camera",
+                "lg_start", "lg_status", "lg_report_tool_feedback",
+                "lg_load_map", "lg_reload_map", "lg_get_camera",
                 "lg_set_camera", "lg_set_collision_debug", "lg_capture_screenshot", "lg_capture_map_views",
                 "lg_stop", "lg_restart", "lg_exec_console", "lg_get_cvar", "lg_set_cvar",
                 "lg_send_input", "lg_wait_frames", "lg_set_player_view", "lg_set_player_weapon",
@@ -803,7 +804,7 @@ class LgToolTests(unittest.TestCase):
         initialized = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         self.assertEqual(initialized["result"]["serverInfo"]["name"], "lg-duel-dev-control")
         listed = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        self.assertEqual(len(listed["result"]["tools"]), 48)
+        self.assertEqual(len(listed["result"]["tools"]), 49)
 
     def test_map_edit_tools_require_revisions_and_route_typed_values(self) -> None:
         tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}

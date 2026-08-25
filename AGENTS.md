@@ -14,6 +14,11 @@
 
 - When you would run tests now and can keep doing independent work, request one opt-in background check. Follow `docs/CODEX-BACKGROUND-CHECKS.md` for scopes, results, and completion rules.
 
+## LG devtool feedback
+
+- When an LG MCP fault, unclear result, missing action, or forced workaround adds real work, call `lg_report_tool_feedback` once. Use it for tool-interface friction, not game bugs or expected test failures.
+- For `blocked` or `workaround` impact, copy the returned `receipt` exactly near the top of the final response. Minor notes go to the feedback digest.
+
 ## Automatic Task Integration
 
 Task workers should end a reviewed, committed worktree task with this line:

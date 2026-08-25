@@ -440,6 +440,35 @@ GPU launcher. Screenshot and multi-view capture cannot silently reuse an
 SDL_Renderer, D3D11, SwiftShader, or other fallback client. Explicit fallback
 requires `allow_fallback: true`.
 
+### Agent Feedback Report
+
+Every MCP tool result includes a `tool_call` object with a call ID, tool name,
+and elapsed milliseconds. The adapter stores only those call facts and the
+outcome or error code. It does not store arguments, prompts, console text,
+source text, or images.
+
+When the tool interface causes real friction, the agent calls
+`lg_report_tool_feedback` with the affected tool, a fixed kind and impact, a
+short note, and the related call ID when available. `blocked` and `workaround`
+reports return a receipt that the agent must copy into its final response.
+Feedback describes the developer tools, not game bugs or expected test
+failures.
+
+The ignored local store and fixed HTML report live under
+`build/dev-control/agent-feedback/`. Render the report or read only feedback
+that has not appeared in a digest:
+
+```powershell
+python .\scripts\lg_tool_feedback.py report
+python .\scripts\lg_tool_feedback.py digest
+python .\scripts\lg_tool_feedback.py digest --mark-seen
+```
+
+Set `LG_MCP_FEEDBACK_DIR` when several worktrees should write to one shared
+local store. Agent notes are untrusted review data. The adapter never reads
+old notes back into tool results, changes settings from them, or sends them to
+an outside service.
+
 The launcher reports success only after control protocol 1, the client and
 server, the network connection, a named map, and a positive map revision are
 ready. Normal control calls refuse to attach to a benchmark client, so captures,

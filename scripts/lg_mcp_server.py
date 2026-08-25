@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -31,9 +32,10 @@ from lg_benchmark import (
 )
 from lg_live_scenario import LiveScenarioError, run_live_scenario
 from lg_map_edit import MapEditError, MapEditor
+from lg_tool_feedback import FeedbackStore, new_call_id
 
 
-SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.6.1"}
+SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.7.0"}
 PROTOCOL_VERSION = "2025-06-18"
 MAP_EDITOR = MapEditor()
 INLINE_IMAGE_BUDGET = 1024 * 1024
@@ -89,6 +91,7 @@ INLINE_IMAGE_PROPERTIES = {
     },
 }
 READ_ONLY_TOOLS = {
+    "lg_report_tool_feedback",
     "lg_status",
     "lg_list_benchmarks",
     "lg_compare_benchmarks",
@@ -164,6 +167,48 @@ TOOLS: list[dict[str, Any]] = [
         "name": "lg_status",
         "description": "Get structured LG Duel client, server, map, camera, renderer, and capture status.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "lg_report_tool_feedback",
+        "description": (
+            "Report real friction in the LG devtools interface, such as a missing action, "
+            "unclear result, weak diagnostic, forced workaround, slow call, or flaky call. "
+            "Do not use this for game bugs or expected test failures. For blocked or "
+            "workaround impact, copy the returned receipt exactly near the top of the final response."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tool": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^[A-Za-z0-9_.-]+$",
+                    "description": "Affected LG tool name, or 'general' for a missing tool.",
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "missing_capability", "confusing_interface", "poor_diagnostic",
+                        "wrong_result", "slow", "flaky", "docs",
+                    ],
+                },
+                "impact": {
+                    "type": "string",
+                    "enum": ["minor", "workaround", "blocked"],
+                },
+                "note": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "call_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 96,
+                    "pattern": "^[A-Za-z0-9_.-]+$",
+                    "description": "Optional call ID returned by the affected LG tool.",
+                },
+            },
+            "required": ["tool", "kind", "impact", "note"],
+            "additionalProperties": False,
+        },
     },
     {
         "name": "lg_load_map",
@@ -992,6 +1037,15 @@ def _state_change_possible(name: str) -> bool:
 
 
 def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name == "lg_report_tool_feedback":
+        return FeedbackStore().submit(
+            tool=arguments["tool"],
+            kind=arguments["kind"],
+            impact=arguments["impact"],
+            note=arguments["note"],
+            call_id=arguments.get("call_id"),
+            server_version=SERVER_INFO["version"],
+        )
     if name == "lg_map_list":
         return MAP_EDITOR.list_maps()
     if name == "lg_map_get":
@@ -1701,6 +1755,45 @@ def tool_result(
     return payload
 
 
+def _attach_call_context(
+    payload: dict[str, Any], context: dict[str, Any]
+) -> dict[str, Any]:
+    structured = payload.get("structuredContent")
+    if not isinstance(structured, dict):
+        structured = {}
+        payload["structuredContent"] = structured
+    structured["tool_call"] = context
+    content = payload.get("content")
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                item["text"] = json.dumps(structured, indent=2, ensure_ascii=False)
+                break
+    return payload
+
+
+def _record_call_safely(
+    *,
+    call_id: str,
+    tool: str,
+    duration_ms: int,
+    outcome: str,
+    error_code: str | None = None,
+) -> None:
+    try:
+        FeedbackStore().record_call(
+            call_id=call_id,
+            tool=tool,
+            duration_ms=duration_ms,
+            outcome=outcome,
+            error_code=error_code,
+            server_version=SERVER_INFO["version"],
+        )
+    except (OSError, TypeError, ValueError):
+        # Feedback must never make a game-control call fail.
+        return
+
+
 def _error_payload(
     name: str,
     *,
@@ -2297,6 +2390,12 @@ class McpStdioDispatcher:
                 },
             })
             return
+        call_id = new_call_id()
+        context = {
+            "call_id": call_id,
+            "tool": name,
+            "duration_ms": 0,
+        }
         payload = _error_payload(
             name,
             code="server_busy",
@@ -2304,6 +2403,14 @@ class McpStdioDispatcher:
                 "another live tool call is active; cancel it or wait for it "
                 "to finish"
             ),
+        )
+        _attach_call_context(payload, context)
+        _record_call_safely(
+            call_id=call_id,
+            tool=name,
+            duration_ms=0,
+            outcome="not_completed",
+            error_code="server_busy",
         )
         self.emit({
             "jsonrpc": "2.0", "id": request_id, "result": payload,
@@ -2329,6 +2436,8 @@ class McpStdioDispatcher:
         cancellation: WorkerCancellation,
         predecessor: threading.Thread | None,
     ) -> None:
+        call_id = new_call_id()
+        started_at = time.monotonic()
         try:
             if predecessor is not None:
                 predecessor.join()
@@ -2344,6 +2453,12 @@ class McpStdioDispatcher:
                     message=str(error),
                     error_type=type(error).__name__,
                 )
+            duration_ms = max(0, round((time.monotonic() - started_at) * 1000))
+            context = {
+                "call_id": call_id,
+                "tool": name,
+                "duration_ms": duration_ms,
+            }
             if cancellation.cancelled:
                 state_change_possible = _state_change_possible(name)
                 data: dict[str, Any] = {
@@ -2354,6 +2469,7 @@ class McpStdioDispatcher:
                         if state_change_possible
                         else "not_completed"
                     ),
+                    "tool_call": context,
                 }
                 if cancellation.reason:
                     data["reason"] = cancellation.reason
@@ -2366,13 +2482,36 @@ class McpStdioDispatcher:
                         "data": data,
                     },
                 }
+                _record_call_safely(
+                    call_id=call_id,
+                    tool=name,
+                    duration_ms=duration_ms,
+                    outcome=str(data["outcome"]),
+                    error_code="request_cancelled",
+                )
             else:
-                payload = (
-                    error_payload
-                    if error_payload is not None
-                    else tool_result(
-                        result or {}, image_arguments=arguments
+                if error_payload is not None:
+                    payload = _attach_call_context(error_payload, context)
+                else:
+                    result_with_context = dict(result or {})
+                    result_with_context["tool_call"] = context
+                    payload = tool_result(
+                        result_with_context, image_arguments=arguments
                     )
+                structured = payload.get("structuredContent", {})
+                error = structured.get("error", {}) if isinstance(structured, dict) else {}
+                error_code = error.get("code") if isinstance(error, dict) else None
+                outcome = (
+                    str(structured.get("outcome", "not_completed"))
+                    if error_payload is not None and isinstance(structured, dict)
+                    else "completed"
+                )
+                _record_call_safely(
+                    call_id=call_id,
+                    tool=name,
+                    duration_ms=duration_ms,
+                    outcome=outcome,
+                    error_code=str(error_code) if error_code else None,
                 )
                 response = {
                     "jsonrpc": "2.0",
