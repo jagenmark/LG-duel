@@ -51,6 +51,7 @@ enum class MeshHandle : std::uint16_t {
   RocketProjectile,
   GrenadeProjectile,
   ExplosionCore,
+  TrainerOrb,
   MachineGunTracer,
   ShotgunTracer,
   RemoteMachineGunBody,

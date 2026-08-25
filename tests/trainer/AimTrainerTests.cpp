@@ -1,4 +1,5 @@
 #include "dev/DevJson.hpp"
+#include "app/AimTrainerInput.hpp"
 #include "render/OptionMenuLayout.hpp"
 #include "shared/Constants.hpp"
 #include "sim/Combat.hpp"
@@ -7,6 +8,7 @@
 #include "sim/WeaponRuntime.hpp"
 #include "trainer/AimTrainerEditor.hpp"
 #include "trainer/AimTrainerPresentation.hpp"
+#include "trainer/AimTrainerVideoSettings.hpp"
 
 #include <algorithm>
 #include <array>
@@ -190,6 +192,147 @@ int main() {
   const lg::Arena arena = trainerArena();
   const lg::BalanceConfig balance;
 
+  {
+    const lg::AimTrainerViewAngles moved =
+      lg::applyAimTrainerMouseMotion({}, 10.0F, 0.0F);
+    failures += expect(
+      moved.yaw < 0.0F,
+      "rightward trainer mouse motion should turn right like the normal client"
+    );
+  }
+
+  {
+    lg::AimTrainerViewAngles view;
+    bool reachedDirectlyBehind = false;
+    for (int step = 0; step < 2000; ++step) {
+      view = lg::applyAimTrainerMouseMotion(view, 1.0F, 0.0F);
+      reachedDirectlyBehind = reachedDirectlyBehind || std::cos(view.yaw) < -0.99F;
+    }
+    failures += expect(
+      reachedDirectlyBehind,
+      "trainer mouse yaw should reach the rear sector of a full 360-degree turn"
+    );
+  }
+
+  failures += expect(
+    lg::shouldResyncAimTrainerInput(
+      lg::AimTrainerWindowInputEvent::FocusGained
+    ) &&
+      !lg::shouldResyncAimTrainerInput(
+        lg::AimTrainerWindowInputEvent::Other
+      ),
+    "trainer input should restore relative mouse capture whenever focus returns"
+  );
+
+  failures += expect(
+    lg::aimTrainerEscapeAction(true, false) ==
+      lg::AimTrainerEscapeAction::CloseScenarios,
+    "Escape should close the idle scenario menu instead of quitting"
+  );
+
+  {
+    lg::AimTrainerFrame animatedFrame;
+    animatedFrame.elapsedTicks = 42U;
+    const lg::AimTrainerPresentation presentation =
+      lg::buildAimTrainerPresentation(animatedFrame);
+    failures += expect(
+      near(
+        static_cast<float>(presentation.animationTimeSeconds),
+        static_cast<float>(animatedFrame.elapsedTicks) * lg::kFixedTickSeconds
+      ),
+      "trainer presentation should advance the same animation clock as its run"
+    );
+  }
+
+  failures += expect(
+    lg::shouldHandleAimTrainerMenuKeyDown(true, true, true),
+    "held scenario-menu arrow keys should keep moving through rows"
+  );
+  failures += expect(
+    !lg::shouldHandleAimTrainerMenuKeyDown(true, true, false),
+    "held command keys should not trigger menu commands again"
+  );
+  failures += expect(
+    lg::aimTrainerUsesCompactHud(580) &&
+      !lg::aimTrainerUsesCompactHud(1200),
+    "trainer HUD should stack status text in narrow tiled windows"
+  );
+  {
+    const lg::AimTrainerWheelInput wheel =
+      lg::accumulateAimTrainerWheel(0.0F, 0.1F);
+    failures += expect(
+      wheel.rowDelta == 0 && near(wheel.remainder, 0.1F),
+      "small trackpad deltas should accumulate instead of jumping three rows"
+    );
+    const lg::AimTrainerWheelInput accumulated =
+      lg::accumulateAimTrainerWheel(0.6F, 0.5F);
+    failures += expect(
+      accumulated.rowDelta == -1 && near(accumulated.remainder, 0.1F),
+      "trackpad deltas should move one row after they add up to a full step"
+    );
+  }
+
+  {
+    const std::filesystem::path root = temporaryRoot("video-settings");
+    const std::filesystem::path path = root / "video.cfg";
+    lg::AimTrainerVideoSettings saved;
+    saved.displayMode = 2;
+    saved.resolutionWidth = 1920;
+    saved.resolutionHeight = 1200;
+    saved.textureFilter = 2;
+    saved.textureAnisotropy = 16;
+    saved.displayGamma = 1.1F;
+    saved.bloom = false;
+    saved.antiAliasing = 2;
+    saved.sunShadows = 2;
+    saved.pointLights = 2;
+    saved.showViewModel = false;
+    saved.showBeam = false;
+    std::string error;
+    const bool wrote = lg::saveAimTrainerVideoSettings(path, saved, error);
+    const lg::AimTrainerVideoSettingsLoadResult loaded =
+      lg::loadAimTrainerVideoSettings(path);
+    failures += expect(
+      wrote && loaded.loaded && loaded.warning.empty() &&
+        loaded.settings.displayMode == saved.displayMode &&
+        loaded.settings.resolutionWidth == saved.resolutionWidth &&
+        loaded.settings.resolutionHeight == saved.resolutionHeight &&
+        loaded.settings.textureFilter == saved.textureFilter &&
+        loaded.settings.textureAnisotropy == saved.textureAnisotropy &&
+        near(loaded.settings.displayGamma, saved.displayGamma) &&
+        loaded.settings.bloom == saved.bloom &&
+        loaded.settings.antiAliasing == saved.antiAliasing &&
+        loaded.settings.sunShadows == saved.sunShadows &&
+        loaded.settings.pointLights == saved.pointLights &&
+        loaded.settings.showViewModel == saved.showViewModel &&
+        loaded.settings.showBeam == saved.showBeam,
+      "applied trainer video settings should survive a client restart"
+    );
+    const std::filesystem::path legacyPath = root / "legacy-video.cfg";
+    writeText(
+      legacyPath,
+      "version 1\n"
+      "display_mode 0\n"
+      "resolution_width 1280\n"
+      "resolution_height 720\n"
+      "texture_filter 2\n"
+      "texture_anisotropy 8\n"
+      "display_gamma 1\n"
+      "bloom 1\n"
+      "anti_aliasing 0\n"
+      "sun_shadows 0\n"
+      "point_lights 1\n"
+    );
+    const lg::AimTrainerVideoSettingsLoadResult legacy =
+      lg::loadAimTrainerVideoSettings(legacyPath);
+    failures += expect(
+      legacy.loaded && legacy.warning.empty() &&
+        legacy.settings.showViewModel && legacy.settings.showBeam,
+      "old trainer video settings should keep the view model and beam visible"
+    );
+    removeTree(root);
+  }
+
   // Exact default duration, one natural result, and no second write.
   {
     const std::filesystem::path root = temporaryRoot("exact-duration");
@@ -231,6 +374,52 @@ int main() {
     removeTree(root);
   }
 
+  // Trainer shortcuts can start and restart the current draft without the editor row.
+  {
+    const std::filesystem::path root = temporaryRoot("shortcut-restart");
+    lg::AimTrainer trainer(arena, balance);
+    lg::AimTrainerStore store(root);
+    lg::AimTrainerMenu menu(trainer, store);
+    lg::AimScenario scenario = directOrbScenario();
+    scenario.durationTicks = 100U;
+    menu.edit(scenario);
+    failures += expect(menu.start().ok, "F3 start command should start the draft");
+    lg::AimTrainerEditor runningEditor(menu);
+    const std::vector<lg::AimTrainerEditorRow> runningRows = runningEditor.rows();
+    const bool runningHasAbort = std::any_of(
+      runningRows.begin(),
+      runningRows.end(),
+      [](const lg::AimTrainerEditorRow& row) {
+        return row.field == lg::AimTrainerEditorField::Abort;
+      }
+    );
+    const bool runningHasStart = std::any_of(
+      runningRows.begin(),
+      runningRows.end(),
+      [](const lg::AimTrainerEditorRow& row) {
+        return row.field == lg::AimTrainerEditorField::Start;
+      }
+    );
+    failures += expect(
+      runningHasAbort && !runningHasStart,
+      "a running scenario menu should offer Abort instead of a Start command that cannot work"
+    );
+    for (std::uint32_t tick = 0; tick < 12U; ++tick) menu.tick({});
+    failures += expect(
+      menu.frame().phase == lg::AimTrainerPhase::Running &&
+      menu.frame().elapsedTicks == 12U,
+      "shortcut fixture should advance before restart"
+    );
+    failures += expect(menu.restart().ok, "F5 restart command should restart the draft");
+    failures += expect(
+      menu.frame().phase == lg::AimTrainerPhase::Running &&
+      menu.frame().elapsedTicks == 0U &&
+      menu.frame().remainingTicks == scenario.durationTicks,
+      "restart should reset the active run to its first tick"
+    );
+    removeTree(root);
+  }
+
   // Event retention and the continuous beam presentation seam.
   {
     lg::AimTrainer trainer(arena, balance);
@@ -244,6 +433,12 @@ int main() {
       trainer.view().pendingFires.size() == 1U,
       "accepted hitscan event should be pending"
     );
+    failures += expect(
+      trainer.view().hitConfirmPending &&
+        trainer.view().pendingHitConfirmDamage ==
+          static_cast<std::uint32_t>(balance.railgun.damage),
+      "a trainer target hit should expose damage for one hit-confirm sound"
+    );
     (void)trainer.tick({});
     (void)trainer.tick({});
     failures += expect(
@@ -253,8 +448,10 @@ int main() {
     trainer.consumePresentationEvents();
     failures += expect(
       !trainer.view().fireEventPending && !trainer.view().latestFire.fired &&
-      trainer.view().pendingFires.empty(),
-      "render consumption should clear the discrete event"
+      trainer.view().pendingFires.empty() &&
+      !trainer.view().hitConfirmPending &&
+      trainer.view().pendingHitConfirmDamage == 0U,
+      "render consumption should clear fire and hit-confirm events"
     );
     trainer.abort();
 
@@ -581,6 +778,117 @@ int main() {
     lg::AimTrainer overCap(arena, balance);
     failures += expect(!overCap.arm(full).ok,
       "scenario validation must reject target groups above the shown cap");
+  }
+
+  // Worker targets are grounded bot-shaped targets with real locomotion state.
+  {
+    lg::AimScenario worker = directOrbScenario();
+    worker.groups[0].visual = lg::AimTargetVisual::Worker;
+    worker.groups[0].life = lg::AimTargetLife::Invincible;
+    worker.groups[0].spawnMode = lg::AimSpawnMode::FixedList;
+    worker.groups[0].fixedSpawns = {{5.0F, 0.0F, 4.0F}};
+    worker.groups[0].motion = lg::AimTargetMotion::Strafe;
+    worker.groups[0].strafeDirection = {0.0F, 1.0F, 0.0F};
+    worker.groups[0].strafeSpeed = 2.0F;
+    worker.durationTicks = 100U;
+    lg::AimTrainer trainer(arena, balance);
+    failures += expect(
+      trainer.arm(worker).ok && trainer.start(),
+      "grounded Worker scenario should start"
+    );
+    (void)trainer.tick({});
+    const lg::AimTargetView& target = trainer.view().targets[0];
+    const lg::AimTrainerPresentation presentation =
+      lg::buildAimTrainerPresentation(trainer.view());
+    const lg::Vec3 toPlayer = trainer.view().player.position - target.position;
+    const float facingDot = (
+      std::cos(target.worker.viewYawRadians) * toPlayer.x +
+      std::sin(target.worker.viewYawRadians) * toPlayer.y
+    ) / std::hypot(toPlayer.x, toPlayer.y);
+    failures += expect(
+      near(target.position.z, target.worker.bounds.halfHeight) &&
+        near(target.worker.position.z, target.worker.bounds.halfHeight) &&
+        near(target.worker.velocity.y, worker.groups[0].strafeSpeed) &&
+        facingDot > 0.999F &&
+        presentation.targetEffects.size() == 1U &&
+        near(presentation.targetEffects[0].velocity.y, worker.groups[0].strafeSpeed) &&
+        near(
+          presentation.targetEffects[0].rotationRadians,
+          target.worker.viewYawRadians
+        ),
+      "Worker targets should stand on the floor, move, and face the player"
+    );
+  }
+
+  // Stationary Workers should face the player too.
+  {
+    lg::AimScenario worker = directOrbScenario();
+    worker.groups[0].visual = lg::AimTargetVisual::Worker;
+    worker.groups[0].motion = lg::AimTargetMotion::Stationary;
+    lg::AimTrainer trainer(arena, balance);
+    failures += expect(
+      trainer.arm(worker).ok && trainer.start(),
+      "stationary Worker scenario should start"
+    );
+    (void)trainer.tick({});
+    const lg::AimTargetView& target = trainer.view().targets[0];
+    failures += expect(
+      std::fabs(std::cos(target.worker.viewYawRadians) + 1.0F) < 0.001F,
+      "stationary Worker should turn toward the player"
+    );
+  }
+
+  // The Air preset keeps one large sphere moving through all three axes.
+  {
+    const std::vector<lg::AimScenario> presets =
+      lg::AimTrainerStore::builtInPresets();
+    const lg::AimScenario* air = presetNamed(presets, "60s Air");
+    failures += expect(
+      air != nullptr &&
+        air->weaponPolicy == lg::AimWeaponPolicy::Forced &&
+        air->forcedWeapon == lg::Weapon::LightningGun &&
+        air->scoreMode == lg::AimScoreMode::Damage &&
+        air->groups.size() == 1U &&
+        air->groups[0].visual == lg::AimTargetVisual::Orb &&
+        near(air->groups[0].radius, 0.65F) &&
+        air->groups[0].life == lg::AimTargetLife::Invincible &&
+        air->groups[0].motion == lg::AimTargetMotion::Air &&
+        air->groups[0].count == 1U &&
+        air->groups[0].randomMinimum.x < arena.spawnPositions[0].x &&
+        air->groups[0].randomMaximum.x > arena.spawnPositions[0].x &&
+        air->groups[0].randomMinimum.y < arena.spawnPositions[0].y &&
+        air->groups[0].randomMaximum.y > arena.spawnPositions[0].y,
+      "Air preset should be one large durable sphere built for Lightning Gun tracking"
+    );
+    if (air != nullptr) {
+      lg::AimTrainer trainer(arena, balance);
+      failures += expect(
+        trainer.arm(*air).ok && trainer.start(),
+        "Air sphere scenario should start"
+      );
+      const lg::Vec3 start = trainer.view().targets[0].position;
+      bool movedInFront = false;
+      bool movedBehind = false;
+      bool movedLeft = false;
+      bool movedRight = false;
+      for (std::uint32_t tick = 0; tick < 1500U; ++tick) {
+        (void)trainer.tick({});
+        const lg::Vec3 position = trainer.view().targets[0].position;
+        movedInFront = movedInFront || position.x > arena.spawnPositions[0].x + 0.5F;
+        movedBehind = movedBehind || position.x < arena.spawnPositions[0].x - 0.5F;
+        movedLeft = movedLeft || position.y < arena.spawnPositions[0].y - 0.5F;
+        movedRight = movedRight || position.y > arena.spawnPositions[0].y + 0.5F;
+      }
+      const lg::AimTargetView& target = trainer.view().targets[0];
+      failures += expect(
+        lg::length(target.position - start) > 0.1F &&
+          std::fabs(target.worker.velocity.x) > 0.01F &&
+          std::fabs(target.worker.velocity.y) > 0.01F &&
+          std::fabs(target.worker.velocity.z) > 0.01F &&
+          movedInFront && movedBehind && movedLeft && movedRight,
+        "Air sphere should move through all three axes around the full player view"
+      );
+    }
   }
 
   // Freeze changes Worker state and projectile helpers preserve bounce/fuse behavior.

@@ -203,6 +203,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-fallback", action="store_true",
         help="explicitly permit the SDL_Renderer diagnostic path for this control workflow",
     )
+    parser.add_argument(
+        "--aim-trainer", action="store_true",
+        help="attach to or launch the local aim trainer instead of the network client",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
     console = commands.add_parser("exec-console")
@@ -271,6 +275,7 @@ def execute(arguments: argparse.Namespace) -> dict[str, Any]:
         ensure_client(
             renderer="fallback" if arguments.allow_fallback else "gpu",
             allow_fallback=arguments.allow_fallback,
+            aim_trainer=arguments.aim_trainer,
             control_port=arguments.port,
             timeout=min(arguments.timeout, 30.0),
         )
@@ -335,11 +340,17 @@ def main(argv: list[str] | None = None) -> int:
     # global options normally require it first, so normalize that one flag.
     json_requested = "--json" in raw
     fallback_requested = "--allow-fallback" in raw
-    raw = [value for value in raw if value not in {"--json", "--allow-fallback"}]
+    trainer_requested = "--aim-trainer" in raw
+    raw = [
+        value for value in raw
+        if value not in {"--json", "--allow-fallback", "--aim-trainer"}
+    ]
     if json_requested:
         raw.insert(0, "--json")
     if fallback_requested:
         raw.insert(0, "--allow-fallback")
+    if trainer_requested:
+        raw.insert(0, "--aim-trainer")
     parser = build_parser()
     arguments = parser.parse_args(raw)
     try:

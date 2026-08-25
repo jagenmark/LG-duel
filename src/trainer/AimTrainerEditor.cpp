@@ -59,6 +59,7 @@ namespace {
   case AimTargetMotion::Stationary: return "stationary";
   case AimTargetMotion::Strafe: return "strafe";
   case AimTargetMotion::RandomWaypoint: return "random waypoint";
+  case AimTargetMotion::Air: return "air";
   }
   return "stationary";
 }
@@ -158,9 +159,12 @@ std::vector<AimTrainerEditorRow> AimTrainerEditor::rows() const {
   add(AimTrainerEditorField::SaveAs, "Save named copy", "ENTER", true);
   add(AimTrainerEditorField::Overwrite, "Save / overwrite", "ENTER", true);
   add(AimTrainerEditorField::DeletePreset, "Delete local preset", "ENTER", true);
-  add(AimTrainerEditorField::Start,
-    frame.phase == AimTrainerPhase::Results ? "Repeat run" : "Start run", "ENTER", true);
-  add(AimTrainerEditorField::Abort, "Abort run", "ENTER", true);
+  if (frame.phase == AimTrainerPhase::Running) {
+    add(AimTrainerEditorField::Abort, "Abort run", "ENTER", true);
+  } else {
+    add(AimTrainerEditorField::Start,
+      frame.phase == AimTrainerPhase::Results ? "Repeat run" : "Start run", "ENTER", true);
+  }
   add(AimTrainerEditorField::Duration, "Duration (ticks)",
     std::to_string(draft.durationTicks) + " / " +
       std::to_string(draft.durationTicks / kFixedTickRate) + "s", false, true);
@@ -183,7 +187,7 @@ std::vector<AimTrainerEditorRow> AimTrainerEditor::rows() const {
   add(AimTrainerEditorField::MapIdentity, "Map ID", std::to_string(draft.mapIdentity), true);
   add(AimTrainerEditorField::BalanceIdentity, "Balance ID", std::to_string(draft.balanceIdentity), true);
   add(AimTrainerEditorField::TargetCap, "Target render limit",
-    std::to_string(AimScenario::kMaxTargets) + " (all valid targets)", true);
+    std::to_string(AimScenario::kMaxTargets) + " max", true);
   add(AimTrainerEditorField::Group, "Selected target group",
     group.name + "  (" + std::to_string(groupIndex + 1U) + "/" +
       std::to_string(draft.groups.size()) + ")");
@@ -363,7 +367,7 @@ bool AimTrainerEditor::adjust(const AimTrainerEditorRow& row, int direction) {
       ? AimSpawnMode::BoundedRandom : AimSpawnMode::FixedList; break;
   case AimTrainerEditorField::Motion:
     group.motion = static_cast<AimTargetMotion>(
-      (static_cast<int>(group.motion) + 3 + direction) % 3); break;
+      (static_cast<int>(group.motion) + 4 + direction) % 4); break;
   case AimTrainerEditorField::Duration:
     draft.durationTicks = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
       static_cast<std::int64_t>(draft.durationTicks) + direction * kFixedTickRate,

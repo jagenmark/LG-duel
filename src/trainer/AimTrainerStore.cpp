@@ -232,7 +232,7 @@ using dev::JsonValue;
     if (!groupName || !visual || !life || !spawnMode || !motion || !color || !radius || !count ||
         !health || !respawn || !spawns || !randomMinimum || !randomMaximum || !strafeDirection ||
         !strafeSpeed || !waypoint || !enumValue(*visual, 2) || !enumValue(*life, 3) ||
-        !enumValue(*spawnMode, 2) || !enumValue(*motion, 3) ||
+        !enumValue(*spawnMode, 2) || !enumValue(*motion, 4) ||
         *count > AimScenario::kMaxTargetsPerGroup || *respawn > 450000U ||
         *waypoint > 450000U || *health < 1.0 || *health > 100000.0 ||
         color->type != JsonValue::Type::Array || color->array.size() != 3U ||
@@ -423,7 +423,22 @@ std::vector<AimScenario> AimTrainerStore::builtInPresets() {
   worker.groups[0].motion = AimTargetMotion::Strafe;
   worker.groups[0].strafeSpeed = 2.0F;
   worker.groups[0].count = 3;
-  return {orb, worker};
+  AimScenario air = orb;
+  air.name = "60s Air";
+  air.weaponPolicy = AimWeaponPolicy::Forced;
+  air.forcedWeapon = Weapon::LightningGun;
+  air.scoreMode = AimScoreMode::Damage;
+  air.groups[0].name = "Air sphere";
+  air.groups[0].visual = AimTargetVisual::Orb;
+  air.groups[0].radius = 0.65F;
+  air.groups[0].life = AimTargetLife::Invincible;
+  air.groups[0].motion = AimTargetMotion::Air;
+  air.groups[0].randomMinimum = {-11.0F, -7.0F, 1.2F};
+  air.groups[0].randomMaximum = {3.0F, 7.0F, 6.0F};
+  air.groups[0].strafeSpeed = 8.0F;
+  air.groups[0].waypointTicks = 75U;
+  air.groups[0].count = 1;
+  return {air, orb, worker};
 }
 
 AimTrainerPresetList AimTrainerStore::loadPresets() const {

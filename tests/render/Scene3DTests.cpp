@@ -7536,6 +7536,105 @@ int main() {
     "plasma gun fire events should not draw a separate beam line"
   );
 
+  const lg::TransientEffect trainerOrb = {
+    lg::TransientEffectType::TrainerOrbTarget,
+    player.position + lg::Vec3{3.0F, 0.0F, 0.65F},
+    0.0F,
+    0.0F,
+    0.35F,
+    0.35F,
+    {32, 220, 235, 255},
+    9U,
+  };
+  const lg::Scene3D trainerOrbScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(&trainerOrb, 1U),
+    settings
+  );
+  const lg::SimpleRenderInstance* trainerOrbInstance = findSimpleMesh(
+    trainerOrbScene,
+    lg::MeshHandle::TrainerOrb
+  );
+  const lg::StaticMeshAsset* trainerOrbAsset =
+    lg::staticMeshAsset(lg::MeshHandle::TrainerOrb);
+  failures += expect(
+    trainerOrbInstance != nullptr &&
+      trainerOrbAsset != nullptr &&
+      trainerOrbAsset->vertices.size() >= 300U &&
+      nearlyEqual(trainerOrbInstance->scale.x, 0.35F) &&
+      nearlyEqual(trainerOrbInstance->scale.y, 0.35F) &&
+      nearlyEqual(trainerOrbInstance->scale.z, 0.35F),
+    "trainer orb targets should use a round dedicated mesh at their gameplay radius"
+  );
+
+  const lg::TransientEffect trainerWorker = {
+    lg::TransientEffectType::TrainerWorkerTarget,
+    player.position + lg::Vec3{3.0F, 0.0F, 0.0F},
+    0.0F,
+    0.0F,
+    1.0F,
+    1.0F,
+    {32, 220, 235, 255},
+    10U,
+    {0.0F, 2.0F, 0.0F},
+    {},
+    {},
+    1.57079632679F,
+  };
+  const std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> noTrainerRemotes = {};
+  lg::RenderSettings trainerWorkerSettings = settings;
+  trainerWorkerSettings.playerModel = 1;
+  trainerWorkerSettings.presentationTimeSeconds = 0.0;
+  const lg::Scene3D trainerWorkerFirstFrame = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noTrainerRemotes,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(&trainerWorker, 1U),
+    trainerWorkerSettings
+  );
+  trainerWorkerSettings.presentationTimeSeconds = 0.25;
+  const lg::Scene3D trainerWorkerLaterFrame = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noTrainerRemotes,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(&trainerWorker, 1U),
+    trainerWorkerSettings
+  );
+  failures += expect(
+    lg::workerPlayerModel().loaded() &&
+      trainerWorkerFirstFrame.gltfPlayerModelStats.activeInstances == 1U &&
+      trainerWorkerFirstFrame.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
+      trainerWorkerFirstFrame.gltfPlayerModelStats.rigidFallbackInstances == 0U &&
+      !trainerWorkerFirstFrame.gltfPlayerModelInstances.empty() &&
+      trainerWorkerFirstFrame.gltfPlayerModelInstances.front().outlined &&
+      !trainerWorkerFirstFrame.outlineMaskDraws.empty() &&
+      trainerWorkerFirstFrame.outlineMaskDraws.front().state.group ==
+        lg::OutlineGroup::Enemy &&
+      trainerWorkerFirstFrame.gltfBonePalette !=
+        trainerWorkerLaterFrame.gltfBonePalette,
+    "trainer workers should use the animated, outlined 3D Worker model"
+  );
+
   std::array<lg::TransientEffect, 8> explosionEffects = {};
   explosionEffects[0] = {
     lg::TransientEffectType::RocketExplosionFlash,
