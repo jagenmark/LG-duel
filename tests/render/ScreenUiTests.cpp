@@ -1747,11 +1747,31 @@ int main() {
           findText(artUi, "50") != nullptr,
         "art health styles should draw their mapped image with live half-health width and value"
       );
+      const lg::Text2D* healthPlus = findText(artUi, "+");
+      const lg::Text2D* healthValue = findText(artUi, "50");
+      failures += expect(
+        healthPlus != nullptr && healthValue != nullptr &&
+          std::abs(
+            healthValue->position.x - healthPlus->position.x - 36.0F
+          ) < 0.001F &&
+          std::abs(healthValue->position.y - healthPlus->position.y) < 0.001F &&
+          healthValue->position.y > 670.0F &&
+          healthValue->position.y < 690.0F,
+        "art health styles should align the nearby plus and health number with the bar"
+      );
       if (style == 3 && healthImage != nullptr) {
         failures += expect(
           std::abs(healthImage->source.width - 0.5F) < 0.001F &&
             std::abs(healthImage->destination.width - 187.0F) < 0.001F,
           "segmented art health should keep its default size and crop to the live health ratio"
+        );
+      } else if (healthImage != nullptr) {
+        failures += expect(
+          healthImage->source.x > 0.0F &&
+            healthImage->source.y > 0.0F &&
+            healthImage->source.width < 0.5F &&
+            healthImage->source.height < 1.0F,
+          "filled art should sample only its texture and not redraw the PNG frame"
         );
       }
     }

@@ -1643,15 +1643,17 @@ void addArtHealthBar(
   const float bottom = static_cast<float>(height) - 25.0F * scale;
   const float top = bottom - barHeight;
   const float numberX = left + 76.0F * scale;
+  const float plusX = numberX - 36.0F * scale;
   const float dividerX = left + 122.0F * scale;
   const float barX = dividerX + 16.0F * scale;
   const float textScale = std::max(1.0F, 2.0F * scale);
+  const float textY = top + 4.0F * scale;
   const std::string value = std::to_string(std::max(0, localPlayer.health));
 
   addText(
     drawList,
-    left,
-    top - 4.0F * scale,
+    plusX,
+    textY,
     "+",
     {245, 247, 248, 255},
     textScale * 1.25F
@@ -1659,7 +1661,7 @@ void addArtHealthBar(
   addText(
     drawList,
     numberX,
-    top,
+    textY,
     value,
     {245, 247, 248, 255},
     textScale,
@@ -1713,28 +1715,44 @@ void addArtHealthBar(
   if (healthRatio <= 0.0F) {
     return;
   }
-  const float inset = std::max(2.0F, 3.0F * scale);
+  const float insetX = 6.0F * scale;
+  const float insetY = settings.healthStyle == 5
+    ? 6.0F * scale
+    : 4.0F * scale;
   const float fillWidth = std::max(
     0.0F,
-    (barWidth - inset * 2.0F) * healthRatio
+    (barWidth - insetX * 2.0F) * healthRatio
   );
   const HudImage image = settings.healthStyle == 5
     ? HudImage::HealthOutlined
     : HudImage::HealthFilled;
-  // The source images contain a long authored fill followed by their sample
-  // empty state. Sample only that fill and scale it to the live health ratio.
-  const float authoredFill = settings.healthStyle == 5 ? 0.70F : 0.73F;
+  // Each source image also contains its own frame. Sample only the textured
+  // fill so that it does not draw a second rectangular border inside the
+  // shaped frame above.
+  const ScreenRect fillSource = settings.healthStyle == 5
+    ? ScreenRect{
+        12.0F / 747.0F,
+        12.0F / 45.0F,
+        (508.0F / 747.0F) * healthRatio,
+        20.0F / 45.0F,
+      }
+    : ScreenRect{
+        7.0F / 746.0F,
+        6.0F / 35.0F,
+        (540.0F / 746.0F) * healthRatio,
+        23.0F / 35.0F,
+      };
   addImage(
     drawList,
     image,
     {
-      barX + inset,
-      top + inset,
+      barX + insetX,
+      top + insetY,
       fillWidth,
-      std::max(0.0F, barHeight - inset * 2.0F),
+      std::max(0.0F, barHeight - insetY * 2.0F),
     },
     {255, 255, 255, 255},
-    {0.0F, 0.0F, authoredFill, 1.0F}
+    fillSource
   );
 }
 
