@@ -413,7 +413,9 @@ int main() {
   hud.bottomCenterLines = {"HEALTH 100"};
   hud.fpsText = "111fps";
   hud.speedText = "320 ups";
-  hud.weaponValues = {{"11", "22", "33", "44", "55", "66", "77", "88"}};
+  hud.weaponValues = {{
+    "11", "22", "33", "44", "55", "66", "77", "88", "99",
+  }};
   hud.scoreboardOpen = true;
   {
     lg::HudRenderState settingsHud;
@@ -1381,11 +1383,12 @@ int main() {
     bool foundLegacySpeedText = false;
     bool foundYellowHealthFill = false;
     const lg::Text2D* topCenterScore = nullptr;
-    std::array<bool, 8> foundWeaponValues = {};
+    std::array<bool, 9> foundWeaponValues = {};
     std::array<bool, 9> foundWeaponImages = {};
+    std::array<bool, 9> foundWeaponImageTextPairs = {};
     std::size_t weaponHudShapeCount = 0;
     const lg::Text2D* fpsText = nullptr;
-    constexpr std::array<std::string_view, 8> weaponValues = {
+    constexpr std::array<std::string_view, 9> weaponValues = {
       "11",
       "22",
       "33",
@@ -1394,8 +1397,12 @@ int main() {
       "66",
       "77",
       "88",
+      "99",
     };
-    for (const lg::DrawCommand2D& command : ui.overlayCommands) {
+    for (std::size_t commandIndex = 0;
+         commandIndex < ui.overlayCommands.size();
+         ++commandIndex) {
+      const lg::DrawCommand2D& command = ui.overlayCommands[commandIndex];
       if (const auto* text = std::get_if<lg::Text2D>(&command)) {
         foundHealthLabel =
           foundHealthLabel || text->text == "ENEMY HP 50";
@@ -1427,6 +1434,15 @@ int main() {
             static_cast<std::size_t>(image->image);
           if (imageIndex < foundWeaponImages.size()) {
             foundWeaponImages[imageIndex] = true;
+            if (commandIndex + 1U < ui.overlayCommands.size()) {
+              const auto* ammoText = std::get_if<lg::Text2D>(
+                &ui.overlayCommands[commandIndex + 1U]
+              );
+              foundWeaponImageTextPairs[imageIndex] =
+                ammoText != nullptr &&
+                ammoText->text == weaponValues[imageIndex] &&
+                ammoText->position.x < 80.0F;
+            }
           }
         }
         if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
@@ -1481,16 +1497,24 @@ int main() {
       ),
       "weapon HUD should map every weapon to its supplied image"
     );
+    failures += expect(
+      std::all_of(
+        foundWeaponImageTextPairs.begin(),
+        foundWeaponImageTextPairs.end(),
+        [](bool found) { return found; }
+      ),
+      "every weapon image should be followed by its ammo text for a separate texture batch"
+    );
     bool foundAllWeaponValues = true;
     for (bool foundWeaponValue : foundWeaponValues) {
       foundAllWeaponValues = foundAllWeaponValues && foundWeaponValue;
     }
     failures += expect(
       foundAllWeaponValues,
-      "selected weapon indicator should show all eight weapon values"
+      "selected weapon indicator should show all nine weapon values"
     );
 
-    constexpr std::array<lg::Weapon, 8> weapons = {{
+    constexpr std::array<lg::Weapon, 9> weapons = {{
       lg::Weapon::MachineGun,
       lg::Weapon::Shotgun,
       lg::Weapon::GrenadeLauncher,
@@ -1499,6 +1523,7 @@ int main() {
       lg::Weapon::Railgun,
       lg::Weapon::PlasmaGun,
       lg::Weapon::FreezeGun,
+      lg::Weapon::Revolver,
     }};
 
     for (std::size_t index = 0; index < weapons.size(); ++index) {
