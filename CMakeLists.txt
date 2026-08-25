@@ -358,6 +358,9 @@ add_custom_target(lg_duel_runtime_assets ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
     "$<TARGET_FILE_DIR:lg_duel_client>/assets/fonts"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/ui"
+    "$<TARGET_FILE_DIR:lg_duel_client>/assets/ui"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${LG_DUEL_TEXTURES_SOURCE}"
     "$<TARGET_FILE_DIR:lg_duel_client>/textures"
   COMMAND ${CMAKE_COMMAND} -E make_directory

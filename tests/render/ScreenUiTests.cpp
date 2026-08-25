@@ -141,6 +141,10 @@ const lg::Text2D* findTextWithRedAtLeast(
 }
 
 bool commandTouchesWeaponHud(const lg::DrawCommand2D& command) {
+  if (const auto* image = std::get_if<lg::Image2D>(&command)) {
+    return image->destination.x < 80.0F &&
+      image->destination.y > 30.0F && image->destination.y < 620.0F;
+  }
   if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
     for (const lg::ScreenPoint& point : quad->points) {
       if (point.x < 80.0F && point.y > 80.0F && point.y < 340.0F) {
@@ -1378,6 +1382,7 @@ int main() {
     bool foundYellowHealthFill = false;
     const lg::Text2D* topCenterScore = nullptr;
     std::array<bool, 8> foundWeaponValues = {};
+    std::array<bool, 9> foundWeaponImages = {};
     std::size_t weaponHudShapeCount = 0;
     const lg::Text2D* fpsText = nullptr;
     constexpr std::array<std::string_view, 8> weaponValues = {
@@ -1417,6 +1422,13 @@ int main() {
             (text->text == weaponValues[index] && text->position.x < 80.0F);
         }
       } else {
+        if (const auto* image = std::get_if<lg::Image2D>(&command)) {
+          const std::size_t imageIndex =
+            static_cast<std::size_t>(image->image);
+          if (imageIndex < foundWeaponImages.size()) {
+            foundWeaponImages[imageIndex] = true;
+          }
+        }
         if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
           foundYellowHealthFill =
             foundYellowHealthFill ||
@@ -1458,8 +1470,16 @@ int main() {
       "score should render centered at the top of the HUD"
     );
     failures += expect(
-      weaponHudShapeCount >= 20,
-      "weapon HUD should draw compact left-edge icon silhouettes"
+      weaponHudShapeCount >= 9,
+      "weapon HUD should draw all nine compact left-edge icon images"
+    );
+    failures += expect(
+      std::all_of(
+        foundWeaponImages.begin(),
+        foundWeaponImages.end(),
+        [](bool found) { return found; }
+      ),
+      "weapon HUD should map every weapon to its supplied image"
     );
     bool foundAllWeaponValues = true;
     for (bool foundWeaponValue : foundWeaponValues) {
@@ -1668,6 +1688,47 @@ int main() {
         std::abs(infiniteAmmo->scale - 8.4F) < 0.001F,
       "health style 2 should optically scale the compact infinity ammo mark"
     );
+  }
+
+  {
+    constexpr std::array<lg::HudImage, 3> healthImages = {{
+      lg::HudImage::HealthSegmented,
+      lg::HudImage::HealthFilled,
+      lg::HudImage::HealthOutlined,
+    }};
+    for (int style = 3; style <= 5; ++style) {
+      lg::RenderSettings artSettings = settings;
+      artSettings.healthStyle = style;
+      const lg::DrawList2D artUi = lg::buildScreenUi(
+        1280,
+        720,
+        opponent,
+        artSettings,
+        hud,
+        console
+      );
+      const lg::Image2D* healthImage = nullptr;
+      for (const lg::DrawCommand2D& command : artUi.overlayCommands) {
+        const auto* image = std::get_if<lg::Image2D>(&command);
+        if (image != nullptr &&
+            image->image == healthImages[static_cast<std::size_t>(style - 3)]) {
+          healthImage = image;
+          break;
+        }
+      }
+      failures += expect(
+        healthImage != nullptr && healthImage->destination.width > 0.0F &&
+          healthImage->destination.width < 374.0F &&
+          findText(artUi, "50") != nullptr,
+        "art health styles should draw their mapped image with live half-health width and value"
+      );
+      if (style == 3 && healthImage != nullptr) {
+        failures += expect(
+          std::abs(healthImage->source.width - 0.5F) < 0.001F,
+          "segmented art health should crop its source to the live health ratio"
+        );
+      }
+    }
   }
 
   {

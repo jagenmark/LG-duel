@@ -39,6 +39,15 @@ int main() {
                      "weapon position should wrap left from center");
 
   (void)lg::adjustMiscMenuValue(
+      console, lg::MiscMenuRow::HealthStyle, -1, draft);
+  failures += expect(
+      console.getInt("cl_health_style") == 5 &&
+        lg::miscMenuItems(console, draft)[static_cast<std::size_t>(
+          lg::MiscMenuRow::HealthStyle)].value == "Outlined art",
+      "health HUD should offer and wrap through all six layouts"
+  );
+
+  (void)lg::adjustMiscMenuValue(
       console, lg::MiscMenuRow::CollisionDebug, -1, draft);
   failures +=
       expect(console.getInt("r_show_collision") == 5,

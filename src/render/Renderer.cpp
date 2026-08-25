@@ -336,11 +336,40 @@ struct FontAtlasSet {
   std::array<FontAtlas*, kUiFontPixelHeights.size()> atlases = {};
 };
 
+constexpr std::size_t kHudImageCount =
+  static_cast<std::size_t>(HudImage::Count);
+
+struct GpuHudImageSet {
+  std::array<SDL_GPUTexture*, kHudImageCount> textures = {};
+};
+
+struct SdlHudImageSet {
+  std::array<SDL_Texture*, kHudImageCount> textures = {};
+};
+
 struct OverlayDrawBatch {
-  FontAtlas* fontAtlas = nullptr;
+  SDL_GPUTexture* texture = nullptr;
   Uint32 firstVertex = 0;
   Uint32 vertexCount = 0;
 };
+
+[[nodiscard]] constexpr std::array<std::string_view, kHudImageCount>
+hudImageFileNames() {
+  return {{
+    "weapon_machine_gun.png",
+    "weapon_shotgun.png",
+    "weapon_grenade_launcher.png",
+    "weapon_rocket_launcher.png",
+    "weapon_lightning_gun.png",
+    "weapon_sniper_rifle.png",
+    "weapon_plasma_gun.png",
+    "weapon_freeze_gun.png",
+    "weapon_revolver.png",
+    "hp_bar_segmented.png",
+    "hp_bar_filled.png",
+    "hp_bar_outlined.png",
+  }};
+}
 
 struct TextureAtlasEntry {
   float u0 = kSolidTextureU;
@@ -1503,6 +1532,129 @@ void collectTextureMaterialFiles(
     return nullptr;
   }
   return texture;
+}
+
+struct HudMaskPixels {
+  std::vector<std::uint8_t> rgba;
+  int width = 0;
+  int height = 0;
+};
+
+[[nodiscard]] HudMaskPixels loadHudMaskPixels(std::string_view fileName) {
+  const std::filesystem::path path =
+    std::filesystem::path(basePath()) / "assets" / "ui" / fileName;
+  SDL_Surface* loaded = SDL_LoadPNG(path.string().c_str());
+  if (loaded == nullptr) {
+    std::cerr << "HUD image '" << path.string() << "' failed to load: "
+              << SDL_GetError() << '\n';
+    return {};
+  }
+  SDL_Surface* converted = SDL_ConvertSurface(loaded, SDL_PIXELFORMAT_RGBA32);
+  SDL_DestroySurface(loaded);
+  if (converted == nullptr) {
+    return {};
+  }
+  HudMaskPixels result;
+  result.width = converted->w;
+  result.height = converted->h;
+  result.rgba.resize(
+    static_cast<std::size_t>(result.width) * result.height * 4U
+  );
+  const auto* source = static_cast<const std::uint8_t*>(converted->pixels);
+  for (int y = 0; y < result.height; ++y) {
+    const std::uint8_t* row =
+      source + static_cast<std::size_t>(y) * converted->pitch;
+    for (int x = 0; x < result.width; ++x) {
+      const std::size_t sourceOffset = static_cast<std::size_t>(x) * 4U;
+      const std::size_t destinationOffset =
+        (static_cast<std::size_t>(y) * result.width + x) * 4U;
+      const std::uint32_t luminance = std::max({
+        static_cast<std::uint32_t>(row[sourceOffset]),
+        static_cast<std::uint32_t>(row[sourceOffset + 1U]),
+        static_cast<std::uint32_t>(row[sourceOffset + 2U]),
+      });
+      const std::uint32_t coverage =
+        luminance * row[sourceOffset + 3U] / 255U;
+      result.rgba[destinationOffset] = static_cast<std::uint8_t>(coverage);
+      result.rgba[destinationOffset + 1U] = 255U;
+      result.rgba[destinationOffset + 2U] = 255U;
+      result.rgba[destinationOffset + 3U] = 255U;
+    }
+  }
+  SDL_DestroySurface(converted);
+  return result;
+}
+
+[[nodiscard]] GpuHudImageSet* createGpuHudImageSet(SDL_GPUDevice* device) {
+  auto* set = new GpuHudImageSet();
+  const auto names = hudImageFileNames();
+  for (std::size_t index = 0; index < names.size(); ++index) {
+    const HudMaskPixels pixels = loadHudMaskPixels(names[index]);
+    if (pixels.rgba.empty()) {
+      continue;
+    }
+    set->textures[index] = uploadRgbaTexture(
+      device,
+      pixels.rgba.data(),
+      pixels.width,
+      pixels.height
+    );
+  }
+  return set;
+}
+
+void destroyGpuHudImageSet(SDL_GPUDevice* device, GpuHudImageSet* set) {
+  if (set == nullptr) {
+    return;
+  }
+  for (SDL_GPUTexture* texture : set->textures) {
+    if (texture != nullptr) {
+      SDL_ReleaseGPUTexture(device, texture);
+    }
+  }
+  delete set;
+}
+
+[[nodiscard]] SdlHudImageSet* createSdlHudImageSet(SDL_Renderer* renderer) {
+  auto* set = new SdlHudImageSet();
+  const auto names = hudImageFileNames();
+  for (std::size_t index = 0; index < names.size(); ++index) {
+    HudMaskPixels pixels = loadHudMaskPixels(names[index]);
+    if (pixels.rgba.empty()) {
+      continue;
+    }
+    for (std::size_t offset = 0; offset < pixels.rgba.size(); offset += 4U) {
+      const std::uint8_t coverage = pixels.rgba[offset];
+      pixels.rgba[offset] = 255U;
+      pixels.rgba[offset + 1U] = 255U;
+      pixels.rgba[offset + 2U] = 255U;
+      pixels.rgba[offset + 3U] = coverage;
+    }
+    SDL_Surface* surface = SDL_CreateSurfaceFrom(
+      pixels.width,
+      pixels.height,
+      SDL_PIXELFORMAT_RGBA32,
+      pixels.rgba.data(),
+      pixels.width * 4
+    );
+    if (surface != nullptr) {
+      set->textures[index] = SDL_CreateTextureFromSurface(renderer, surface);
+      SDL_DestroySurface(surface);
+    }
+  }
+  return set;
+}
+
+void destroySdlHudImageSet(SdlHudImageSet* set) {
+  if (set == nullptr) {
+    return;
+  }
+  for (SDL_Texture* texture : set->textures) {
+    if (texture != nullptr) {
+      SDL_DestroyTexture(texture);
+    }
+  }
+  delete set;
 }
 
 [[nodiscard]] Vec3 cubemapDirection(std::size_t face, float u, float v) {
@@ -7731,6 +7883,37 @@ void appendQuad(
   );
 }
 
+void appendImage(
+  std::vector<GpuVertex>& vertices,
+  const Image2D& image,
+  float outputWidth,
+  float outputHeight
+) {
+  const float x0 = image.destination.x;
+  const float y0 = image.destination.y;
+  const float x1 = x0 + image.destination.width;
+  const float y1 = y0 + image.destination.height;
+  const float u0 = image.source.x;
+  const float v0 = image.source.y;
+  const float u1 = u0 + image.source.width;
+  const float v1 = v0 + image.source.height;
+  const std::array<ScreenPoint, 4> points = {{
+    {x0, y0}, {x1, y0}, {x1, y1}, {x0, y1},
+  }};
+  appendTriangle(
+    vertices,
+    points[0], points[1], points[2], image.color,
+    outputWidth, outputHeight,
+    {{{u0, v0}, {u1, v0}, {u1, v1}}}
+  );
+  appendTriangle(
+    vertices,
+    points[0], points[2], points[3], image.color,
+    outputWidth, outputHeight,
+    {{{u0, v0}, {u1, v1}, {u0, v1}}}
+  );
+}
+
 void appendLine(
   std::vector<GpuVertex>& vertices,
   const Line2D& line,
@@ -7865,15 +8048,15 @@ void appendText(
 
 void closeOverlayDrawBatch(
   std::vector<OverlayDrawBatch>& batches,
-  FontAtlas* fontAtlas,
+  SDL_GPUTexture* texture,
   Uint32 firstVertex,
   Uint32 endVertex
 ) {
-  if (fontAtlas == nullptr || endVertex <= firstVertex) {
+  if (texture == nullptr || endVertex <= firstVertex) {
     return;
   }
   batches.push_back(OverlayDrawBatch{
-    fontAtlas,
+    texture,
     firstVertex,
     endVertex - firstVertex,
   });
@@ -7884,38 +8067,46 @@ void appendCommandBatches(
   std::vector<OverlayDrawBatch>& batches,
   const std::vector<DrawCommand2D>& commands,
   FontAtlasSet& fontAtlasSet,
+  const GpuHudImageSet& hudImages,
   float outputWidth,
   float outputHeight
 ) {
-  FontAtlas* activeFontAtlas = nullptr;
+  SDL_GPUTexture* activeTexture = nullptr;
   Uint32 batchFirstVertex = static_cast<Uint32>(vertices.size());
-  const auto switchBatch = [&](FontAtlas* nextFontAtlas) {
+  const auto switchBatch = [&](SDL_GPUTexture* nextTexture) {
     const Uint32 currentEnd = static_cast<Uint32>(vertices.size());
-    if (activeFontAtlas == nextFontAtlas) {
+    if (activeTexture == nextTexture) {
       return;
     }
     closeOverlayDrawBatch(
       batches,
-      activeFontAtlas,
+      activeTexture,
       batchFirstVertex,
       currentEnd
     );
-    activeFontAtlas = nextFontAtlas;
+    activeTexture = nextTexture;
     batchFirstVertex = currentEnd;
   };
 
   FontAtlas* defaultFontAtlas =
     fontAtlasSet.atlases[kDefaultUiFontPixelHeightIndex];
   for (const DrawCommand2D& command : commands) {
-    FontAtlas* commandFontAtlas =
-      activeFontAtlas != nullptr ? activeFontAtlas : defaultFontAtlas;
+    FontAtlas* commandFontAtlas = defaultFontAtlas;
     if (const auto* text = std::get_if<Text2D>(&command)) {
       commandFontAtlas = fontAtlasForTextScale(fontAtlasSet, text->scale);
     }
-    if (commandFontAtlas == nullptr) {
+    SDL_GPUTexture* commandTexture =
+      commandFontAtlas != nullptr ? commandFontAtlas->texture : nullptr;
+    if (const auto* image = std::get_if<Image2D>(&command)) {
+      const std::size_t imageIndex = static_cast<std::size_t>(image->image);
+      commandTexture = imageIndex < hudImages.textures.size()
+        ? hudImages.textures[imageIndex]
+        : nullptr;
+    }
+    if (commandTexture == nullptr) {
       continue;
     }
-    switchBatch(commandFontAtlas);
+    switchBatch(commandTexture);
     std::visit(
       [&](const auto& primitive) {
         using Primitive = std::decay_t<decltype(primitive)>;
@@ -7927,6 +8118,8 @@ void appendCommandBatches(
             outputWidth,
             outputHeight
           );
+        } else if constexpr (std::is_same_v<Primitive, Image2D>) {
+          appendImage(vertices, primitive, outputWidth, outputHeight);
         } else if constexpr (std::is_same_v<Primitive, Line2D>) {
           appendLine(vertices, primitive, outputWidth, outputHeight);
         } else if constexpr (
@@ -7953,7 +8146,7 @@ void appendCommandBatches(
   }
   closeOverlayDrawBatch(
     batches,
-    activeFontAtlas,
+    activeTexture,
     batchFirstVertex,
     static_cast<Uint32>(vertices.size())
   );
@@ -8031,6 +8224,7 @@ void appendCommandBatches(
   GpuSimpleResources* simpleResources,
   GpuGltfPlayerResources* gltfPlayerResources,
   FontAtlasSet* fontAtlasSet,
+  GpuHudImageSet* hudImages,
   SDL_GPUSampler* fontSampler,
   TextureAtlas* worldAtlas,
   StaticWorldMesh*& staticWorld,
@@ -8562,6 +8756,7 @@ void appendCommandBatches(
       overlayBatches,
       floatingHealthBars.overlayCommands,
       *fontAtlasSet,
+      *hudImages,
       static_cast<float>(outputWidth),
       static_cast<float>(outputHeight)
     );
@@ -8577,6 +8772,7 @@ void appendCommandBatches(
       overlayBatches,
       floatingDamageNumbers.overlayCommands,
       *fontAtlasSet,
+      *hudImages,
       static_cast<float>(outputWidth),
       static_cast<float>(outputHeight)
     );
@@ -8635,6 +8831,7 @@ void appendCommandBatches(
         overlayBatches,
         weaponOverlay.overlayCommands,
         *fontAtlasSet,
+        *hudImages,
         static_cast<float>(outputWidth),
         static_cast<float>(outputHeight)
       );
@@ -8652,6 +8849,7 @@ void appendCommandBatches(
       overlayBatches,
       ui.overlayCommands,
       *fontAtlasSet,
+      *hudImages,
       static_cast<float>(outputWidth),
       static_cast<float>(outputHeight)
     );
@@ -10929,14 +11127,13 @@ void appendCommandBatches(
       (void)worldVertexCount;
       for (const OverlayDrawBatch& batch : overlayBatches) {
         if (
-          batch.fontAtlas == nullptr ||
-          batch.fontAtlas->texture == nullptr ||
+          batch.texture == nullptr ||
           batch.vertexCount == 0U
         ) {
           continue;
         }
         const SDL_GPUTextureSamplerBinding fontBinding = {
-          batch.fontAtlas->texture,
+          batch.texture,
           fontSampler,
         };
         SDL_BindGPUFragmentSamplers(
@@ -11248,11 +11445,12 @@ void drawSniperScopeOverlay(
 
 void drawCommands(
   SDL_Renderer* renderer,
-  const std::vector<DrawCommand2D>& commands
+  const std::vector<DrawCommand2D>& commands,
+  const SdlHudImageSet& hudImages
 ) {
   for (const DrawCommand2D& command : commands) {
     std::visit(
-      [renderer](const auto& primitive) {
+      [renderer, &hudImages](const auto& primitive) {
         using Primitive = std::decay_t<decltype(primitive)>;
         SDL_SetRenderDrawColor(
           renderer,
@@ -11275,6 +11473,41 @@ void drawCommands(
             static_cast<float>(primitive.color.alpha) / 255.0F,
           };
           drawFilledQuad(renderer, points, color);
+        } else if constexpr (std::is_same_v<Primitive, Image2D>) {
+          const std::size_t imageIndex =
+            static_cast<std::size_t>(primitive.image);
+          SDL_Texture* texture = imageIndex < hudImages.textures.size()
+            ? hudImages.textures[imageIndex]
+            : nullptr;
+          if (texture == nullptr) {
+            return;
+          }
+          float textureWidth = 0.0F;
+          float textureHeight = 0.0F;
+          if (!SDL_GetTextureSize(texture, &textureWidth, &textureHeight)) {
+            return;
+          }
+          SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+          SDL_SetTextureColorMod(
+            texture,
+            primitive.color.red,
+            primitive.color.green,
+            primitive.color.blue
+          );
+          SDL_SetTextureAlphaMod(texture, primitive.color.alpha);
+          const SDL_FRect source = {
+            primitive.source.x * textureWidth,
+            primitive.source.y * textureHeight,
+            primitive.source.width * textureWidth,
+            primitive.source.height * textureHeight,
+          };
+          const SDL_FRect destination = {
+            primitive.destination.x,
+            primitive.destination.y,
+            primitive.destination.width,
+            primitive.destination.height,
+          };
+          SDL_RenderTexture(renderer, texture, &source, &destination);
         } else if constexpr (std::is_same_v<Primitive, Line2D>) {
           drawThickLine(
             renderer,
@@ -11317,7 +11550,11 @@ void drawCommands(
   }
 }
 
-void drawCommandList(SDL_Renderer* renderer, const DrawList2D& drawList) {
+void drawCommandList(
+  SDL_Renderer* renderer,
+  const DrawList2D& drawList,
+  const SdlHudImageSet& hudImages
+) {
   const SDL_Rect clip = {
     static_cast<int>(drawList.clip.x),
     static_cast<int>(drawList.clip.y),
@@ -11326,9 +11563,9 @@ void drawCommandList(SDL_Renderer* renderer, const DrawList2D& drawList) {
   };
   SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
   SDL_SetRenderClipRect(renderer, &clip);
-  drawCommands(renderer, drawList.commands);
+  drawCommands(renderer, drawList.commands, hudImages);
   SDL_SetRenderClipRect(renderer, nullptr);
-  drawCommands(renderer, drawList.overlayCommands);
+  drawCommands(renderer, drawList.overlayCommands, hudImages);
 }
 
 void drawPerspectiveLine(
@@ -12271,6 +12508,7 @@ bool Renderer::initialize(void* window) {
           device,
           "bahnschrift.ttf"
         );
+        GpuHudImageSet* hudImages = createGpuHudImageSet(device);
         const SDL_GPUSamplerCreateInfo fontSamplerInfo = {
           SDL_GPU_FILTER_LINEAR,
           SDL_GPU_FILTER_LINEAR,
@@ -12365,6 +12603,7 @@ bool Renderer::initialize(void* window) {
           vertexBuffer != nullptr &&
           transferBuffer != nullptr &&
           fontAtlasSet != nullptr &&
+          hudImages != nullptr &&
           fontAtlasSet->atlases[kDefaultUiFontPixelHeightIndex] != nullptr &&
           fontAtlasSet->atlases[kDefaultUiFontPixelHeightIndex]->texture !=
             nullptr &&
@@ -12436,6 +12675,7 @@ bool Renderer::initialize(void* window) {
           gpuSkyResources_ = new GpuSkyResources();
           gpuGltfPlayerResources_ = gltfPlayerResources;
           gpuFontAtlas_ = fontAtlasSet;
+          gpuHudImages_ = hudImages;
           gpuFontSampler_ = fontSampler;
           gpuOutlineMaskSampler_ = outlineMaskSampler;
           gpuPostProcessSampler_ = postProcessSampler;
@@ -12511,6 +12751,7 @@ bool Renderer::initialize(void* window) {
         if (fontAtlasSet != nullptr) {
           destroyFontAtlasSet(device, fontAtlasSet);
         }
+        destroyGpuHudImageSet(device, hudImages);
         if (vertexBuffer != nullptr) {
           SDL_ReleaseGPUBuffer(device, vertexBuffer);
         }
@@ -12673,6 +12914,7 @@ bool Renderer::initialize(void* window) {
     window_ = nullptr;
     return false;
   }
+  sdlHudImages_ = createSdlHudImageSet(static_cast<SDL_Renderer*>(renderer_));
   const char* rendererName =
     SDL_GetRendererName(static_cast<SDL_Renderer*>(renderer_));
   backendName_ = "SDL_Renderer/";
@@ -13197,6 +13439,7 @@ void Renderer::render(
           static_cast<GpuSimpleResources*>(gpuSimpleResources_),
           gltfPlayerResources,
           fontAtlasSet,
+          static_cast<GpuHudImageSet*>(gpuHudImages_),
           static_cast<SDL_GPUSampler*>(gpuFontSampler_),
           static_cast<TextureAtlas*>(gpuWorldTextureAtlas_),
           staticWorld,
@@ -13729,6 +13972,10 @@ void Renderer::render(
     settings.fieldOfView
   );
   if (captureRequest == nullptr || !captureRequest->hideHud) {
+    const auto* hudImages = static_cast<const SdlHudImageSet*>(sdlHudImages_);
+    if (hudImages == nullptr) {
+      return;
+    }
     drawCommandList(
       renderer,
       buildFloatingHealthBars(
@@ -13740,11 +13987,13 @@ void Renderer::render(
         perspectiveScene.remoteRenderVisible,
         settings,
         hud
-      )
+      ),
+      *hudImages
     );
     drawCommandList(
       renderer,
-      buildFloatingDamageNumbers(width, height, camera, settings, hud)
+      buildFloatingDamageNumbers(width, height, camera, settings, hud),
+      *hudImages
     );
     drawCommandList(
       renderer,
@@ -13756,7 +14005,8 @@ void Renderer::render(
         hud,
         console,
         &camera
-      )
+      ),
+      *hudImages
     );
   }
   if (captureRequest != nullptr && captureResult != nullptr) {
@@ -14097,6 +14347,11 @@ void Renderer::shutdown() {
       );
       gpuFontAtlas_ = nullptr;
     }
+    destroyGpuHudImageSet(
+      static_cast<SDL_GPUDevice*>(gpuDevice_),
+      static_cast<GpuHudImageSet*>(gpuHudImages_)
+    );
+    gpuHudImages_ = nullptr;
     destroyTextureAtlas(
       static_cast<SDL_GPUDevice*>(gpuDevice_),
       static_cast<TextureAtlas*>(gpuWorldTextureAtlas_)
@@ -14390,6 +14645,8 @@ void Renderer::shutdown() {
     gpuDevice_ = nullptr;
   }
   if (renderer_ != nullptr) {
+    destroySdlHudImageSet(static_cast<SdlHudImageSet*>(sdlHudImages_));
+    sdlHudImages_ = nullptr;
     SDL_DestroyRenderer(static_cast<SDL_Renderer*>(renderer_));
     renderer_ = nullptr;
   }

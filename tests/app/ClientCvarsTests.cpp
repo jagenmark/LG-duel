@@ -565,10 +565,10 @@ int main() {
   failures += expect(
     console.execute("cl_health_style") ==
         "cl_health_style = 0 (default 0)" &&
-      console.execute("cl_health_style 3") ==
+      console.execute("cl_health_style 6") ==
         "value out of range for cl_health_style" &&
-      console.execute("cl_health_style 2") == "cl_health_style = 2",
-    "health HUD style cvar should expose the three supported layouts"
+      console.execute("cl_health_style 5") == "cl_health_style = 5",
+    "health HUD style cvar should expose the three classic and three art layouts"
   );
   failures += expect(
     console.execute("crosshair_style") ==

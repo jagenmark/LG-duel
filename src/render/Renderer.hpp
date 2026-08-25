@@ -1317,6 +1317,7 @@ private:
   void* gpuSkyResources_ = nullptr;
   void* gpuGltfPlayerResources_ = nullptr;
   void* gpuFontAtlas_ = nullptr;
+  void* gpuHudImages_ = nullptr;
   void* gpuFontSampler_ = nullptr;
   void* gpuWorldTextureAtlas_ = nullptr;
   void* gpuStaticWorld_ = nullptr;
@@ -1339,6 +1340,7 @@ private:
   void* gpuPointShadowTexture_ = nullptr;
   void* gpuPointShadowFallbackTexture_ = nullptr;
   void* gpuPointShadowSampler_ = nullptr;
+  void* sdlHudImages_ = nullptr;
   std::uint32_t gpuDepthFormat_ = 0;
   std::uint32_t gpuDepthWidth_ = 0;
   std::uint32_t gpuDepthHeight_ = 0;

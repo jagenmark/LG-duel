@@ -120,7 +120,7 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `r_viewmodel_hands` | bool | `0` | bool | None | Archive | Enables the experimental first-person hand preview in the ViewModel pass. It is off by default and opt-in. |
 | `r_dev_camera_draw_connected_body` | bool | `0` | bool | None | Session | Draws the connected player through the third-person Worker path only while the development camera is active. This supports fixed-camera switch checks and never changes normal camera ownership. |
 | `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
-| `cl_health_style` | int | `0` | `0..2` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra med dynamisk färg, `2` crosshair-nära HP vänster och ammo höger. |
+| `cl_health_style` | int | `0` | `0..5` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra, `2` crosshair-nära HP/ammo, `3` segmenterad bild, `4` fylld bild, `5` konturerad bild. |
 | `cl_speed_size` | float | `1.5` | `0.5..6` | Ingen | Arkiv | Textskala för speed-indikatorn under crosshair. |
 | `cl_showfps` | bool | `0` | bool | Ingen | Arkiv | Visar FPS, genomsnittlig frame time och renderer-backend i fönstertiteln. |
 | `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed under crosshair som `<värde> ups`. Intern hastighet multipliceras med `40`, så `8 = 320 ups`. |

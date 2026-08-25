@@ -32,6 +32,30 @@ struct FilledQuad2D {
   RenderColor color = {};
 };
 
+enum class HudImage : std::uint8_t {
+  WeaponMachineGun,
+  WeaponShotgun,
+  WeaponGrenadeLauncher,
+  WeaponRocketLauncher,
+  WeaponLightningGun,
+  WeaponSniperRifle,
+  WeaponPlasmaGun,
+  WeaponFreezeGun,
+  WeaponRevolver,
+  HealthSegmented,
+  HealthFilled,
+  HealthOutlined,
+  Count,
+};
+
+struct Image2D {
+  HudImage image = HudImage::WeaponMachineGun;
+  ScreenRect destination = {};
+  // Normalized coordinates within the source image.
+  ScreenRect source = {0.0F, 0.0F, 1.0F, 1.0F};
+  RenderColor color = {};
+};
+
 struct Line2D {
   ScreenPoint start = {};
   ScreenPoint end = {};
@@ -64,7 +88,7 @@ struct Text2D {
 };
 
 using DrawCommand2D =
-  std::variant<FilledQuad2D, Line2D, SniperScopeOverlay2D, Text2D>;
+  std::variant<FilledQuad2D, Image2D, Line2D, SniperScopeOverlay2D, Text2D>;
 
 struct DrawList2D {
   ScreenRect clip = {};
