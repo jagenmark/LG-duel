@@ -1752,9 +1752,12 @@ int main() {
       failures += expect(
         healthPlus != nullptr && healthValue != nullptr &&
           std::abs(
-            healthValue->position.x - healthPlus->position.x - 36.0F
+            healthValue->position.x - healthPlus->position.x - 34.0F
           ) < 0.001F &&
           std::abs(healthValue->position.y - healthPlus->position.y) < 0.001F &&
+          std::abs(healthValue->position.x - 114.0F) < 0.001F &&
+          std::abs(healthValue->scale - 2.6F) < 0.001F &&
+          std::abs(healthPlus->scale - 2.6F) < 0.001F &&
           healthValue->position.y > 670.0F &&
           healthValue->position.y < 690.0F,
         "art health styles should align the nearby plus and health number with the bar"

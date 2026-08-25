@@ -1642,12 +1642,12 @@ void addArtHealthBar(
   const float left = 18.0F * scale;
   const float bottom = static_cast<float>(height) - 25.0F * scale;
   const float top = bottom - barHeight;
-  const float numberX = left + 76.0F * scale;
-  const float plusX = numberX - 36.0F * scale;
+  const float numberX = left + 96.0F * scale;
+  const float plusX = numberX - 34.0F * scale;
   const float dividerX = left + 122.0F * scale;
   const float barX = dividerX + 16.0F * scale;
-  const float textScale = std::max(1.0F, 2.0F * scale);
-  const float textY = top + 4.0F * scale;
+  const float textScale = std::max(1.0F, 2.6F * scale);
+  const float textY = top + 2.0F * scale;
   const std::string value = std::to_string(std::max(0, localPlayer.health));
 
   addText(
@@ -1656,7 +1656,7 @@ void addArtHealthBar(
     textY,
     "+",
     {245, 247, 248, 255},
-    textScale * 1.25F
+    textScale
   );
   addText(
     drawList,
