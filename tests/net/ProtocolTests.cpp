@@ -452,6 +452,7 @@ int main() {
     source.weaponSwitchingMode = lg::WeaponSwitchingMode::Cpma;
     source.requestMovementTuning = true;
     source.movementTuning.flightEnabled = true;
+    source.movementTuning.glideMovementEnabled = true;
     source.movementTuning.airControlEnabled = true;
     source.movementTuning.groundAcceleration = 120.0F;
     source.movementTuning.airAcceleration = 2.0F;
@@ -598,6 +599,7 @@ int main() {
     failures += expect(
       decoded.requestMovementTuning &&
         decoded.movementTuning.flightEnabled &&
+        decoded.movementTuning.glideMovementEnabled &&
         decoded.movementTuning.airControlEnabled &&
         nearlyEqual(decoded.movementTuning.groundAcceleration, 120.0F) &&
         nearlyEqual(decoded.movementTuning.airAcceleration, 2.0F) &&
@@ -1134,6 +1136,7 @@ int main() {
     source.matchRules.deathRespawnTicks = 250;
     source.matchRules.showOpponentHealth = true;
     source.movementTuning.flightEnabled = true;
+    source.movementTuning.glideMovementEnabled = true;
     source.movementTuning.airControlEnabled = true;
     source.movementTuning.groundAcceleration = 120.0F;
     source.movementTuning.airAcceleration = 2.0F;
@@ -1547,6 +1550,7 @@ int main() {
     );
     failures += expect(
       decoded.movementTuning.flightEnabled &&
+      decoded.movementTuning.glideMovementEnabled &&
       decoded.movementTuning.airControlEnabled &&
       nearlyEqual(decoded.movementTuning.groundAcceleration, 120.0F) &&
       nearlyEqual(decoded.movementTuning.airAcceleration, 2.0F) &&

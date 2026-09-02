@@ -22,32 +22,90 @@ struct ProjectedPoint {
   float y = 0.0F;
 };
 
+struct PerspectiveBasis {
+  Vec3 forward = {1.0F, 0.0F, 0.0F};
+  Vec3 right = {0.0F, -1.0F, 0.0F};
+  Vec3 up = {0.0F, 0.0F, 1.0F};
+};
+
+[[nodiscard]] inline PerspectiveBasis makePerspectiveBasis(
+  float yawRadians,
+  float pitchRadians
+) {
+  const Vec3 forward = cameraForward(yawRadians, pitchRadians);
+  return {
+    forward,
+    yawRight(yawRadians),
+    normalize(Vec3{
+      -forward.z * std::cos(yawRadians),
+      -forward.z * std::sin(yawRadians),
+      std::cos(pitchRadians),
+    }),
+  };
+}
+
+[[nodiscard]] inline Vec3 presentedCameraOffset(
+  Vec3 localOffset,
+  float yawRadians,
+  float pitchRadians
+) {
+  const PerspectiveBasis basis = makePerspectiveBasis(yawRadians, pitchRadians);
+  return
+    basis.forward * localOffset.x +
+    basis.right * localOffset.y +
+    basis.up * localOffset.z;
+}
+
 [[nodiscard]] inline PerspectiveCamera makePerspectiveCamera(
   Vec3 position,
   float yawRadians,
   float pitchRadians,
   float fieldOfViewDegrees,
-  float aspectRatio
+  float aspectRatio,
+  float rollRadians = 0.0F
 ) {
-  const Vec3 forward = cameraForward(yawRadians, pitchRadians);
-  const Vec3 right = yawRight(yawRadians);
-  const Vec3 up = normalize(Vec3{
-    -forward.z * std::cos(yawRadians),
-    -forward.z * std::sin(yawRadians),
-    std::cos(pitchRadians),
-  });
+  const PerspectiveBasis basis = makePerspectiveBasis(yawRadians, pitchRadians);
+  const float rollCosine = std::cos(rollRadians);
+  const float rollSine = std::sin(rollRadians);
+  const Vec3 right =
+    (basis.right * rollCosine) + (basis.up * rollSine);
+  const Vec3 up =
+    (basis.up * rollCosine) - (basis.right * rollSine);
   constexpr float kPi = 3.14159265359F;
   const float halfFovRadians =
     fieldOfViewDegrees * (kPi / 180.0F) * 0.5F;
   return {
     position,
-    forward,
+    basis.forward,
     right,
     up,
     1.0F / std::tan(halfFovRadians),
     aspectRatio,
     0.05F,
   };
+}
+
+[[nodiscard]] inline PerspectiveCamera makePresentedPerspectiveCamera(
+  Vec3 position,
+  float yawRadians,
+  float pitchRadians,
+  float baseFieldOfViewDegrees,
+  float fieldOfViewOffsetDegrees,
+  float aspectRatio,
+  float rollRadians
+) {
+  return makePerspectiveCamera(
+    position,
+    yawRadians,
+    pitchRadians,
+    std::clamp(
+      baseFieldOfViewDegrees + fieldOfViewOffsetDegrees,
+      45.0F,
+      160.0F
+    ),
+    aspectRatio,
+    rollRadians
+  );
 }
 
 [[nodiscard]] inline Vec3 perspectiveCameraSpace(

@@ -14,6 +14,7 @@ inline constexpr std::uint16_t kDefaultJumpPadCooldownTicks = 25;
 
 struct MovementTuning {
   bool flightEnabled = false;
+  bool glideMovementEnabled = false;
   float groundAcceleration = 10.0F;
   float airAcceleration = 1.0F;
   float groundFriction = 6.0F;
@@ -36,6 +37,15 @@ struct MovementTuning {
   float flightDamping = 2.0F;
   float flightGravityCancel = 1.0F;
 };
+
+[[nodiscard]] MovementTuning movementTuningWithGlideProfile(
+  MovementTuning tuning
+);
+
+[[nodiscard]] bool isGlideSlideActive(
+  const PlayerState& player,
+  const MovementTuning& tuning
+);
 
 void simulateMovement(
   PlayerState& player,

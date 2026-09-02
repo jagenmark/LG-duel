@@ -15,13 +15,13 @@ namespace lg::replay {
 // bots ordinary recorded actors and keeps their private planning state out of
 // both hashes and checkpoints.
 inline constexpr std::uint16_t kReplayFormatVersionV1 = 1;
-inline constexpr std::uint16_t kReplayFormatVersion = 6;
-inline constexpr std::uint32_t kReplaySimulationRevision = 1U;
+inline constexpr std::uint16_t kReplayFormatVersion = 7;
+inline constexpr std::uint32_t kReplaySimulationRevision = 2U;
 inline constexpr std::uint32_t kReplayProtocolRevision = kProtocolVersion;
-// Update this when a v6 build changes in a way that is not covered by the
+// Update this when a v7 build changes in a way that is not covered by the
 // replay simulation revision. It prevents a demo from silently crossing an
 // unsupported executable boundary.
-inline constexpr std::uint64_t kReplayBuildFingerprint = 0x4c47444d56360001ULL;
+inline constexpr std::uint64_t kReplayBuildFingerprint = 0x4c47444d56370001ULL;
 inline constexpr std::uint16_t kReplayTickRate = 125;
 // Saved demos may cover a full high-player match. Killcam transfer has its own
 // much smaller cap in ReplayTransfer.hpp.

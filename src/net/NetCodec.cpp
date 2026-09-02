@@ -656,6 +656,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeBool(packet.toggleReady) &&
     writer.writeBool(packet.requestMovementTuning) &&
     writer.writeBool(packet.movementTuning.flightEnabled) &&
+    writer.writeBool(packet.movementTuning.glideMovementEnabled) &&
     writer.writeBool(packet.movementTuning.airControlEnabled) &&
     writer.writeFloat(packet.movementTuning.groundAcceleration) &&
     writer.writeFloat(packet.movementTuning.airAcceleration) &&
@@ -752,6 +753,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readBool(packet.toggleReady) ||
     !reader.readBool(packet.requestMovementTuning) ||
     !reader.readBool(packet.movementTuning.flightEnabled) ||
+    !reader.readBool(packet.movementTuning.glideMovementEnabled) ||
     !reader.readBool(packet.movementTuning.airControlEnabled) ||
     !reader.readFloat(packet.movementTuning.groundAcceleration) ||
     !reader.readFloat(packet.movementTuning.airAcceleration) ||
@@ -2297,6 +2299,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeU16(snapshot.matchRules.deathRespawnTicks) &&
     writer.writeBool(snapshot.matchRules.showOpponentHealth) &&
     writer.writeBool(snapshot.movementTuning.flightEnabled) &&
+    writer.writeBool(snapshot.movementTuning.glideMovementEnabled) &&
     writer.writeBool(snapshot.movementTuning.airControlEnabled) &&
     writer.writeFloat(snapshot.movementTuning.groundAcceleration) &&
     writer.writeFloat(snapshot.movementTuning.airAcceleration) &&
@@ -2727,6 +2730,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readU16(decoded.matchRules.deathRespawnTicks) ||
     !reader.readBool(decoded.matchRules.showOpponentHealth) ||
     !reader.readBool(decoded.movementTuning.flightEnabled) ||
+    !reader.readBool(decoded.movementTuning.glideMovementEnabled) ||
     !reader.readBool(decoded.movementTuning.airControlEnabled) ||
     !reader.readFloat(decoded.movementTuning.groundAcceleration) ||
     !reader.readFloat(decoded.movementTuning.airAcceleration) ||

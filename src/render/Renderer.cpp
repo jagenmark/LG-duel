@@ -8156,18 +8156,25 @@ void appendCommandBatches(
 [[nodiscard]] PerspectiveCamera playerPerspectiveCamera(
   const PlayerState& player,
   float aspectRatio,
-  float fieldOfView
+  const RenderSettings& settings
 ) {
   constexpr CollisionBounds kDefaultPlayerBounds = {};
   const float eyeHeight =
     0.65F *
     (player.bounds.halfHeight / kDefaultPlayerBounds.halfHeight);
-  return makePerspectiveCamera(
-    player.position + Vec3{0.0F, 0.0F, eyeHeight},
+  const Vec3 cameraOffset = presentedCameraOffset(
+    settings.cameraPresentation.translation,
+    player.viewYawRadians,
+    player.viewPitchRadians
+  );
+  return makePresentedPerspectiveCamera(
+    player.position + Vec3{0.0F, 0.0F, eyeHeight} + cameraOffset,
     player.viewYawRadians,
     player.viewPitchRadians,
-    fieldOfView,
-    aspectRatio
+    settings.fieldOfView,
+    settings.cameraPresentation.fovOffsetDegrees,
+    aspectRatio,
+    settings.cameraPresentation.rollRadians
   );
 }
 
@@ -11789,7 +11796,7 @@ void drawPerspectiveWorld(
   const float aspectRatio =
     static_cast<float>(width) / static_cast<float>(std::max(1, height));
   const PerspectiveCamera camera =
-    playerPerspectiveCamera(player, aspectRatio, settings.fieldOfView);
+    playerPerspectiveCamera(player, aspectRatio, settings);
 
   const std::array<Vec3, 4> floorCorners = {{
     {arena.min.x, arena.min.y, arena.min.z},
@@ -13970,7 +13977,7 @@ void Renderer::render(
   const PerspectiveCamera camera = playerPerspectiveCamera(
     sampledPlayer,
     static_cast<float>(width) / static_cast<float>(std::max(1, height)),
-    settings.fieldOfView
+    settings
   );
   if (captureRequest == nullptr || !captureRequest->hideHud) {
     const auto* hudImages = static_cast<const SdlHudImageSet*>(sdlHudImages_);

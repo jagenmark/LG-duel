@@ -518,10 +518,18 @@ int main() {
       console.execute("cl_viewmodel_landing_scale") ==
         "cl_viewmodel_landing_scale = 0.65 (default 0.65)" &&
       console.execute("cl_camera_position_response") ==
-        "cl_camera_position_response = 0 (default 0)" &&
-      console.execute("cl_camera_position_response 0.16") ==
-        "value out of range for cl_camera_position_response",
-    "viewmodel motion cvars should expose bounded competitive defaults"
+        "cl_camera_position_response = 0.7 (default 0.7)" &&
+      console.execute("cl_camera_position_response 1.6") ==
+        "value out of range for cl_camera_position_response" &&
+      console.execute("cl_camera_roll") ==
+        "cl_camera_roll = 2.5 (default 2.5)" &&
+      console.execute("cl_camera_roll 8.1") ==
+        "value out of range for cl_camera_roll" &&
+      console.execute("cl_camera_fov_boost") ==
+        "cl_camera_fov_boost = 3.5 (default 3.5)" &&
+      console.execute("cl_camera_fov_boost 12.1") ==
+        "value out of range for cl_camera_fov_boost",
+    "first-person motion cvars should expose bounded glide defaults"
   );
   failures += expect(
     console.execute("cl_health_size 20") == "cl_health_size = 20" &&
@@ -648,6 +656,14 @@ int main() {
         "r_sg_weapon_model_start = 1" &&
       console.getBool("r_sg_weapon_model_start"),
     "shotgun weapon model start should be toggleable"
+  );
+  failures += expect(
+    console.execute("g_glide_movement") ==
+        "g_glide_movement = 0 (default 0)" &&
+      console.execute("g_glide_movement 1") ==
+        "g_glide_movement = 1" &&
+      console.getBool("g_glide_movement"),
+    "glide movement should be an off-by-default gameplay cvar"
   );
   failures += expect(
     console.execute("r_show_weapons") == "r_show_weapons = 1 (default 1)" &&

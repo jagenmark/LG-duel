@@ -10,6 +10,7 @@
 namespace lg {
 
 void registerGameplayCvars(ConsoleSystem& console, CvarFlag flags) {
+  console.registerCvar({"g_glide_movement", "Enable the glide, slide, and slide-jump movement trial.", false, flags, {}, {}});
   console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 10.0F, flags, 0.0F, 1000.0F, "10"});
   console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 1.0F, flags, 0.0F, 1000.0F, "1"});
   console.registerCvar({"g_aircontrol", "Enable QuakeWorld-style air control while holding forward.", false, flags, {}, {}});
@@ -50,6 +51,7 @@ void registerGameplayCvars(ConsoleSystem& console, CvarFlag flags) {
 MovementTuning movementTuningFromCvars(const ConsoleSystem& console) {
   MovementTuning tuning;
   tuning.flightEnabled = console.getBool("g_flight");
+  tuning.glideMovementEnabled = console.getBool("g_glide_movement");
   tuning.groundAcceleration = console.getFloat("g_accel");
   tuning.airAcceleration = console.getFloat("g_airaccel");
   tuning.airControlEnabled = console.getBool("g_aircontrol");

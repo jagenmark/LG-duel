@@ -109,6 +109,7 @@ constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
   const MovementTuning& rhs
 ) {
   return lhs.flightEnabled == rhs.flightEnabled &&
+    lhs.glideMovementEnabled == rhs.glideMovementEnabled &&
     lhs.airControlEnabled == rhs.airControlEnabled &&
     nearlyEqualGameplayFloat(lhs.groundAcceleration, rhs.groundAcceleration) &&
     nearlyEqualGameplayFloat(lhs.airAcceleration, rhs.airAcceleration) &&
@@ -181,6 +182,10 @@ void syncGameplayCvarsFromSnapshot(
   (void)console.execute(
     std::string("set g_flight ") +
     (snapshot.movementTuning.flightEnabled ? "1" : "0")
+  );
+  (void)console.execute(
+    std::string("set g_glide_movement ") +
+    (snapshot.movementTuning.glideMovementEnabled ? "1" : "0")
   );
   (void)console.execute("set g_accel " + std::to_string(snapshot.movementTuning.groundAcceleration));
   (void)console.execute("set g_airaccel " + std::to_string(snapshot.movementTuning.airAcceleration));
@@ -4170,6 +4175,7 @@ bool sameRuntimeMovementTuning(
   const MovementTuning& rhs
 ) {
   return lhs.flightEnabled == rhs.flightEnabled &&
+    lhs.glideMovementEnabled == rhs.glideMovementEnabled &&
     lhs.groundAcceleration == rhs.groundAcceleration &&
     lhs.airAcceleration == rhs.airAcceleration &&
     lhs.airControlEnabled == rhs.airControlEnabled &&
@@ -6540,6 +6546,7 @@ int GameApp::run() const {
   float pendingLateViewModelMouseDeltaY = 0.0F;
   std::array<PlayerPresentationState, kDuelPlayerCount> playerPresentationStates = {};
   ViewModelPresentationController viewModelPresentation;
+  CameraPresentationController cameraPresentation;
   WeaponSwitchPresentationController localWeaponSwitchPresentation;
   std::array<WeaponSwitchPresentationController, kDuelPlayerCount>
     remoteWeaponSwitchPresentations = {};
@@ -6678,6 +6685,7 @@ int GameApp::run() const {
     previousFrameUsedPresentationView = false;
     playerPresentationStates = {};
     viewModelPresentation.reset();
+    cameraPresentation.reset();
     localWeaponSwitchPresentation.reset();
     remoteWeaponSwitchPresentations = {};
     weaponPresentationLifecycle.reset();
@@ -8942,6 +8950,7 @@ int GameApp::run() const {
       hasLastRemoteHealth = {};
       remoteDeathFadeAgeSeconds = {};
       viewModelPresentation.reset();
+      cameraPresentation.reset();
       localWeaponSwitchPresentation.reset();
       remoteWeaponSwitchPresentations = {};
       weaponPresentationLifecycle.reset();
@@ -10983,13 +10992,30 @@ int GameApp::run() const {
       dot(renderPlayer.velocity, yawRight(renderPlayer.viewYawRadians)),
       renderPlayer.velocity.z,
     };
+    const bool renderGrounded =
+      renderPlayer.onGround ||
+      renderPlayer.movementMode == MovementMode::Grounded;
+    const MovementTuning presentationMovementTuning =
+      movementTuningWithGlideProfile(currentMovementTuning);
+    const bool glideMovementEnabled =
+      currentMovementTuning.glideMovementEnabled;
+    const bool renderSliding =
+      glideMovementEnabled &&
+      (isGlideSlideActive(renderPlayer, currentMovementTuning) ||
+        (!renderGrounded && renderPlayer.crouched));
+    const PlayerMotionPresentationInput motionPresentationInput{
+      localViewVelocity,
+      renderGrounded,
+      renderSliding,
+      elapsed.count(),
+      presentationMovementTuning.maxGroundSpeed,
+      glideMovementEnabled,
+    };
     currentRenderSettings.viewModelPresentation = viewModelPresentation.update(
       {
-        localViewVelocity,
+        motionPresentationInput,
         viewModelMouseDeltaX,
         viewModelMouseDeltaY,
-        renderPlayer.onGround || renderPlayer.movementMode == MovementMode::Grounded,
-        elapsed.count(),
       },
       {
         console.getFloat("cl_viewmodel_motion_scale"),
@@ -10997,7 +11023,21 @@ int GameApp::run() const {
         console.getFloat("cl_viewmodel_sway_scale"),
         console.getFloat("cl_viewmodel_inertia_scale"),
         console.getFloat("cl_viewmodel_landing_scale"),
+      }
+    );
+    constexpr CollisionBounds defaultCameraBounds = {};
+    const float eyeHeightAboveFeet = renderPlayer.bounds.halfHeight +
+      0.65F *
+        (renderPlayer.bounds.halfHeight / defaultCameraBounds.halfHeight);
+    currentRenderSettings.cameraPresentation = cameraPresentation.update(
+      {
+        motionPresentationInput,
+        eyeHeightAboveFeet,
+      },
+      {
         console.getFloat("cl_camera_position_response"),
+        console.getFloat("cl_camera_roll"),
+        console.getFloat("cl_camera_fov_boost"),
       }
     );
     weaponAnimationTiming.reset();
@@ -11243,6 +11283,7 @@ int GameApp::run() const {
         sniperScopeActive,
         sniperAdsAmount
       );
+      currentRenderSettings.cameraPresentation.fovOffsetDegrees = 0.0F;
     }
     if (sniperScopeActive) {
       // The scope owns the center view while ADS is held; hiding the viewmodel

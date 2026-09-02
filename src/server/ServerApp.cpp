@@ -92,6 +92,7 @@ void logConsoleConfigErrors(const ConsoleConfigResult& result) {
 
 bool sameMovementTuning(const MovementTuning& lhs, const MovementTuning& rhs) {
   return lhs.flightEnabled == rhs.flightEnabled &&
+    lhs.glideMovementEnabled == rhs.glideMovementEnabled &&
     lhs.groundAcceleration == rhs.groundAcceleration &&
     lhs.airAcceleration == rhs.airAcceleration &&
     lhs.groundFriction == rhs.groundFriction &&
@@ -136,6 +137,7 @@ bool sameWeaponDamage(
   const MovementTuning& rhs
 ) {
   return lhs.flightEnabled == rhs.flightEnabled &&
+    lhs.glideMovementEnabled == rhs.glideMovementEnabled &&
     lhs.airControlEnabled == rhs.airControlEnabled &&
     nearlyEqualGameplayFloat(lhs.groundAcceleration, rhs.groundAcceleration) &&
     nearlyEqualGameplayFloat(lhs.airAcceleration, rhs.airAcceleration) &&
@@ -232,6 +234,10 @@ void syncGameplayConsoleFromSnapshot(
   (void)console.execute(
     std::string("set g_flight ") +
     (snapshot.movementTuning.flightEnabled ? "1" : "0")
+  );
+  (void)console.execute(
+    std::string("set g_glide_movement ") +
+    (snapshot.movementTuning.glideMovementEnabled ? "1" : "0")
   );
   (void)console.execute("set g_accel " + std::to_string(snapshot.movementTuning.groundAcceleration));
   (void)console.execute("set g_airaccel " + std::to_string(snapshot.movementTuning.airAcceleration));

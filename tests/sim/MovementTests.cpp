@@ -503,6 +503,44 @@ int main() {
 
   {
     lg::UserCommand coast;
+    lg::MovementTuning glide;
+    glide.glideMovementEnabled = true;
+    const lg::MovementTuning effectiveGlide =
+      lg::movementTuningWithGlideProfile(glide);
+    lg::MovementTuning oldProfile;
+    lg::PlayerState carried = groundedPlayer();
+    lg::PlayerState planted = groundedPlayer();
+    carried.velocity.x = 8.0F;
+    planted.velocity.x = 8.0F;
+
+    runCommand(carried, coast, glide, 20);
+    runCommand(planted, coast, oldProfile, 20);
+
+    failures += expect(
+      carried.velocity.x > planted.velocity.x + 3.0F,
+      "the glide profile should keep clear forward carry after input release"
+    );
+
+    lg::UserCommand carve;
+    carve.forwardMove = 1.0F;
+    carve.viewYawRadians = 1.57079632679F;
+    lg::PlayerState turning = groundedPlayer();
+    turning.velocity.x = 8.0F;
+    runCommand(turning, carve, glide, 10);
+    failures += expect(
+      effectiveGlide.groundAcceleration == 7.5F &&
+        effectiveGlide.airAcceleration == 3.0F &&
+        effectiveGlide.groundFriction == 1.35F &&
+        effectiveGlide.stopSpeed == 1.0F &&
+        effectiveGlide.maxGroundSpeed == 10.5F &&
+        effectiveGlide.airControlEnabled &&
+        turning.velocity.x > 6.0F && turning.velocity.y > 4.0F,
+      "the glide profile should add a new direction without dropping old carry"
+    );
+  }
+
+  {
+    lg::UserCommand coast;
     lg::MovementTuning tuning;
     tuning.groundFriction = 20.0F;
     lg::PlayerState normal = groundedPlayer();
@@ -517,6 +555,129 @@ int main() {
     failures += expect(
       nearlyEqual(normal.velocity.x, disabledTimer.velocity.x),
       "disabled knockback timer should preserve normal grounded friction"
+    );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.glideMovementEnabled = true;
+    tuning.groundFriction = 6.0F;
+    tuning.maxGroundSpeed = 10.5F;
+    tuning.maxAirSpeed = 10.5F;
+    lg::PlayerState standing = groundedPlayer();
+    lg::PlayerState sliding = groundedPlayer();
+    standing.velocity.x = 10.5F;
+    sliding.velocity.x = 10.5F;
+
+    lg::UserCommand noInput;
+    lg::UserCommand slide = noInput;
+    slide.crouch = true;
+    runCommand(standing, noInput, lg::MovementTuning{}, 30);
+    runCommand(sliding, slide, tuning, 30);
+
+    failures += expect(
+      sliding.crouched &&
+        lg::isGlideSlideActive(sliding, tuning) &&
+        sliding.velocity.x > 9.0F &&
+        sliding.position.x > standing.position.x + 0.5F,
+      "a fast crouch should become a low slide that carries speed"
+    );
+  }
+
+  {
+    lg::MovementTuning classic;
+    lg::PlayerState player = groundedPlayer();
+    player.velocity.x = classic.maxGroundSpeed;
+    lg::UserCommand crouch;
+    crouch.crouch = true;
+    runCommand(player, crouch, classic, 1);
+
+    failures += expect(
+      !lg::isGlideSlideActive(player, classic),
+      "the default movement path should not start a glide slide"
+    );
+
+    lg::UserCommand jump = crouch;
+    jump.jump = true;
+    runCommand(player, jump, classic, 1);
+    failures += expect(
+      std::hypot(player.velocity.x, player.velocity.y) <
+        classic.maxGroundSpeed * 1.15F,
+      "the default movement path should not grant a slide-jump boost"
+    );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.glideMovementEnabled = true;
+    tuning.maxGroundSpeed = 10.5F;
+    tuning.maxAirSpeed = 10.5F;
+    tuning.airAcceleration = 3.0F;
+    tuning.airControlEnabled = true;
+    lg::PlayerState player = groundedPlayer();
+    player.velocity.x = tuning.maxGroundSpeed;
+
+    lg::PlayerState sameTickCrouchJump = player;
+    lg::UserCommand crouchJump;
+    crouchJump.crouch = true;
+    crouchJump.jump = true;
+    runCommand(sameTickCrouchJump, crouchJump, tuning, 1);
+    failures += expect(
+      std::hypot(
+        sameTickCrouchJump.velocity.x,
+        sameTickCrouchJump.velocity.y
+      ) < tuning.maxGroundSpeed * 1.15F,
+      "crouching on the jump tick should not grant a slide jump boost"
+    );
+
+    lg::UserCommand slide;
+    slide.crouch = true;
+    runCommand(player, slide, tuning, 1);
+    runCommand(player, crouchJump, tuning, 1);
+    const float takeoffSpeed = std::hypot(player.velocity.x, player.velocity.y);
+    failures += expect(
+      !player.onGround && player.crouched &&
+        takeoffSpeed >= tuning.maxGroundSpeed * 1.15F &&
+        player.velocity.z > 7.7F,
+      "jumping from a slide should keep the low pose and add horizontal carry"
+    );
+
+    lg::UserCommand airTurn;
+    airTurn.crouch = true;
+    airTurn.rightMove = 1.0F;
+    runCommand(player, airTurn, tuning, 20);
+    const float steeredSpeed = std::hypot(player.velocity.x, player.velocity.y);
+    failures += expect(
+      player.velocity.y < -5.0F && steeredSpeed > takeoffSpeed * 0.95F,
+      "side-only air input should make a clear turn without dropping carry"
+    );
+
+    bool landedSliding = false;
+    for (int tick = 0; tick < 180; ++tick) {
+      lg::UserCommand landingInput;
+      landingInput.crouch = true;
+      landingInput.forwardMove = 1.0F;
+      runCommand(player, landingInput, tuning, 1);
+      if (player.onGround) {
+        landedSliding = lg::isGlideSlideActive(player, tuning);
+        break;
+      }
+    }
+    const float landingSpeed = std::hypot(player.velocity.x, player.velocity.y);
+    failures += expect(
+      landedSliding && landingSpeed > takeoffSpeed * 0.85F,
+      "landing while crouched should retain enough speed to chain the slide"
+    );
+
+    lg::UserCommand secondJump;
+    secondJump.crouch = true;
+    secondJump.jump = true;
+    runCommand(player, secondJump, tuning, 1);
+    failures += expect(
+      !player.onGround &&
+        std::hypot(player.velocity.x, player.velocity.y) >=
+          tuning.maxGroundSpeed * 1.15F,
+      "a retained landing slide should start a second slide jump"
     );
   }
 
@@ -624,6 +785,7 @@ int main() {
     command.forwardMove = 1.0F;
     lg::MovementTuning q3;
     q3.airAcceleration = 0.0F;
+    q3.airControlEnabled = false;
     lg::MovementTuning qw = q3;
     qw.airControlEnabled = true;
     lg::PlayerState withoutControl = groundedPlayer();

@@ -5,6 +5,7 @@
 #include "app/HudPresentation.hpp"
 #include "net/NetProtocol.hpp"
 #include "net/NetTransport.hpp"
+#include "render/CameraPresentation.hpp"
 #include "render/ConsoleCat.hpp"
 #include "render/DrawList2D.hpp"
 #include "render/PlayerPresentation.hpp"
@@ -146,6 +147,7 @@ struct OutlineState {
 struct RenderSettings {
   float fieldOfView = 90.0F;
   ViewModelPresentationOutput viewModelPresentation = {};
+  CameraPresentationOutput cameraPresentation = {};
   bool enemyLeanEnabled = true;
   float enemyLeanScale = 1.0F;
   bool teammateLeanEnabled = true;

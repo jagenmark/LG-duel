@@ -24,6 +24,36 @@ int main() {
   int failures = 0;
 
   {
+    const lg::Vec3 localOffset{1.0F, 2.0F, 3.0F};
+    const lg::Vec3 worldOffset = lg::presentedCameraOffset(
+      localOffset,
+      1.57079632679F,
+      0.0F
+    );
+    failures += expect(
+      std::fabs(worldOffset.x - 2.0F) < 0.0001F &&
+        std::fabs(worldOffset.y - 1.0F) < 0.0001F &&
+        std::fabs(worldOffset.z - 3.0F) < 0.0001F,
+      "local presentation offsets should rotate into the camera basis"
+    );
+  }
+
+  {
+    constexpr float kThirtyDegrees = 0.52359877559F;
+    const lg::Vec3 worldOffset = lg::presentedCameraOffset(
+      {0.0F, 0.0F, 1.0F},
+      0.0F,
+      kThirtyDegrees
+    );
+    failures += expect(
+      nearlyEqual(worldOffset.x, -0.5F) &&
+        nearlyEqual(worldOffset.y, 0.0F) &&
+        nearlyEqual(worldOffset.z, 0.8660254F),
+      "pitch should rotate local vertical presentation offsets with the camera basis"
+    );
+  }
+
+  {
     const lg::PerspectiveCamera camera =
       lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 1.0F);
     lg::ProjectedPoint projected;
@@ -53,6 +83,20 @@ int main() {
       lg::projectPerspectivePoint(camera, {0.0F, 10.0F, 0.0F}, projected) &&
         nearlyEqual(projected.x, 0.0F),
       "yaw should rotate the forward projection"
+    );
+  }
+
+  {
+    constexpr float kQuarterTurn = 0.78539816339F;
+    const lg::PerspectiveCamera camera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 1.0F, kQuarterTurn);
+    failures += expect(
+      nearlyEqual(lg::dot(camera.forward, camera.right), 0.0F) &&
+        nearlyEqual(lg::dot(camera.forward, camera.up), 0.0F) &&
+        nearlyEqual(lg::dot(camera.right, camera.up), 0.0F) &&
+        camera.right.z > 0.0F &&
+        camera.up.y > 0.0F,
+      "roll should rotate the screen basis around the unchanged forward axis"
     );
   }
 

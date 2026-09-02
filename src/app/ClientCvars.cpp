@@ -31,7 +31,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_viewmodel_sway_scale", "Mouse-driven sway scale for the first-person weapon.", 0.55F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_viewmodel_inertia_scale", "Movement acceleration and braking response scale for the first-person weapon.", 0.55F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_viewmodel_landing_scale", "Jump float and landing compression scale for the first-person weapon.", 0.65F, archivedClient, 0.0F, 2.0F});
-  console.registerCvar({"cl_camera_position_response", "Optional subtle translation-only camera response to viewmodel motion; zero disables it.", 0.0F, archivedClient, 0.0F, 0.15F});
+  console.registerCvar({"cl_camera_position_response", "Scale for smooth slide, jump, and landing camera position response; zero disables it.", 0.7F, archivedClient, 0.0F, 1.5F});
+  console.registerCvar({"cl_camera_roll", "Maximum camera bank in degrees from sideways travel.", 2.5F, archivedClient, 0.0F, 8.0F});
+  console.registerCvar({"cl_camera_fov_boost", "Field-of-view gain at full movement speed.", 3.5F, archivedClient, 0.0F, 12.0F});
   console.registerCvar({"cl_health_size", "Health HUD scale.", 2.0F, archivedClient, 0.5F, 20.0F});
   console.registerCvar({"cl_health_style", "Health HUD style: 0 bottom-left bar, 1 centered number, 2 crosshair number and ammo, 3 segmented art bar, 4 filled art bar, 5 outlined art bar.", 0, archivedClient, 0.0F, 5.0F});
   console.registerCvar({"cl_health_offset_x", "Art health HUD group horizontal screen offset.", 0.0F, archivedClient, -2000.0F, 2000.0F});

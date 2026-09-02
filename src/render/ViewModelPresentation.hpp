@@ -1,17 +1,13 @@
 #pragma once
 
-#include "shared/Math.hpp"
+#include "render/PlayerMotionPresentation.hpp"
 
 namespace lg {
 
-// Inputs are read-only render-frame observations in view-local coordinates:
-// x is forward, y is right, and z is up. They never feed gameplay state back.
 struct ViewModelPresentationInput {
-  Vec3 localVelocity = {};
+  PlayerMotionPresentationInput motion = {};
   float mouseDeltaX = 0.0F;
   float mouseDeltaY = 0.0F;
-  bool grounded = true;
-  float deltaSeconds = 0.0F;
 };
 
 struct ViewModelPresentationTuning {
@@ -20,15 +16,12 @@ struct ViewModelPresentationTuning {
   float swayScale = 0.55F;
   float inertiaScale = 0.55F;
   float landingScale = 0.65F;
-  float cameraPositionResponse = 0.0F;
 };
 
 struct ViewModelPresentationOutput {
   Vec3 translation = {};
   // View-local pitch, yaw, and roll offsets. These rotate only the viewmodel.
   Vec3 rotationRadians = {};
-  // Optional translation-only camera response; its shipped default is exactly zero.
-  Vec3 cameraTranslation = {};
 };
 
 class ViewModelPresentationController {
@@ -44,6 +37,7 @@ private:
   Vec3 smoothedVelocity_ = {};
   Vec3 previousVelocity_ = {};
   Vec3 sway_ = {};
+  float slideAmount_ = 0.0F;
   float landingCompression_ = 0.0F;
   float airborneDownSpeed_ = 0.0F;
   bool wasGrounded_ = true;
