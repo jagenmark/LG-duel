@@ -19,7 +19,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_mouseAccelOffset", "Quake Live mouse speed threshold before acceleration applies.", 0.0F, archivedClient, 0.0F, 1000.0F, "0"});
   console.registerCvar({"cl_mouseSensCap", "Quake Live accelerated sensitivity cap; zero disables the cap.", 0.0F, archivedClient, 0.0F, 100.0F, "0"});
   console.registerCvar({"cl_late_mouse_sample", "Sample mouse input after swapchain acquire and before view-dependent render work.", true, archivedClient, {}, {}});
-  console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
+  console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 96.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sniper_fov", "Field of view for Sniper Rifle ADS.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sensitivity", "First-person mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
@@ -31,7 +31,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_viewmodel_sway_scale", "Mouse-driven sway scale for the first-person weapon.", 0.55F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_viewmodel_inertia_scale", "Movement acceleration and braking response scale for the first-person weapon.", 0.55F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_viewmodel_landing_scale", "Jump float and landing compression scale for the first-person weapon.", 0.65F, archivedClient, 0.0F, 2.0F});
-  console.registerCvar({"cl_camera_position_response", "Optional subtle translation-only camera response to viewmodel motion; zero disables it.", 0.0F, archivedClient, 0.0F, 0.15F});
+  console.registerCvar({"cl_camera_position_response", "Small camera translation from movement response; zero disables it.", 0.08F, archivedClient, 0.0F, 0.15F});
+  console.registerCvar({"cl_camera_roll", "Maximum camera bank in degrees from sideways travel.", 5.5F, archivedClient, 0.0F, 12.0F});
+  console.registerCvar({"cl_camera_fov_boost", "Field-of-view gain at full movement speed.", 7.5F, archivedClient, 0.0F, 20.0F});
   console.registerCvar({"cl_health_size", "Health HUD scale.", 2.0F, archivedClient, 0.5F, 20.0F});
   console.registerCvar({"cl_health_style", "Health HUD style: 0 bottom-left bar, 1 centered number, 2 crosshair number and ammo, 3 segmented art bar, 4 filled art bar, 5 outlined art bar.", 0, archivedClient, 0.0F, 5.0F});
   console.registerCvar({"cl_health_offset_x", "Art health HUD group horizontal screen offset.", 0.0F, archivedClient, -2000.0F, 2000.0F});

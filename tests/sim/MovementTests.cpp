@@ -503,6 +503,44 @@ int main() {
 
   {
     lg::UserCommand coast;
+    lg::MovementTuning glide;
+    glide.groundAcceleration = 7.5F;
+    glide.airAcceleration = 3.0F;
+    glide.groundFriction = 1.35F;
+    glide.stopSpeed = 1.0F;
+    glide.maxGroundSpeed = 10.5F;
+    glide.maxAirSpeed = 10.5F;
+    glide.airControlEnabled = true;
+    lg::MovementTuning oldProfile = glide;
+    oldProfile.groundFriction = 6.0F;
+    oldProfile.stopSpeed = 2.5F;
+    lg::PlayerState carried = groundedPlayer();
+    lg::PlayerState planted = groundedPlayer();
+    carried.velocity.x = 8.0F;
+    planted.velocity.x = 8.0F;
+
+    runCommand(carried, coast, glide, 20);
+    runCommand(planted, coast, oldProfile, 20);
+
+    failures += expect(
+      carried.velocity.x > planted.velocity.x + 3.0F,
+      "the glide profile should keep clear forward carry after input release"
+    );
+
+    lg::UserCommand carve;
+    carve.forwardMove = 1.0F;
+    carve.viewYawRadians = 1.57079632679F;
+    lg::PlayerState turning = groundedPlayer();
+    turning.velocity.x = 8.0F;
+    runCommand(turning, carve, glide, 10);
+    failures += expect(
+      turning.velocity.x > 6.0F && turning.velocity.y > 4.0F,
+      "the glide profile should add a new direction without dropping old carry"
+    );
+  }
+
+  {
+    lg::UserCommand coast;
     lg::MovementTuning tuning;
     tuning.groundFriction = 20.0F;
     lg::PlayerState normal = groundedPlayer();
@@ -624,6 +662,7 @@ int main() {
     command.forwardMove = 1.0F;
     lg::MovementTuning q3;
     q3.airAcceleration = 0.0F;
+    q3.airControlEnabled = false;
     lg::MovementTuning qw = q3;
     qw.airControlEnabled = true;
     lg::PlayerState withoutControl = groundedPlayer();

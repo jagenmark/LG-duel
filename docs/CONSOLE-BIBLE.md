@@ -102,7 +102,7 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_mouseAccelOffset` | float | `0` | `0..1000` | QL `cl_mouseAccelOffset 0` | Arkiv | Mushastighet i counts/ms innan acceleration börjar. Hastigheter under offset behåller baskänsligheten. |
 | `cl_mouseSensCap` | float | `0` | `0..100` | QL `cl_mouseSensCap 0` | Arkiv | Tak för accelererad känslighet. `0` betyder inget tak. |
 | `cl_late_mouse_sample` | bool | `1` | `0..1` | Ingen direkt | Arkiv | Läser musen igen efter swapchain-acquire och före vyberoende renderarbete. `0` stänger av den sena läsningen för A/B-test. Mätt kostnad, tid till submit och fasvinst är apptider, inte fördröjning för hela kedjan från mus till skärm. |
-| `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. |
+| `cl_fov` | float | `96` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. The glide trial uses a wider base view. |
 | `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan allmän `+zoom` hålls. Påverkar inte Sniper Rifle ADS. |
 | `cl_zoom_sniper_fov` | float | `45` | `20..140` | Projektets tidigare Sniper Rifle baseline | Arkiv | Field of view för Sniper Rifle ADS. Oberoende av `cl_zoom_fov`; scope-masken ändrar inte form eller plats. |
 | `cl_zoom_sensitivity` | float | `0` | `0..10` | Ingen direkt | Arkiv | First-person sensitivity multiplier while `+zoom` is held. `0` auto-matches the FOV ratio. |
@@ -114,7 +114,9 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_viewmodel_sway_scale` | float | `0.55` | `0..2` | None | Archive | Scale for immediate mouse-delta weapon sway. The sway rotates only the rendered viewmodel. `0` disables only sway. |
 | `cl_viewmodel_inertia_scale` | float | `0.55` | `0..2` | None | Archive | Scale for lateral movement inertia and acceleration/braking response. `0` disables only inertia. |
 | `cl_viewmodel_landing_scale` | float | `0.65` | `0..2` | None | Archive | Scale for airborne float and landing compression. `0` disables only jump/landing response. |
-| `cl_camera_position_response` | float | `0` | `0..0.15` | None | Archive | Optional extremely subtle translation-only camera response derived from presentation motion. Default `0` is exactly neutral; no camera rotation is ever added. |
+| `cl_camera_position_response` | float | `0.08` | `0..0.15` | None | Archive | Small camera translation from first-person movement response. `0` disables it. |
+| `cl_camera_roll` | float | `5.5` | `0..12` degrees | None | Archive | Maximum smooth camera bank from sideways travel. It changes only the rendered camera, not aim or hit checks. |
+| `cl_camera_fov_boost` | float | `7.5` | `0..20` degrees | None | Archive | Adds field of view as horizontal speed rises. Zoom and Sniper Rifle ADS disable the gain. |
 | `r_player_model` | int | `1` | `0..1` | None | Archive | Remote player body renderer. `0` uses legacy boxes and `1` uses the Quaternius Worker GLB default. The Duelist asset stays archived and is not a runtime option. |
 | `r_weapon_switch_animation` | bool | `1` | bool | None | Archive | Enables the deterministic 0.16-second first-person drop/hidden-swap/raise presentation and the inverse third-person arm lift. It never changes weapon authority or fire timing. |
 | `r_viewmodel_hands` | bool | `0` | bool | None | Archive | Enables the experimental first-person hand preview in the ViewModel pass. It is off by default and opt-in. |
@@ -166,12 +168,12 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 
 | Cvar | Typ | Projektdefault | Giltigt | Q3/QL-default eller ekvivalent | Funktion |
 |---|---:|---:|---|---|---|
-| `g_accel` | float | `10` | `0..1000` | `pm_accelerate 10` | Markacceleration mot `g_maxspeed`. |
-| `g_airaccel` | float | `1` | `0..1000` | `pm_airaccelerate 1` | Acceleration i luften. |
-| `g_aircontrol` | bool | `0` | bool | Q3/QL: `0`, QW-style: `1` | Vaxlar extra air control. `0` behaller Q3/QL-kansla utan QuakeWorld-lik styrning i luften. `1` later forward-input vrida horisontell luftfart mot siktriktningen utan att direkt ge gratis fart. |
-| `g_friction` | float | `6` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. |
-| `g_stopspeed` | float | `2.5` | `0..100` | `pm_stopspeed 100`, motsvarar `2.5` internt | Minsta kontrollhastighet i friktionsberäkningen. |
-| `g_maxspeed` | float | `8` | `0.1..100` | `g_speed 320`, motsvarar `8` internt | Sustained mark- och air-speed cap. |
+| `g_accel` | float | `7.5` | `0..1000` | `pm_accelerate 10` | Softer ground acceleration lets old and new travel directions overlap during a turn. |
+| `g_airaccel` | float | `3` | `0..1000` | `pm_airaccelerate 1` | Higher air acceleration gives more choice after a jump. |
+| `g_aircontrol` | bool | `1` | bool | Q3/QL: `0`, QW-style: `1` | Forward input can turn horizontal air velocity toward the view without adding speed by itself. |
+| `g_friction` | float | `1.35` | `0..100` | `pm_friction 6` | Low ground friction keeps travel after input release and through direction changes. |
+| `g_stopspeed` | float | `1` | `0..100` | `pm_stopspeed 100`, equals `2.5` internally | Low-speed braking control used by ground friction. |
+| `g_maxspeed` | float | `10.5` | `0.1..100` | `420 UPS` | Sustained ground and air target speed for the glide trial. |
 | `g_dash_targetspeed` | float | `11.5` | `0..100` | `460 UPS`, internal `11.5` | Dash target speed along the locked input direction. |
 | `g_dash_maxspeed` | float | `12.5` | `0..100` | `500 UPS`, internal `12.5` | Cap for speed created by dash. Existing speed above this cap is preserved. |
 | `g_dash_accel` | float | `200` | `0..1000` | `8000 UPS/s`, internal `200` | Dash acceleration during the active dash window. |

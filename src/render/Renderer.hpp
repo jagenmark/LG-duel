@@ -146,6 +146,8 @@ struct OutlineState {
 struct RenderSettings {
   float fieldOfView = 90.0F;
   ViewModelPresentationOutput viewModelPresentation = {};
+  float cameraRollRadians = 0.0F;
+  float cameraFovOffsetDegrees = 0.0F;
   bool enemyLeanEnabled = true;
   float enemyLeanScale = 1.0F;
   bool teammateLeanEnabled = true;

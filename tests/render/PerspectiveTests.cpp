@@ -57,6 +57,20 @@ int main() {
   }
 
   {
+    constexpr float kQuarterTurn = 0.78539816339F;
+    const lg::PerspectiveCamera camera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 1.0F, kQuarterTurn);
+    failures += expect(
+      nearlyEqual(lg::dot(camera.forward, camera.right), 0.0F) &&
+        nearlyEqual(lg::dot(camera.forward, camera.up), 0.0F) &&
+        nearlyEqual(lg::dot(camera.right, camera.up), 0.0F) &&
+        camera.right.z > 0.0F &&
+        camera.up.y > 0.0F,
+      "roll should rotate the screen basis around the unchanged forward axis"
+    );
+  }
+
+  {
     const lg::PerspectiveCamera camera =
       lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 2.0F);
     lg::ProjectedPoint projected;

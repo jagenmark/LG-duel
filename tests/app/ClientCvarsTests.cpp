@@ -518,10 +518,18 @@ int main() {
       console.execute("cl_viewmodel_landing_scale") ==
         "cl_viewmodel_landing_scale = 0.65 (default 0.65)" &&
       console.execute("cl_camera_position_response") ==
-        "cl_camera_position_response = 0 (default 0)" &&
+        "cl_camera_position_response = 0.08 (default 0.08)" &&
       console.execute("cl_camera_position_response 0.16") ==
-        "value out of range for cl_camera_position_response",
-    "viewmodel motion cvars should expose bounded competitive defaults"
+        "value out of range for cl_camera_position_response" &&
+      console.execute("cl_camera_roll") ==
+        "cl_camera_roll = 5.5 (default 5.5)" &&
+      console.execute("cl_camera_roll 12.1") ==
+        "value out of range for cl_camera_roll" &&
+      console.execute("cl_camera_fov_boost") ==
+        "cl_camera_fov_boost = 7.5 (default 7.5)" &&
+      console.execute("cl_camera_fov_boost 20.1") ==
+        "value out of range for cl_camera_fov_boost",
+    "first-person motion cvars should expose bounded glide defaults"
   );
   failures += expect(
     console.execute("cl_health_size 20") == "cl_health_size = 20" &&

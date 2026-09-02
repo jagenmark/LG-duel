@@ -10,12 +10,12 @@
 namespace lg {
 
 void registerGameplayCvars(ConsoleSystem& console, CvarFlag flags) {
-  console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 10.0F, flags, 0.0F, 1000.0F, "10"});
-  console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 1.0F, flags, 0.0F, 1000.0F, "1"});
-  console.registerCvar({"g_aircontrol", "Enable QuakeWorld-style air control while holding forward.", false, flags, {}, {}});
-  console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 6.0F, flags, 0.0F, 100.0F, "6"});
-  console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, flags, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
-  console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, flags, 0.1F, 100.0F, "8 (g_speed 320)"});
+  console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 7.5F, flags, 0.0F, 1000.0F, "7.5"});
+  console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 3.0F, flags, 0.0F, 1000.0F, "3"});
+  console.registerCvar({"g_aircontrol", "Enable QuakeWorld-style air control while holding forward.", true, flags, {}, {}});
+  console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 1.35F, flags, 0.0F, 100.0F, "1.35"});
+  console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 1.0F, flags, 0.0F, 100.0F, "1"});
+  console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 10.5F, flags, 0.1F, 100.0F, "10.5 (420 UPS)"});
   console.registerCvar({"g_dash_targetspeed", "Authoritative dash target speed along the locked input direction.", 11.5F, flags, 0.0F, 100.0F, "11.5 (460 UPS)"});
   console.registerCvar({"g_dash_maxspeed", "Authoritative cap for speed created by dash without clamping existing skilled speed.", 12.5F, flags, 0.0F, 100.0F, "12.5 (500 UPS)"});
   console.registerCvar({"g_dash_accel", "Authoritative dash acceleration in project units per second.", 200.0F, flags, 0.0F, 1000.0F, "200 (8000 UPS/s)"});

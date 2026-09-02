@@ -27,15 +27,22 @@ struct ProjectedPoint {
   float yawRadians,
   float pitchRadians,
   float fieldOfViewDegrees,
-  float aspectRatio
+  float aspectRatio,
+  float rollRadians = 0.0F
 ) {
   const Vec3 forward = cameraForward(yawRadians, pitchRadians);
-  const Vec3 right = yawRight(yawRadians);
-  const Vec3 up = normalize(Vec3{
+  const Vec3 levelRight = yawRight(yawRadians);
+  const Vec3 levelUp = normalize(Vec3{
     -forward.z * std::cos(yawRadians),
     -forward.z * std::sin(yawRadians),
     std::cos(pitchRadians),
   });
+  const float rollCosine = std::cos(rollRadians);
+  const float rollSine = std::sin(rollRadians);
+  const Vec3 right =
+    (levelRight * rollCosine) + (levelUp * rollSine);
+  const Vec3 up =
+    (levelUp * rollCosine) - (levelRight * rollSine);
   constexpr float kPi = 3.14159265359F;
   const float halfFovRadians =
     fieldOfViewDegrees * (kPi / 180.0F) * 0.5F;

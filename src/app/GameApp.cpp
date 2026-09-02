@@ -10987,6 +10987,7 @@ int GameApp::run() const {
         viewModelMouseDeltaY,
         renderPlayer.onGround || renderPlayer.movementMode == MovementMode::Grounded,
         elapsed.count(),
+        currentMovementTuning.maxGroundSpeed,
       },
       {
         console.getFloat("cl_viewmodel_motion_scale"),
@@ -10995,8 +10996,14 @@ int GameApp::run() const {
         console.getFloat("cl_viewmodel_inertia_scale"),
         console.getFloat("cl_viewmodel_landing_scale"),
         console.getFloat("cl_camera_position_response"),
+        console.getFloat("cl_camera_roll"),
+        console.getFloat("cl_camera_fov_boost"),
       }
     );
+    currentRenderSettings.cameraRollRadians =
+      currentRenderSettings.viewModelPresentation.cameraRollRadians;
+    currentRenderSettings.cameraFovOffsetDegrees =
+      currentRenderSettings.viewModelPresentation.cameraFovOffsetDegrees;
     weaponAnimationTiming.reset();
     if (deathCamera.mode != DeathCameraMode::Alive) {
       currentRenderSettings.crosshairEnabled = false;
@@ -11240,6 +11247,7 @@ int GameApp::run() const {
         sniperScopeActive,
         sniperAdsAmount
       );
+      currentRenderSettings.cameraFovOffsetDegrees = 0.0F;
     }
     if (sniperScopeActive) {
       // The scope owns the center view while ADS is held; hiding the viewmodel

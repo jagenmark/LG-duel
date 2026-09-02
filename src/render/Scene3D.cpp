@@ -6665,8 +6665,13 @@ Scene3D buildPerspectiveScene(
     cameraPosition,
     player.viewYawRadians,
     player.viewPitchRadians,
-    settings.fieldOfView,
-    aspectRatio
+    std::clamp(
+      settings.fieldOfView + settings.cameraFovOffsetDegrees,
+      45.0F,
+      160.0F
+    ),
+    aspectRatio,
+    settings.cameraRollRadians
   );
   scene.lights.sunDirection = arena.sunLight.direction;
   scene.lights.sunColor = arena.sunLight.color;
