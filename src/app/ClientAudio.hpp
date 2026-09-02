@@ -51,6 +51,7 @@ public:
   void resetLightningGunFire();
   void playRoundResult(bool won, float volume);
   void playCountdown(std::uint32_t seconds, float volume);
+  void setMuted(bool muted);
   void update();
   void shutdown();
 
@@ -95,6 +96,7 @@ private:
   static constexpr int kTargetQueuedSamples = 1024;
   static constexpr std::size_t kMaxActiveVoices = 32;
   SDL_AudioStream* stream_ = nullptr;
+  bool muted_ = false;
   std::vector<SoundVoice> voices_;
   std::vector<float> mixBuffer_;
   LoadedClip lightningGunLoop_;

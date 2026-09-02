@@ -179,6 +179,12 @@ std::vector<MiscMenuItem> miscMenuItems(const ConsoleSystem &console,
           false,
       },
       {
+          "Sound when unfocused",
+          onOff(console.getBool("s_play_unfocused")),
+          "Lets the game play sound while its window lacks focus.",
+          false,
+      },
+      {
           "Damage direction",
           onOff(draft.pendingDamageIndicator),
           "Shows a restrained warning arc at the screen edge when damage comes from a direction.",
@@ -258,6 +264,10 @@ bool adjustMiscMenuValue(ConsoleSystem &console, MiscMenuRow row,
   case MiscMenuRow::NetGraph:
     setInt(console, "cl_netgraph",
            wrappedValue(console.getInt("cl_netgraph"), direction, 3));
+    return true;
+  case MiscMenuRow::SoundWhenUnfocused:
+    setBool(console, "s_play_unfocused",
+            !console.getBool("s_play_unfocused"));
     return true;
   case MiscMenuRow::DamageIndicator:
     draft.pendingDamageIndicator = !draft.pendingDamageIndicator;

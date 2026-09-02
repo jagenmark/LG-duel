@@ -128,7 +128,7 @@ run the command directly; do not focus the game and inject F10:
 python .\scripts\lg_control.py --port 28061 --timeout 5 exec-console settings
 ```
 
-F11 is bound to the `misc` console command. It opens the tools and debug menu.
+F11 is bound to the `misc` console command. It opens the general settings menu.
 The default config does not bind a quit key.
 
 Use `exec-console toggleconsole` only when testing the console UI itself. It

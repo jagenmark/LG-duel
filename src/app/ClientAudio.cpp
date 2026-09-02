@@ -241,6 +241,29 @@ void ClientAudio::playCountdown(std::uint32_t seconds, float volume) {
   }
 }
 
+void ClientAudio::setMuted(bool muted) {
+  if (muted_ == muted) {
+    return;
+  }
+  muted_ = muted;
+#if LG_DUEL_HAS_SDL3
+  if (stream_ != nullptr) {
+    if (muted_) {
+      (void)SDL_PauseAudioStreamDevice(stream_);
+      (void)SDL_ClearAudioStream(stream_);
+    } else {
+      (void)SDL_ResumeAudioStreamDevice(stream_);
+    }
+  }
+#endif
+  if (muted_) {
+    voices_.clear();
+    lightningGunFireGain_ = 0.0F;
+    lightningGunFirePan_ = 0.0F;
+    painGruntFramesRemaining_ = 0U;
+  }
+}
+
 void ClientAudio::update() {
   pumpAudio();
 }
@@ -349,7 +372,7 @@ std::vector<float> ClientAudio::resampleToMixerRate(const AudioClip& clip) {
 }
 
 bool ClientAudio::queueClip(const LoadedClip& clip, float volume, float pan) {
-  if (stream_ == nullptr || volume <= 0.0F || clip.samples.empty()) {
+  if (stream_ == nullptr || muted_ || volume <= 0.0F || clip.samples.empty()) {
     return false;
   }
   const StereoGains gains = stereoGains(pan);
@@ -440,7 +463,7 @@ void ClientAudio::addVoice(std::vector<float> samples) {
 
 void ClientAudio::pumpAudio() {
 #if LG_DUEL_HAS_SDL3
-  if (stream_ == nullptr) {
+  if (stream_ == nullptr || muted_) {
     return;
   }
 

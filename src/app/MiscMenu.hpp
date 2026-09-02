@@ -20,6 +20,7 @@ enum class MiscMenuRow : std::size_t {
   FrameStats,
   RendererPerformance,
   NetGraph,
+  SoundWhenUnfocused,
   DamageIndicator,
   DamageIndicatorReset,
   DamageIndicatorApply,

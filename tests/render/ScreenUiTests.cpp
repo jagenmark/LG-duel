@@ -513,7 +513,7 @@ int main() {
               miscLayout.panelX + miscLayout.panelWidth - 22.0F;
     }
     failures += expect(
-        findText(miscUi, "TOOLS / DEBUG") != nullptr &&
+        findText(miscUi, "GENERAL SETTINGS") != nullptr &&
             findText(miscUi, "Weapon position") != nullptr &&
             miscFooterLines == 2U && miscFooterFits &&
             findText(miscUi, "HUD MUST STAY BELOW TOOLS") == nullptr &&
