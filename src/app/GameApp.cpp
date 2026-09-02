@@ -109,6 +109,7 @@ constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
   const MovementTuning& rhs
 ) {
   return lhs.flightEnabled == rhs.flightEnabled &&
+    lhs.glideMovementEnabled == rhs.glideMovementEnabled &&
     lhs.airControlEnabled == rhs.airControlEnabled &&
     nearlyEqualGameplayFloat(lhs.groundAcceleration, rhs.groundAcceleration) &&
     nearlyEqualGameplayFloat(lhs.airAcceleration, rhs.airAcceleration) &&
@@ -181,6 +182,10 @@ void syncGameplayCvarsFromSnapshot(
   (void)console.execute(
     std::string("set g_flight ") +
     (snapshot.movementTuning.flightEnabled ? "1" : "0")
+  );
+  (void)console.execute(
+    std::string("set g_glide_movement ") +
+    (snapshot.movementTuning.glideMovementEnabled ? "1" : "0")
   );
   (void)console.execute("set g_accel " + std::to_string(snapshot.movementTuning.groundAcceleration));
   (void)console.execute("set g_airaccel " + std::to_string(snapshot.movementTuning.airAcceleration));
@@ -4170,6 +4175,7 @@ bool sameRuntimeMovementTuning(
   const MovementTuning& rhs
 ) {
   return lhs.flightEnabled == rhs.flightEnabled &&
+    lhs.glideMovementEnabled == rhs.glideMovementEnabled &&
     lhs.groundAcceleration == rhs.groundAcceleration &&
     lhs.airAcceleration == rhs.airAcceleration &&
     lhs.airControlEnabled == rhs.airControlEnabled &&
@@ -10986,15 +10992,21 @@ int GameApp::run() const {
     const bool renderGrounded =
       renderPlayer.onGround ||
       renderPlayer.movementMode == MovementMode::Grounded;
+    const MovementTuning presentationMovementTuning =
+      movementTuningWithGlideProfile(currentMovementTuning);
+    const bool glideMovementEnabled =
+      currentMovementTuning.glideMovementEnabled;
     const bool renderSliding =
-      isGlideSlideActive(renderPlayer, currentMovementTuning) ||
-      (!renderGrounded && renderPlayer.crouched);
+      glideMovementEnabled &&
+      (isGlideSlideActive(renderPlayer, currentMovementTuning) ||
+        (!renderGrounded && renderPlayer.crouched));
     const PlayerMotionPresentationInput motionPresentationInput{
       localViewVelocity,
       renderGrounded,
       renderSliding,
       elapsed.count(),
-      currentMovementTuning.maxGroundSpeed,
+      presentationMovementTuning.maxGroundSpeed,
+      glideMovementEnabled,
     };
     currentRenderSettings.viewModelPresentation = viewModelPresentation.update(
       {

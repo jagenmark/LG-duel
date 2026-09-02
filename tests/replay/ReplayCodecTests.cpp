@@ -77,6 +77,7 @@ lg::replay::ReplayDemo validDemo() {
   demo.metadata.gameMode = lg::GameMode::FreeForAll;
   demo.metadata.visibility = lg::replay::ReplayVisibility::DeveloperFull;
   demo.metadata.gameplayConfig.balance.rocketLauncher.speed = 31.0F;
+  demo.metadata.gameplayConfig.movementTuning.glideMovementEnabled = true;
   demo.metadata.gameplayConfig.movementTuning.gravity = 27.0F;
   demo.metadata.gameplayConfig.mcguffinConfig.throwSpeed = 14.0F;
   demo.metadata.gameplayConfigHash =
@@ -201,8 +202,9 @@ int main() {
   failures += expect(lg::replay::decodeDemo(wire, decoded, &error), "valid replay should decode");
   failures += expect(decoded.metadata.mapName == source.metadata.mapName, "metadata should round trip");
   failures += expect(
-    decoded.metadata.gameplayConfigHash == source.metadata.gameplayConfigHash &&
+      decoded.metadata.gameplayConfigHash == source.metadata.gameplayConfigHash &&
       decoded.metadata.gameplayConfig.balance.rocketLauncher.speed == 31.0F &&
+      decoded.metadata.gameplayConfig.movementTuning.glideMovementEnabled &&
       decoded.metadata.gameplayConfig.movementTuning.gravity == 27.0F &&
       decoded.metadata.gameplayConfig.mcguffinConfig.throwSpeed == 14.0F,
     "full gameplay configuration should round trip"

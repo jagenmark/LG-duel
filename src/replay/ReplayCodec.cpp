@@ -545,6 +545,7 @@ bool readRoundStats(Reader& reader, RoundCombatStats& stats) {
 
 bool writeMovementTuning(Writer& writer, const MovementTuning& tuning) {
   return validMovementTuning(tuning) && writer.boolean(tuning.flightEnabled) &&
+    writer.boolean(tuning.glideMovementEnabled) &&
     writer.f32(tuning.groundAcceleration) && writer.f32(tuning.airAcceleration) &&
     writer.f32(tuning.groundFriction) && writer.f32(tuning.stopSpeed) &&
     writer.f32(tuning.gravity) && writer.f32(tuning.maxGroundSpeed) &&
@@ -558,7 +559,9 @@ bool writeMovementTuning(Writer& writer, const MovementTuning& tuning) {
 }
 
 bool readMovementTuning(Reader& reader, MovementTuning& tuning) {
-  return reader.boolean(tuning.flightEnabled) && reader.f32(tuning.groundAcceleration) &&
+  return reader.boolean(tuning.flightEnabled) &&
+    reader.boolean(tuning.glideMovementEnabled) &&
+    reader.f32(tuning.groundAcceleration) &&
     reader.f32(tuning.airAcceleration) && reader.f32(tuning.groundFriction) &&
     reader.f32(tuning.stopSpeed) && reader.f32(tuning.gravity) &&
     reader.f32(tuning.maxGroundSpeed) && reader.f32(tuning.maxAirSpeed) &&

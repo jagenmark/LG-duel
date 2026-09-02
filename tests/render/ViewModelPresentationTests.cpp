@@ -83,6 +83,7 @@ int main() {
 
   controller.reset();
   lg::ViewModelPresentationInput sliding = active;
+  sliding.motion.glideEnabled = true;
   sliding.motion.sliding = true;
   auto slideOutput = controller.update(sliding);
   for (int frame = 0; frame < 20; ++frame) {
@@ -102,6 +103,14 @@ int main() {
       airborneSlideOutput.translation.z < -0.02F &&
       airborneSlideOutput.rotationRadians.x > 0.02F,
     "a crouched glide should keep the slide pose visible in the air"
+  );
+
+  sliding.motion.glideEnabled = false;
+  sliding.motion.sliding = false;
+  const auto classicOutput = controller.update(sliding, individual);
+  failures += expect(
+    neutral(classicOutput),
+    "classic movement should clear the glide weapon pose at once"
   );
 
   return failures == 0 ? 0 : 1;

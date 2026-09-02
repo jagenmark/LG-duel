@@ -24,6 +24,10 @@ CameraPresentationOutput CameraPresentationController::update(
   const CameraPresentationTuning& tuning
 ) {
   const PlayerMotionPresentationInput& motion = input.motion;
+  if (!motion.glideEnabled) {
+    reset();
+    return {};
+  }
   const float dt = std::clamp(motion.deltaSeconds, 0.0F, 0.05F);
   const float referenceSpeed = std::max(motion.referenceSpeed, 0.1F);
   const float horizontalSpeed = std::hypot(

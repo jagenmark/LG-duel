@@ -12,6 +12,7 @@ struct PlayerMotionPresentationInput {
   bool sliding = false;
   float deltaSeconds = 0.0F;
   float referenceSpeed = 8.0F;
+  bool glideEnabled = false;
 };
 
 } // namespace lg

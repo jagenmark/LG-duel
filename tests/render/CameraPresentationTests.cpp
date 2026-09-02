@@ -35,7 +35,10 @@ lg::CameraPresentationInput cameraInput(
   float deltaSeconds,
   float referenceSpeed
 ) {
-  return {{localVelocity, grounded, sliding, deltaSeconds, referenceSpeed}, eyeHeight};
+  return {
+    {localVelocity, grounded, sliding, deltaSeconds, referenceSpeed, true},
+    eyeHeight,
+  };
 }
 
 } // namespace
@@ -131,6 +134,18 @@ int main() {
   failures += expect(
     std::fabs(sixtyResult.translation.z - oneTwentyResult.translation.z) < 0.005F,
     "camera response should stay stable across render rates"
+  );
+
+  lg::CameraPresentationInput classicInput = cameraInput(
+    {10.5F, 5.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F
+  );
+  classicInput.motion.glideEnabled = false;
+  const auto classicOutput = sixtyFps.update(classicInput);
+  failures += expect(
+    magnitude(classicOutput.translation) == 0.0F &&
+      classicOutput.rollRadians == 0.0F &&
+      classicOutput.fovOffsetDegrees == 0.0F,
+    "classic movement should clear every glide camera effect at once"
   );
 
   return failures == 0 ? 0 : 1;

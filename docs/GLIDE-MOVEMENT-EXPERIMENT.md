@@ -22,6 +22,7 @@ traces, player bounds, or network prediction.
 
 | Setting | Trial | Prior value |
 |---|---:|---:|
+| `g_glide_movement` | `1` | `0` |
 | `g_accel` | `7.5` | `10` |
 | `g_airaccel` | `3` | `1` |
 | `g_aircontrol` | `1` | `0` |
@@ -33,10 +34,13 @@ traces, player bounds, or network prediction.
 | `cl_camera_roll` | `2.5` | new; `0` disables it |
 | `cl_camera_fov_boost` | `3.5` | new; `0` disables it |
 
+Set `g_glide_movement 1` to turn on the full trial profile and its first-person
+effects. Set it back to `0` to restore the prior movement path and disable the
+glide camera and weapon offsets. The six base `g_*` cvars keep their prior
+defaults while the trial stays off.
+
 Set `cl_camera_position_response`, `cl_camera_roll`, and
-`cl_camera_fov_boost` to `0` to test the movement with a fixed camera. Set the
-six `g_*` values to the prior values in the table to compare the old movement
-with the new camera.
+`cl_camera_fov_boost` to `0` to test glide movement with a fixed camera.
 
 The field-of-view gain turns off while general zoom or Sniper Rifle ADS is
 active. The bank stays active because it rotates around the center aim ray.

@@ -114,9 +114,9 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_viewmodel_sway_scale` | float | `0.55` | `0..2` | None | Archive | Scale for immediate mouse-delta weapon sway. The sway rotates only the rendered viewmodel. `0` disables only sway. |
 | `cl_viewmodel_inertia_scale` | float | `0.55` | `0..2` | None | Archive | Scale for lateral movement inertia and acceleration/braking response. `0` disables only inertia. |
 | `cl_viewmodel_landing_scale` | float | `0.65` | `0..2` | None | Archive | Scale for airborne float and landing compression. `0` disables only jump/landing response. |
-| `cl_camera_position_response` | float | `0.7` | `0..1.5` | None | Archive | Scale for smooth slide, jump, and landing camera position response. `0` disables it. |
-| `cl_camera_roll` | float | `2.5` | `0..8` degrees | None | Archive | Maximum smooth camera bank from sideways travel. It changes only the rendered camera, not aim or hit checks. |
-| `cl_camera_fov_boost` | float | `3.5` | `0..12` degrees | None | Archive | Adds a small field-of-view gain as horizontal speed rises. Zoom and Sniper Rifle ADS disable the gain. |
+| `cl_camera_position_response` | float | `0.7` | `0..1.5` | None | Archive | Scale for glide slide, jump, and landing camera position response. `g_glide_movement 0` disables it. |
+| `cl_camera_roll` | float | `2.5` | `0..8` degrees | None | Archive | Maximum glide camera bank from sideways travel. It changes only the rendered camera, not aim or hit checks. `g_glide_movement 0` disables it. |
+| `cl_camera_fov_boost` | float | `3.5` | `0..12` degrees | None | Archive | Adds a field-of-view gain during glide movement. Zoom, Sniper Rifle ADS, and `g_glide_movement 0` disable it. |
 | `r_player_model` | int | `1` | `0..1` | None | Archive | Remote player body renderer. `0` uses legacy boxes and `1` uses the Quaternius Worker GLB default. The Duelist asset stays archived and is not a runtime option. |
 | `r_weapon_switch_animation` | bool | `1` | bool | None | Archive | Enables the deterministic 0.16-second first-person drop/hidden-swap/raise presentation and the inverse third-person arm lift. It never changes weapon authority or fire timing. |
 | `r_viewmodel_hands` | bool | `0` | bool | None | Archive | Enables the experimental first-person hand preview in the ViewModel pass. It is off by default and opt-in. |
@@ -168,12 +168,13 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 
 | Cvar | Typ | Projektdefault | Giltigt | Q3/QL-default eller ekvivalent | Funktion |
 |---|---:|---:|---|---|---|
-| `g_accel` | float | `7.5` | `0..1000` | `pm_accelerate 10` | Softer ground acceleration lets old and new travel directions overlap during a turn. |
-| `g_airaccel` | float | `3` | `0..1000` | `pm_airaccelerate 1` | Higher air acceleration gives more choice after a jump. |
-| `g_aircontrol` | bool | `1` | bool | Q3/QL: `0`, QW-style: `1` | Forward input can turn horizontal air velocity toward the view without adding speed by itself. |
-| `g_friction` | float | `1.35` | `0..100` | `pm_friction 6` | Low ground friction keeps travel after input release and through direction changes. |
-| `g_stopspeed` | float | `1` | `0..100` | `pm_stopspeed 100`, equals `2.5` internally | Low-speed braking control used by ground friction. |
-| `g_maxspeed` | float | `10.5` | `0.1..100` | `420 UPS` | Sustained ground and air target speed for the glide trial. |
+| `g_glide_movement` | bool | `0` | bool | None | Enables the glide profile, crouch slide, slide jump, free air turn, and matching first-person effects. `0` keeps the prior movement path. |
+| `g_accel` | float | `10` | `0..1000` | `pm_accelerate 10` | Markacceleration mot `g_maxspeed`. The glide profile uses `7.5`. |
+| `g_airaccel` | float | `1` | `0..1000` | `pm_airaccelerate 1` | Acceleration i luften. The glide profile uses `3`. |
+| `g_aircontrol` | bool | `0` | bool | Q3/QL: `0`, QW-style: `1` | Vaxlar extra air control. The glide profile turns on its free air turn. |
+| `g_friction` | float | `6` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. The glide profile uses `1.35`. |
+| `g_stopspeed` | float | `2.5` | `0..100` | `pm_stopspeed 100`, motsvarar `2.5` internt | Minsta kontrollhastighet i friktionsberäkningen. The glide profile uses `1`. |
+| `g_maxspeed` | float | `8` | `0.1..100` | `g_speed 320`, motsvarar `8` internt | Sustained mark- och air-speed cap. The glide profile uses `10.5` (`420 UPS`). |
 | `g_dash_targetspeed` | float | `11.5` | `0..100` | `460 UPS`, internal `11.5` | Dash target speed along the locked input direction. |
 | `g_dash_maxspeed` | float | `12.5` | `0..100` | `500 UPS`, internal `12.5` | Cap for speed created by dash. Existing speed above this cap is preserved. |
 | `g_dash_accel` | float | `200` | `0..1000` | `8000 UPS/s`, internal `200` | Dash acceleration during the active dash window. |

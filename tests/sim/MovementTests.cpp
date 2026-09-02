@@ -504,16 +504,10 @@ int main() {
   {
     lg::UserCommand coast;
     lg::MovementTuning glide;
-    glide.groundAcceleration = 7.5F;
-    glide.airAcceleration = 3.0F;
-    glide.groundFriction = 1.35F;
-    glide.stopSpeed = 1.0F;
-    glide.maxGroundSpeed = 10.5F;
-    glide.maxAirSpeed = 10.5F;
-    glide.airControlEnabled = true;
-    lg::MovementTuning oldProfile = glide;
-    oldProfile.groundFriction = 6.0F;
-    oldProfile.stopSpeed = 2.5F;
+    glide.glideMovementEnabled = true;
+    const lg::MovementTuning effectiveGlide =
+      lg::movementTuningWithGlideProfile(glide);
+    lg::MovementTuning oldProfile;
     lg::PlayerState carried = groundedPlayer();
     lg::PlayerState planted = groundedPlayer();
     carried.velocity.x = 8.0F;
@@ -534,7 +528,13 @@ int main() {
     turning.velocity.x = 8.0F;
     runCommand(turning, carve, glide, 10);
     failures += expect(
-      turning.velocity.x > 6.0F && turning.velocity.y > 4.0F,
+      effectiveGlide.groundAcceleration == 7.5F &&
+        effectiveGlide.airAcceleration == 3.0F &&
+        effectiveGlide.groundFriction == 1.35F &&
+        effectiveGlide.stopSpeed == 1.0F &&
+        effectiveGlide.maxGroundSpeed == 10.5F &&
+        effectiveGlide.airControlEnabled &&
+        turning.velocity.x > 6.0F && turning.velocity.y > 4.0F,
       "the glide profile should add a new direction without dropping old carry"
     );
   }
@@ -560,6 +560,7 @@ int main() {
 
   {
     lg::MovementTuning tuning;
+    tuning.glideMovementEnabled = true;
     tuning.groundFriction = 6.0F;
     tuning.maxGroundSpeed = 10.5F;
     tuning.maxAirSpeed = 10.5F;
@@ -571,7 +572,7 @@ int main() {
     lg::UserCommand noInput;
     lg::UserCommand slide = noInput;
     slide.crouch = true;
-    runCommand(standing, noInput, tuning, 30);
+    runCommand(standing, noInput, lg::MovementTuning{}, 30);
     runCommand(sliding, slide, tuning, 30);
 
     failures += expect(
@@ -584,7 +585,31 @@ int main() {
   }
 
   {
+    lg::MovementTuning classic;
+    lg::PlayerState player = groundedPlayer();
+    player.velocity.x = classic.maxGroundSpeed;
+    lg::UserCommand crouch;
+    crouch.crouch = true;
+    runCommand(player, crouch, classic, 1);
+
+    failures += expect(
+      !lg::isGlideSlideActive(player, classic),
+      "the default movement path should not start a glide slide"
+    );
+
+    lg::UserCommand jump = crouch;
+    jump.jump = true;
+    runCommand(player, jump, classic, 1);
+    failures += expect(
+      std::hypot(player.velocity.x, player.velocity.y) <
+        classic.maxGroundSpeed * 1.15F,
+      "the default movement path should not grant a slide-jump boost"
+    );
+  }
+
+  {
     lg::MovementTuning tuning;
+    tuning.glideMovementEnabled = true;
     tuning.maxGroundSpeed = 10.5F;
     tuning.maxAirSpeed = 10.5F;
     tuning.airAcceleration = 3.0F;

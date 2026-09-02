@@ -566,7 +566,40 @@ void decrementDashCooldown(PlayerState& player) {
   }
 }
 
-void applyAirControl(
+void applyClassicAirControl(
+  Vec3& velocity,
+  const UserCommand& command,
+  Vec3 wishDirection,
+  float fixedDt
+) {
+  if (command.forwardMove <= 0.0F || length(wishDirection) <= 0.0F) {
+    return;
+  }
+
+  const float verticalSpeed = velocity.z;
+  Vec3 planarVelocity = horizontal(velocity);
+  const float speed = length(planarVelocity);
+  if (speed <= 0.0001F) {
+    return;
+  }
+
+  planarVelocity = planarVelocity / speed;
+  const float alignment = dot(planarVelocity, wishDirection);
+  if (alignment <= 0.0F) {
+    return;
+  }
+
+  constexpr float kQuakeWorldAirControl = 32.0F;
+  const float control =
+    kQuakeWorldAirControl * alignment * alignment * fixedDt;
+  planarVelocity = normalize((planarVelocity * speed) + (wishDirection * control));
+  planarVelocity *= speed;
+  velocity.x = planarVelocity.x;
+  velocity.y = planarVelocity.y;
+  velocity.z = verticalSpeed;
+}
+
+void applyGlideAirControl(
   Vec3& velocity,
   Vec3 wishDirection,
   float fixedDt
@@ -830,7 +863,11 @@ void simulateGroundedOrAirborne(
       fixedDt
     );
     if (useAirMovement && tuning.airControlEnabled) {
-      applyAirControl(player.velocity, wishDirection, fixedDt);
+      if (tuning.glideMovementEnabled) {
+        applyGlideAirControl(player.velocity, wishDirection, fixedDt);
+      } else {
+        applyClassicAirControl(player.velocity, command, wishDirection, fixedDt);
+      }
     }
   }
   applyDashAcceleration(player, tuning, fixedDt);
@@ -965,14 +1002,34 @@ void simulateFlying(
 
 } // namespace
 
+MovementTuning movementTuningWithGlideProfile(MovementTuning tuning) {
+  if (!tuning.glideMovementEnabled) {
+    return tuning;
+  }
+
+  tuning.groundAcceleration = 7.5F;
+  tuning.airAcceleration = 3.0F;
+  tuning.airControlEnabled = true;
+  tuning.groundFriction = 1.35F;
+  tuning.stopSpeed = 1.0F;
+  tuning.maxGroundSpeed = 10.5F;
+  tuning.maxAirSpeed = 10.5F;
+  return tuning;
+}
+
 bool isGlideSlideActive(
   const PlayerState& player,
   const MovementTuning& tuning
 ) {
+  if (!tuning.glideMovementEnabled) {
+    return false;
+  }
+  const MovementTuning effectiveTuning =
+    movementTuningWithGlideProfile(tuning);
   const float planarSpeed = std::hypot(player.velocity.x, player.velocity.y);
   return player.onGround &&
     player.crouched &&
-    planarSpeed >= tuning.maxGroundSpeed * kSlideMinimumSpeedScale;
+    planarSpeed >= effectiveTuning.maxGroundSpeed * kSlideMinimumSpeedScale;
 }
 
 void simulateMovement(
@@ -1029,7 +1086,9 @@ void simulateMovement(
   benchmark::ScopedTiming timing(
     benchmark::TimingSubsystem::MovementCollision
   );
-  if (tuning.flightEnabled) {
+  const MovementTuning effectiveTuning =
+    movementTuningWithGlideProfile(tuning);
+  if (effectiveTuning.flightEnabled) {
     player.movementMode = MovementMode::Flying;
   } else if (player.movementMode == MovementMode::Flying) {
     player.movementMode = MovementMode::Airborne;
@@ -1040,14 +1099,14 @@ void simulateMovement(
   case MovementMode::Grounded:
   case MovementMode::Airborne:
     simulateGroundedOrAirborne(
-      player, command, arena, tuning, icePools, icePoolTuning,
+      player, command, arena, effectiveTuning, icePools, icePoolTuning,
       fixedDt * freezeMovementScale(player), jumpPadCooldownDurationTicks,
       playerProxies, playerIndex
     );
     break;
   case MovementMode::Flying:
     simulateFlying(
-      player, command, arena, tuning,
+      player, command, arena, effectiveTuning,
       fixedDt * freezeMovementScale(player), jumpPadCooldownDurationTicks,
       playerProxies, playerIndex
     );

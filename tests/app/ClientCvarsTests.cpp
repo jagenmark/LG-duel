@@ -658,6 +658,14 @@ int main() {
     "shotgun weapon model start should be toggleable"
   );
   failures += expect(
+    console.execute("g_glide_movement") ==
+        "g_glide_movement = 0 (default 0)" &&
+      console.execute("g_glide_movement 1") ==
+        "g_glide_movement = 1" &&
+      console.getBool("g_glide_movement"),
+    "glide movement should be an off-by-default gameplay cvar"
+  );
+  failures += expect(
     console.execute("r_show_weapons") == "r_show_weapons = 1 (default 1)" &&
       console.execute("r_show_weapons 0") == "r_show_weapons = 0" &&
       !console.getBool("r_show_weapons"),

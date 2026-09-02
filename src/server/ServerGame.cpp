@@ -57,6 +57,7 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   const MovementTuning& right
 ) {
   return left.flightEnabled == right.flightEnabled &&
+    left.glideMovementEnabled == right.glideMovementEnabled &&
     left.groundAcceleration == right.groundAcceleration &&
     left.airAcceleration == right.airAcceleration &&
     left.groundFriction == right.groundFriction &&
@@ -6536,6 +6537,11 @@ void ServerGame::receiveCommands() {
         "g_flight",
         movementTuning_.flightEnabled,
         packet.movementTuning.flightEnabled
+      );
+      logBool(
+        "g_glide_movement",
+        movementTuning_.glideMovementEnabled,
+        packet.movementTuning.glideMovementEnabled
       );
       logFloat(
         "g_accel",

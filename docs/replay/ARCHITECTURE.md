@@ -82,14 +82,14 @@ command and the data used with it:
 - slot/body connection changes, human-or-bot marker, name, team, ready state,
   spectator state, phase, rules, map, and configuration changes.
 
-The current v6 `ReplayTickInput` records only present slots. It keeps each
+The current v7 `ReplayTickInput` records only present slots. It keeps each
 present slot’s resolved command, `viewedServerTick`, consumed action edges,
 accepted jump/dash/attack/throw edges, and original attack edge command. An
-absent slot has no replay payload and must have default input state. V6 carries
+absent slot has no replay payload and must have default input state. V7 carries
 dynamic roster, name, team, ready, mode, rule, reset, and configuration changes
 in explicit authority-boundary records.
 
-The replay decoder accepts only format v6. It rejects v1 through v5 before
+The replay decoder accepts only format v7. It rejects v1 through v6 before
 restoring any state and charges native decoded allocations against a fixed
 resident-memory budget before growing replay containers.
 

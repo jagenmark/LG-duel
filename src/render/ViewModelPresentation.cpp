@@ -61,11 +61,15 @@ ViewModelPresentationOutput ViewModelPresentationController::update(
     }
     landingCompression_ *= std::exp(-14.0F * dt);
     wasGrounded_ = motion.grounded;
-    slideAmount_ = std::lerp(
-      slideAmount_,
-      motion.sliding ? 1.0F : 0.0F,
-      decayAlpha(motion.sliding ? 18.0F : 11.0F, dt)
-    );
+    if (motion.glideEnabled) {
+      slideAmount_ = std::lerp(
+        slideAmount_,
+        motion.sliding ? 1.0F : 0.0F,
+        decayAlpha(motion.sliding ? 18.0F : 11.0F, dt)
+      );
+    } else {
+      slideAmount_ = 0.0F;
+    }
 
     // Acceleration is consumed below through the velocity lag; retaining this
     // calculation here documents the braking/acceleration frame boundary.

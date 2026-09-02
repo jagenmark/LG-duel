@@ -1098,7 +1098,8 @@ int main() {
 
     const lg::ServerSnapshot tuned = latestSnapshot(transport);
     failures += expect(
-      tuned.movementTuning.groundAcceleration == 160.0F &&
+      !tuned.movementTuning.glideMovementEnabled &&
+        tuned.movementTuning.groundAcceleration == 160.0F &&
         tuned.movementTuning.airControlEnabled &&
         tuned.movementTuning.airAcceleration == 3.0F &&
         tuned.movementTuning.groundFriction == 4.0F &&
@@ -1125,6 +1126,17 @@ int main() {
     failures += expect(
       tuned.players[0].velocity.x > 1.0F,
       "updated acceleration should affect the requesting simulation tick"
+    );
+
+    lg::CommandPacket glideRequest = tuningRequest;
+    glideRequest.command.sequence = 2;
+    glideRequest.command.forwardMove = 0.0F;
+    glideRequest.movementTuning.glideMovementEnabled = true;
+    transport.sendCommand(glideRequest);
+    server.tick(lg::kFixedTickSeconds);
+    failures += expect(
+      latestSnapshot(transport).movementTuning.glideMovementEnabled,
+      "glide movement should be authoritative and replicated"
     );
   }
 
