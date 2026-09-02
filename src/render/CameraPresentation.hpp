@@ -27,6 +27,9 @@ public:
     const CameraPresentationInput& input,
     const CameraPresentationTuning& tuning = {}
   );
+  [[nodiscard]] float currentFovOffsetDegrees() const {
+    return fovOffsetDegrees_;
+  }
   void reset();
 
 private:

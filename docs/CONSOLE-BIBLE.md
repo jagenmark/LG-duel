@@ -105,6 +105,8 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. |
 | `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan allmän `+zoom` hålls. Påverkar inte Sniper Rifle ADS. |
 | `cl_zoom_sniper_fov` | float | `45` | `20..140` | Projektets tidigare Sniper Rifle baseline | Arkiv | Field of view för Sniper Rifle ADS. Oberoende av `cl_zoom_fov`; scope-masken ändrar inte form eller plats. |
+| `cl_zoom_smooth` | bool | `0` | `0..1` | Ingen direkt | Arkiv | Smooths general `+zoom` in and out. `0` keeps the instant zoom behavior. Sniper Rifle ADS uses its own timing. |
+| `cl_zoom_duration_ms` | int | `180` | `50..1000` ms | Ingen direkt | Arkiv | Time for a smooth general `+zoom` change. A reversed hold continues from the current FOV. |
 | `cl_zoom_sensitivity` | float | `0` | `0..10` | Ingen direkt | Arkiv | First-person sensitivity multiplier while `+zoom` is held. `0` auto-matches the FOV ratio. |
 | `cl_death_spectate_threshold` | float | `3` | `0..30` seconds | None | Archive | A live-respawn delay at or above this value switches the death camera to a living teammate after the hold. Shorter delays retain the local death-position view. |
 | `cl_death_camera_hold` | float | `0.5` | `0..10` seconds | None | Archive | Minimum time to retain the local death-position view before teammate spectating begins. |
@@ -660,7 +662,7 @@ knappen släpps.
 | `+dash` / `-dash` | Start the universal movement dash on press. Default bind: `mouse3`. Direction is sampled from movement input and locked when dash starts. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
 | `+showchat` / `-showchat` | Hold chat history open; use the mouse wheel to scroll. |
-| `+zoom` / `-zoom` | Hold or release zoom. General zoom uses `cl_zoom_fov`; Sniper Rifle ADS uses `cl_zoom_sniper_fov`. Both use the same `cl_zoom_sensitivity` rule. Sniper ADS also opens the scope and sends ADS state to the server for charge. |
+| `+zoom` / `-zoom` | Hold or release zoom. General zoom uses `cl_zoom_fov` and can smooth with `cl_zoom_smooth` and `cl_zoom_duration_ms`; Sniper Rifle ADS uses `cl_zoom_sniper_fov`. Both use the same `cl_zoom_sensitivity` rule. Sniper ADS also opens the scope and sends ADS state to the server for charge. |
 | `weapon <mg\|sg\|gl\|rl\|lg\|sr\|pg\|fg\|re\|1..9>` | Choose machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, Sniper Rifle, plasma gun, freeze gun, or revolver. `rg`, `rail`, and `railgun` remain aliases for `sr`. |
 
 ### Standardbindings

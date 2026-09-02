@@ -340,14 +340,32 @@ int main() {
         "cl_zoom_fov = 45 (default 45)" &&
       console.execute("cl_zoom_sniper_fov") ==
         "cl_zoom_sniper_fov = 45 (default 45)" &&
+      console.execute("cl_zoom_smooth") ==
+        "cl_zoom_smooth = 0 (default 0)" &&
+      console.execute("cl_zoom_duration_ms") ==
+        "cl_zoom_duration_ms = 180 (default 180)" &&
+      console.execute("cl_zoom_duration_ms 49") ==
+        "value out of range for cl_zoom_duration_ms" &&
+      console.execute("cl_zoom_duration_ms 1001") ==
+        "value out of range for cl_zoom_duration_ms" &&
       console.execute("cl_zoom_sniper_fov 19.9") ==
         "value out of range for cl_zoom_sniper_fov" &&
       console.execute("cl_zoom_sniper_fov 140.1") ==
         "value out of range for cl_zoom_sniper_fov" &&
       console.execute("cl_zoom_fov 60") == "cl_zoom_fov = 60" &&
       console.execute("cl_zoom_sniper_fov 30") ==
-        "cl_zoom_sniper_fov = 30",
-    "general and sniper zoom FOV cvars should have separate bounded values"
+        "cl_zoom_sniper_fov = 30" &&
+      console.execute("cl_zoom_smooth 1") == "cl_zoom_smooth = 1" &&
+      console.execute("cl_zoom_duration_ms 200") ==
+        "cl_zoom_duration_ms = 200",
+    "zoom FOV and smooth-transition cvars should expose bounded values"
+  );
+  failures += expect(
+    defaultConfig.contains("cl_zoom_smooth") &&
+      defaultConfig.at("cl_zoom_smooth") == "0" &&
+      defaultConfig.contains("cl_zoom_duration_ms") &&
+      defaultConfig.at("cl_zoom_duration_ms") == "180",
+    "the default client config should keep general zoom smoothing off"
   );
   failures += expect(
     lg::resolvedZoomFieldOfView(
@@ -384,6 +402,44 @@ int main() {
       ) == 60.0F,
     "each zoom cvar should affect only its own camera stage"
   );
+  const float generalZoomMidpoint = lg::advanceGeneralZoomAmount(
+    0.0F,
+    true,
+    true,
+    200.0F,
+    0.1F
+  );
+  const float reversedGeneralZoom = lg::advanceGeneralZoomAmount(
+    generalZoomMidpoint,
+    false,
+    true,
+    200.0F,
+    0.05F
+  );
+  failures += expect(
+    lg::advanceGeneralZoomAmount(0.25F, true, false, 200.0F, 0.01F) ==
+        1.0F &&
+      lg::advanceGeneralZoomAmount(0.75F, false, false, 200.0F, 0.01F) ==
+        0.0F &&
+      std::fabs(
+        lg::advanceGeneralZoomAmount(
+          0.0F,
+          true,
+          console.getBool("cl_zoom_smooth"),
+          lg::generalZoomDurationMilliseconds(console),
+          0.1F
+        ) - 0.5F
+      ) < 0.0001F &&
+      std::fabs(generalZoomMidpoint - 0.5F) < 0.0001F &&
+      std::fabs(reversedGeneralZoom - 0.25F) < 0.0001F &&
+      lg::generalZoomFieldOfView(90.0F, 30.0F, 0.0F) == 90.0F &&
+      lg::generalZoomFieldOfView(90.0F, 30.0F, 1.0F) == 30.0F &&
+      std::fabs(
+        lg::generalZoomFieldOfView(90.0F, 30.0F, generalZoomMidpoint) -
+        60.0F
+      ) < 0.0001F,
+    "general zoom should keep its current amount through a smooth reversal"
+  );
   const float generalAutoSensitivity =
     lg::zoomSensitivityMultiplier(90.0F, 60.0F, 0.0F);
   const float sniperAutoSensitivity =
@@ -394,6 +450,68 @@ int main() {
       lg::zoomSensitivityMultiplier(90.0F, 60.0F, 0.4F) == 0.4F &&
       lg::zoomSensitivityMultiplier(90.0F, 30.0F, 0.4F) == 0.4F,
     "general and sniper zoom should share auto and manual sensitivity rules"
+  );
+  const float zoomOutAmount = lg::advanceGeneralZoomAmount(
+    0.75F,
+    false,
+    true,
+    200.0F,
+    0.05F
+  );
+  const float liveGeneralFieldOfView = lg::generalZoomFieldOfView(
+    90.0F,
+    30.0F,
+    zoomOutAmount
+  );
+  failures += expect(
+    std::fabs(zoomOutAmount - 0.5F) < 0.0001F &&
+      std::fabs(
+        lg::transitioningZoomSensitivityMultiplier(
+          90.0F,
+          liveGeneralFieldOfView,
+          0.0F,
+          zoomOutAmount
+        ) - 0.5773503F
+      ) < 0.0001F &&
+      lg::transitioningZoomSensitivityMultiplier(
+        90.0F,
+        30.0F,
+        0.4F,
+        1.0F
+      ) == 0.4F &&
+      std::fabs(
+        lg::transitioningZoomSensitivityMultiplier(
+          90.0F,
+          60.0F,
+          0.4F,
+          0.5F
+        ) - 0.7F
+      ) < 0.0001F &&
+      lg::transitioningZoomSensitivityMultiplier(
+        90.0F,
+        90.0F,
+        0.4F,
+        0.0F
+      ) == 1.0F,
+    "general zoom sensitivity should follow the live FOV while zooming out"
+  );
+  const float boostedNormalFieldOfView = 97.5F;
+  const float boostedTransitionFieldOfView = lg::generalZoomFieldOfView(
+    boostedNormalFieldOfView,
+    45.0F,
+    0.5F
+  );
+  failures += expect(
+    std::fabs(boostedTransitionFieldOfView - 71.25F) < 0.0001F &&
+      std::fabs(
+        lg::transitioningZoomSensitivityMultiplier(
+          boostedNormalFieldOfView,
+          boostedTransitionFieldOfView,
+          0.0F,
+          0.5F
+        ) - 0.6284324F
+      ) < 0.0001F,
+    "smooth zoom should include camera FOV gain in its view and aim endpoints"
   );
   const std::vector<std::string> zoomArchivedConfig =
     console.archivedConfigLines();
@@ -407,8 +525,18 @@ int main() {
         zoomArchivedConfig.begin(),
         zoomArchivedConfig.end(),
         "set cl_zoom_sniper_fov 30"
+      ) != zoomArchivedConfig.end() &&
+      std::find(
+        zoomArchivedConfig.begin(),
+        zoomArchivedConfig.end(),
+        "set cl_zoom_smooth 1"
+      ) != zoomArchivedConfig.end() &&
+      std::find(
+        zoomArchivedConfig.begin(),
+        zoomArchivedConfig.end(),
+        "set cl_zoom_duration_ms 200"
       ) != zoomArchivedConfig.end(),
-    "both zoom FOV cvars should persist in the client config"
+    "zoom FOV and smooth-transition cvars should persist in the client config"
   );
   failures += expect(
     console.execute("cl_mouseAccel") ==

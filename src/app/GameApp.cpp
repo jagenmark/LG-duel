@@ -2301,10 +2301,12 @@ struct ResolutionOption {
   int height = 0;
 };
 
-constexpr int kSettingsResetRow = 32;
-constexpr int kSettingsApplyRow = 33;
-constexpr int kSettingsCloseRow = 34;
-constexpr int kSettingsRowCount = 35;
+constexpr int kSettingsSmoothZoomRow = 32;
+constexpr int kSettingsZoomDurationRow = 33;
+constexpr int kSettingsResetRow = 34;
+constexpr int kSettingsApplyRow = 35;
+constexpr int kSettingsCloseRow = 36;
+constexpr int kSettingsRowCount = 37;
 
 struct SettingsVideoMenuState {
   bool open = false;
@@ -2343,6 +2345,8 @@ struct SettingsVideoMenuState {
   bool pendingCasings = true;
   float pendingImpactParticles = 1.0F;
   int pendingDecalBudget = 128;
+  bool pendingSmoothZoom = false;
+  int pendingZoomDurationMs = 180;
   VideoSettings originalVideo = {};
   int originalMaxFps = 0;
   float originalRenderScale = 1.0F;
@@ -2371,6 +2375,8 @@ struct SettingsVideoMenuState {
   bool originalCasings = true;
   float originalImpactParticles = 1.0F;
   int originalDecalBudget = 128;
+  bool originalSmoothZoom = false;
+  int originalZoomDurationMs = 180;
 };
 
 struct GeneralMenuState {
@@ -3024,7 +3030,9 @@ bool applyVideoSettings(
     menu.pendingPlayerRim != menu.originalPlayerRim ||
     menu.pendingCasings != menu.originalCasings ||
     menu.pendingImpactParticles != menu.originalImpactParticles ||
-    menu.pendingDecalBudget != menu.originalDecalBudget;
+    menu.pendingDecalBudget != menu.originalDecalBudget ||
+    menu.pendingSmoothZoom != menu.originalSmoothZoom ||
+    menu.pendingZoomDurationMs != menu.originalZoomDurationMs;
 }
 
 [[nodiscard]] int matchingGraphicsProfile(const SettingsVideoMenuState& menu) {
@@ -3120,7 +3128,16 @@ void applyGraphicsProfile(SettingsVideoMenuState& menu, int profile) {
   menu.pendingDecalBudget = std::stoi(std::string(value("r_decals_max")));
 }
 
-void syncSettingsMenuFromConsole(SettingsVideoMenuState& menu, const ConsoleSystem& console) {
+void resetSettingsMenuDraft(SettingsVideoMenuState& menu) {
+  applyGraphicsProfile(menu, static_cast<int>(GraphicsProfile::Default));
+  menu.pendingSmoothZoom = false;
+  menu.pendingZoomDurationMs = 180;
+}
+
+void syncSettingsMenuFromConsole(
+  SettingsVideoMenuState& menu,
+  const ConsoleSystem& console
+) {
   menu.pendingVideo = videoSettingsFromConsole(console);
   menu.pendingMaxFps = console.getInt("r_maxfps");
   menu.pendingRenderScale = console.getFloat("r_render_scale");
@@ -3149,6 +3166,8 @@ void syncSettingsMenuFromConsole(SettingsVideoMenuState& menu, const ConsoleSyst
   menu.pendingCasings = console.getBool("r_casings");
   menu.pendingImpactParticles = console.getFloat("r_impact_particles");
   menu.pendingDecalBudget = console.getInt("r_decals_max");
+  menu.pendingSmoothZoom = console.getBool("cl_zoom_smooth");
+  menu.pendingZoomDurationMs = console.getInt("cl_zoom_duration_ms");
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
   menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter;
@@ -3174,6 +3193,8 @@ void syncSettingsMenuFromConsole(SettingsVideoMenuState& menu, const ConsoleSyst
   menu.originalCasings = menu.pendingCasings;
   menu.originalImpactParticles = menu.pendingImpactParticles;
   menu.originalDecalBudget = menu.pendingDecalBudget;
+  menu.originalSmoothZoom = menu.pendingSmoothZoom;
+  menu.originalZoomDurationMs = menu.pendingZoomDurationMs;
   menu.pendingProfile = matchingGraphicsProfile(menu);
   menu.selectedRow = std::clamp(menu.selectedRow, 0, kSettingsRowCount - 1);
   menu.scrollRows = 0U;
@@ -3335,6 +3356,16 @@ void adjustSettingsMenuValue(SettingsVideoMenuState& menu, int direction) {
       1.50F
     );
     return;
+  case kSettingsSmoothZoomRow:
+    menu.pendingSmoothZoom = !menu.pendingSmoothZoom;
+    return;
+  case kSettingsZoomDurationRow:
+    menu.pendingZoomDurationMs = std::clamp(
+      menu.pendingZoomDurationMs + 10 * direction,
+      50,
+      1000
+    );
+    return;
   default:
     return;
   }
@@ -3408,6 +3439,12 @@ void applySettingsMenu(ConsoleSystem& console, SettingsVideoMenuState& menu) {
   (void)console.execute(
     "set r_decals_max " + std::to_string(menu.pendingDecalBudget)
   );
+  (void)console.execute(
+    "set cl_zoom_smooth " + std::to_string(menu.pendingSmoothZoom ? 1 : 0)
+  );
+  (void)console.execute(
+    "set cl_zoom_duration_ms " + std::to_string(menu.pendingZoomDurationMs)
+  );
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
   menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter; menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias; menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull; menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode; menu.originalOutlineStyle = menu.pendingOutlineStyle;
@@ -3428,6 +3465,8 @@ void applySettingsMenu(ConsoleSystem& console, SettingsVideoMenuState& menu) {
   menu.originalCasings = menu.pendingCasings;
   menu.originalImpactParticles = menu.pendingImpactParticles;
   menu.originalDecalBudget = menu.pendingDecalBudget;
+  menu.originalSmoothZoom = menu.pendingSmoothZoom;
+  menu.originalZoomDurationMs = menu.pendingZoomDurationMs;
 }
 
 [[nodiscard]] HudRenderState::SettingsMenuItem settingsMenuItem(
@@ -3652,9 +3691,23 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
+      kSettingsSmoothZoomRow,
+      "Smooth general zoom",
+      menu.pendingSmoothZoom ? "On" : "Off",
+      menu.pendingSmoothZoom != menu.originalSmoothZoom
+    ),
+    settingsMenuItem(
+      menu,
+      kSettingsZoomDurationRow,
+      "General zoom duration",
+      std::to_string(menu.pendingZoomDurationMs) + " ms",
+      menu.pendingZoomDurationMs != menu.originalZoomDurationMs
+    ),
+    settingsMenuItem(
+      menu,
       kSettingsResetRow,
-      "Reset graphics draft",
-      "Default profile",
+      "Reset graphics / zoom draft",
+      "Default values",
       false,
       true
     ),
@@ -3709,7 +3762,9 @@ void populateSettingsMenuRenderState(
           "Sets the amount of impact sparks and debris.",
           "Sets the maximum number of bullet marks kept in the world.",
           "Adjusts final display gamma after tone mapping and grade; 100% is neutral.",
-          "Resets this draft to the default graphics profile.",
+          "Smooths the general +zoom field-of-view change. Sniper Rifle ADS keeps its own timing.",
+          "Sets the general +zoom transition time in 10 ms steps.",
+          "Resets graphics and general zoom controls in this draft to their defaults.",
           "Applies every changed setting in this graphics draft.",
           "Closes the menu and restores the last applied settings.",
       }};
@@ -4148,21 +4203,40 @@ MouseAimSettings mouseAimSettingsFromConsole(
   const ConsoleSystem& console,
   bool zoomHeld,
   bool sniperZoom,
-  float zoomAmount = 1.0F
+  float sniperAdsAmount,
+  float generalZoomAmount,
+  float normalFieldOfViewOffset
 ) {
-  const float zoomSensitivity = zoomSensitivityMultiplier(
-    console.getFloat("cl_fov"),
-    console.getFloat(
-      sniperZoom ? "cl_zoom_sniper_fov" : "cl_zoom_fov"
-    ),
-    console.getFloat("cl_zoom_sensitivity")
-  );
+  const float baseFieldOfView = console.getFloat("cl_fov");
+  const float manualMultiplier = console.getFloat("cl_zoom_sensitivity");
+  float zoomMultiplier = 1.0F;
+  if (sniperZoom) {
+    const float sniperSensitivity = zoomSensitivityMultiplier(
+      baseFieldOfView,
+      console.getFloat("cl_zoom_sniper_fov"),
+      manualMultiplier
+    );
+    zoomMultiplier = zoomHeld
+      ? 1.0F + (sniperSensitivity - 1.0F) *
+          std::clamp(sniperAdsAmount, 0.0F, 1.0F)
+      : 1.0F;
+  } else {
+    const float normalFieldOfView = baseFieldOfView + normalFieldOfViewOffset;
+    const float liveFieldOfView = generalZoomFieldOfView(
+      normalFieldOfView,
+      console.getFloat("cl_zoom_fov"),
+      generalZoomAmount
+    );
+    zoomMultiplier = transitioningZoomSensitivityMultiplier(
+      normalFieldOfView,
+      liveFieldOfView,
+      manualMultiplier,
+      generalZoomAmount
+    );
+  }
   return {
     console.getFloat("sensitivity"),
-    zoomHeld
-      ? 1.0F + (zoomSensitivity - 1.0F) *
-          std::clamp(zoomAmount, 0.0F, 1.0F)
-      : 1.0F,
+    zoomMultiplier,
     console.getFloat("cl_mouseAccel"),
     console.getFloat("cl_mouseAccelPower"),
     console.getFloat("cl_mouseAccelOffset"),
@@ -5021,6 +5095,7 @@ int GameApp::run() const {
   int scoreboardPressCount = 0;
   int chatHistoryPressCount = 0;
   int zoomPressCount = 0;
+  float generalZoomAmount = 0.0F;
   float sniperAdsAmount = 0.0F;
   int pendingSpectateCycle = 0;
   Weapon selectedWeapon = Weapon::LightningGun;
@@ -6727,6 +6802,7 @@ int GameApp::run() const {
     plasmaGunFiringResponse = {};
     lastPlasmaGunResponseFire = {};
     hasLastPlasmaGunResponseFire = {};
+    generalZoomAmount = 0.0F;
     sniperAdsAmount = 0.0F;
     hasEnemyHitTime = false;
     hasEnemyHitTimeByTarget = {};
@@ -8165,7 +8241,7 @@ int GameApp::run() const {
             adjustSettingsMenuValue(settingsMenu, 1);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
             if (settingsMenu.selectedRow == kSettingsResetRow) {
-              applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
+              resetSettingsMenuDraft(settingsMenu);
             } else if (settingsMenu.selectedRow == kSettingsApplyRow) {
               applySettingsMenu(console, settingsMenu);
             } else if (settingsMenu.selectedRow == kSettingsCloseRow) {
@@ -8485,7 +8561,7 @@ int GameApp::run() const {
             const int clickedRow = settingsMenu.pressedRow;
             settingsMenu.pressedRow = -1;
             if (clickedRow == kSettingsResetRow) {
-              applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
+              resetSettingsMenuDraft(settingsMenu);
             } else if (clickedRow == kSettingsApplyRow) {
               applySettingsMenu(console, settingsMenu);
             } else if (clickedRow == kSettingsCloseRow) {
@@ -8700,6 +8776,16 @@ int GameApp::run() const {
       consoleState.output.clear();
       clearRequested = false;
     }
+    const bool generalZoomRequested =
+      zoomPressCount > 0 &&
+      selectedWeapon != Weapon::Railgun;
+    generalZoomAmount = advanceGeneralZoomAmount(
+      generalZoomAmount,
+      generalZoomRequested,
+      console.getBool("cl_zoom_smooth"),
+      generalZoomDurationMilliseconds(console),
+      outerFrameElapsed.count()
+    );
     if (consoleState.open) {
       float cursorX = 0.0F;
       float cursorY = 0.0F;
@@ -8996,7 +9082,9 @@ int GameApp::run() const {
         console,
         zoomPressCount > 0,
         selectedWeapon == Weapon::Railgun,
-        selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
+        sniperAdsAmount,
+        generalZoomAmount,
+        cameraPresentation.currentFovOffsetDegrees()
       );
     const float viewPitchBeforeEarlyMouseSample =
       presentationView.pitchRadians;
@@ -9216,7 +9304,9 @@ int GameApp::run() const {
           console,
           zoomPressCount > 0,
           selectedWeapon == Weapon::Railgun,
-          selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
+          sniperAdsAmount,
+          generalZoomAmount,
+          cameraPresentation.currentFovOffsetDegrees()
         );
 
       UserCommand command =
@@ -10527,7 +10617,9 @@ int GameApp::run() const {
             console,
             zoomPressCount > 0,
             selectedWeapon == Weapon::Railgun,
-            selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
+            sniperAdsAmount,
+            generalZoomAmount,
+            cameraPresentation.currentFovOffsetDegrees()
           );
         const UserCommand visualCommand =
           usePresentationView && presentationView.initialized
@@ -11273,7 +11365,11 @@ int GameApp::run() const {
     const bool sniperScopeActive = sniperAdsAmount > 0.001F;
     if (
       sniperScopeActive ||
-      (zoomPressCount > 0 && deathCamera.mode != DeathCameraMode::Teammate)
+      (
+        zoomPressCount > 0 &&
+        selectedWeapon == Weapon::Railgun &&
+        deathCamera.mode != DeathCameraMode::Teammate
+      )
     ) {
       currentRenderSettings.fieldOfView = resolvedZoomFieldOfView(
         currentRenderSettings.fieldOfView,
@@ -11282,6 +11378,17 @@ int GameApp::run() const {
         zoomPressCount > 0,
         sniperScopeActive,
         sniperAdsAmount
+      );
+      currentRenderSettings.cameraPresentation.fovOffsetDegrees = 0.0F;
+    } else if (
+      generalZoomAmount > 0.0F &&
+      deathCamera.mode != DeathCameraMode::Teammate
+    ) {
+      currentRenderSettings.fieldOfView = generalZoomFieldOfView(
+        currentRenderSettings.fieldOfView +
+          currentRenderSettings.cameraPresentation.fovOffsetDegrees,
+        console.getFloat("cl_zoom_fov"),
+        generalZoomAmount
       );
       currentRenderSettings.cameraPresentation.fovOffsetDegrees = 0.0F;
     }

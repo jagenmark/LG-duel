@@ -69,7 +69,9 @@ int main() {
     30
   );
   failures += expect(
-    moving.rollRadians < 0.0F && moving.fovOffsetDegrees > 0.0F,
+    moving.rollRadians < 0.0F &&
+      moving.fovOffsetDegrees > 0.0F &&
+      movingController.currentFovOffsetDegrees() == moving.fovOffsetDegrees,
     "side travel should add a small bank and fast travel should widen the view"
   );
   failures += expect(
