@@ -24,6 +24,21 @@ int main() {
   int failures = 0;
 
   {
+    const lg::Vec3 localOffset{1.0F, 2.0F, 3.0F};
+    const lg::Vec3 worldOffset = lg::presentedCameraOffset(
+      localOffset,
+      1.57079632679F,
+      0.0F
+    );
+    failures += expect(
+      std::fabs(worldOffset.x - 2.0F) < 0.0001F &&
+        std::fabs(worldOffset.y - 1.0F) < 0.0001F &&
+        std::fabs(worldOffset.z - 3.0F) < 0.0001F,
+      "local presentation offsets should rotate into the camera basis"
+    );
+  }
+
+  {
     const lg::PerspectiveCamera camera =
       lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 1.0F);
     lg::ProjectedPoint projected;

@@ -22,6 +22,23 @@ struct ProjectedPoint {
   float y = 0.0F;
 };
 
+[[nodiscard]] inline Vec3 presentedCameraOffset(
+  Vec3 localOffset,
+  float yawRadians,
+  float pitchRadians
+) {
+  const Vec3 forward = cameraForward(yawRadians, pitchRadians);
+  const Vec3 up = normalize(Vec3{
+    -forward.z * std::cos(yawRadians),
+    -forward.z * std::sin(yawRadians),
+    std::cos(pitchRadians),
+  });
+  return
+    forward * localOffset.x +
+    yawRight(yawRadians) * localOffset.y +
+    up * localOffset.z;
+}
+
 [[nodiscard]] inline PerspectiveCamera makePerspectiveCamera(
   Vec3 position,
   float yawRadians,

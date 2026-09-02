@@ -4491,13 +4491,11 @@ namespace {
   const PlayerState& player,
   const RenderSettings& settings
 ) {
-  return
-    cameraForward(player.viewYawRadians, player.viewPitchRadians) *
-      settings.cameraPresentation.translation.x +
-    yawRight(player.viewYawRadians) *
-      settings.cameraPresentation.translation.y +
-    cameraUp(player.viewYawRadians, player.viewPitchRadians) *
-      settings.cameraPresentation.translation.z;
+  return presentedCameraOffset(
+    settings.cameraPresentation.translation,
+    player.viewYawRadians,
+    player.viewPitchRadians
+  );
 }
 
 [[nodiscard]] Vec3 sniperRifleMuzzlePositionForViewModelPlayer(

@@ -8162,8 +8162,13 @@ void appendCommandBatches(
   const float eyeHeight =
     0.65F *
     (player.bounds.halfHeight / kDefaultPlayerBounds.halfHeight);
+  const Vec3 cameraOffset = presentedCameraOffset(
+    settings.cameraPresentation.translation,
+    player.viewYawRadians,
+    player.viewPitchRadians
+  );
   return makePresentedPerspectiveCamera(
-    player.position + Vec3{0.0F, 0.0F, eyeHeight},
+    player.position + Vec3{0.0F, 0.0F, eyeHeight} + cameraOffset,
     player.viewYawRadians,
     player.viewPitchRadians,
     settings.fieldOfView,
