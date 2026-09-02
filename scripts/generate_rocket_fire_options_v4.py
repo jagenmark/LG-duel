@@ -18,9 +18,9 @@ except ImportError as exc:
 
 
 RATE = 48_000
-SOURCE_DIR = ROOT / "rocket_sound_sources"
+SOURCE_DIR = ROOT / "art" / "audio" / "sources" / "rocket"
 BANG_DIR = SOURCE_DIR / "bangs"
-OUT_DIR = ROOT / "rocket_sound_options_v4"
+OUT_DIR = ROOT / "art" / "audio" / "auditions" / "rocket" / "fire" / "v4"
 
 OPTIONS = [
     ("rocket_fire_v4_01_clean_launch.wav", "shot_03.ogg", 0.48, 0.76, 0.58, 0.0),

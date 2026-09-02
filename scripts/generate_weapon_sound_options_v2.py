@@ -13,8 +13,9 @@ from scipy.signal import butter, resample_poly, sosfilt
 ROOT = Path(__file__).resolve().parents[1]
 RATE = 48_000
 TARGET_PEAK = 10.0 ** (-1.0 / 20.0)
-RECORDED_DIR = ROOT / "tmp" / "weapon_sound_sources" / "recorded" / "sounds" / "sounds"
-ROCKET_DIR = ROOT / "rocket_sound_options_v4"
+RECORDED_DIR = ROOT / "art" / "audio" / "sources" / "weapon" / "recorded" / "sounds" / "sounds"
+AUDITION_DIR = ROOT / "art" / "audio" / "auditions"
+ROCKET_DIR = AUDITION_DIR / "rocket" / "fire" / "v4"
 
 
 def read_wav(path: Path) -> np.ndarray:
@@ -141,7 +142,7 @@ def make_rocket(name: str, source_name: str, seconds: float, source_gain: float,
     place(result, boom(count, 72.0, 29.0, 0.62, seed + 1, 0.80), 0.016, boom_gain)
     place(result, noise_burst(count, seed + 2, 55.0, 850.0, 0.25, 0.0007), 0.014, concussion_gain)
     place(result, noise_burst(round(0.032 * RATE), seed + 3, 500.0, 2100.0, 0.022, 0.0002), 0.022, crack_gain)
-    write_wav(ROOT / "rocket_impact_sound_options_v2" / name, result)
+    write_wav(AUDITION_DIR / "rocket" / "impact" / "v2" / name, result)
 
 
 SNIPER_OPTIONS = [
@@ -160,7 +161,7 @@ def make_sniper(name: str, approx_time: float, source_gain: float, seconds: floa
     place(result, boom(count, 102.0, 38.0, 0.42, seed, 0.72), 0.0, 0.72)
     place(result, noise_burst(count, seed + 1, 55.0, 1250.0, 0.23, 0.0007), 0.0, concussion_gain)
     place(result, noise_burst(round(0.034 * RATE), seed + 2, 650.0, 3400.0, 0.022, 0.0002), 0.002, crack_gain)
-    write_wav(ROOT / "sniper_sound_options_v2" / name, result)
+    write_wav(AUDITION_DIR / "sniper" / "v2" / name, result)
 
 
 REVOLVER_OPTIONS = [
@@ -179,7 +180,7 @@ def make_revolver(name: str, approx_time: float, source_gain: float, seconds: fl
     place(result, boom(count, 148.0, 60.0, 0.24, seed, 0.62), 0.0, 0.50)
     place(result, noise_burst(count, seed + 1, 70.0, 1450.0, 0.15, 0.0005), 0.0, concussion_gain)
     place(result, noise_burst(round(0.026 * RATE), seed + 2, 650.0, 3200.0, 0.018, 0.0002), 0.001, crack_gain)
-    write_wav(ROOT / "revolver_sound_options_v2" / name, result)
+    write_wav(AUDITION_DIR / "revolver" / "v2" / name, result)
 
 
 def main() -> None:

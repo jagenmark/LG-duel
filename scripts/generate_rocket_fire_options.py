@@ -11,7 +11,7 @@ from pathlib import Path
 
 RATE = 48_000
 ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = ROOT / "rocket_sound_options"
+OUT_DIR = ROOT / "art" / "audio" / "auditions" / "rocket" / "fire" / "v1"
 
 
 OPTIONS = [

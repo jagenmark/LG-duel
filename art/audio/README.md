@@ -1,7 +1,8 @@
-# Weapon sound audition options
+# Weapon sound sources and audition options
 
-The option folders hold audition files. The selected runtime files live in
-`assets/audio` and are listed below.
+The `auditions` folders hold trial files by weapon and version. The `sources`
+folders hold the licensed source packs used by the generators. The selected
+runtime files live in `assets/audio` and are listed below.
 
 The rocket impact options use the existing V4 rocket launch WAVs as a tonal
 anchor. Those launch files were built from two CC0 OpenGameArt sources:

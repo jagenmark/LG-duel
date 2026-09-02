@@ -1,12 +1,13 @@
 /build/
 /build/benchmarks/
 /build/captures/
+/.worktrees/
+/tmp/
 /scenario-results/
 /reports/integration/*.generated.md
 __pycache__/
 /dist/
 /.server/
-/tmp/audio_python_deps/
 /build-errors.txt
 /imports/assets/review/*
 !/imports/assets/review/quaternius_worker/

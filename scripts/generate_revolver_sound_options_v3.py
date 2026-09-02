@@ -12,7 +12,7 @@ import generate_weapon_sound_options_v2 as base
 ROOT = base.ROOT
 RATE = base.RATE
 RECORDED = base.RECORDED_DIR / "cz.wav"
-OUT_DIR = ROOT / "revolver_sound_options_v3"
+OUT_DIR = base.AUDITION_DIR / "revolver" / "v3"
 
 
 def full_source(approx_time: float, seconds: float, high_cut: float = 3800.0) -> np.ndarray:

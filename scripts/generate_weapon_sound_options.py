@@ -1,6 +1,6 @@
 """Build audition options for rocket impacts, sniper shots, and revolver shots.
 
-The source pack in tmp/weapon_sound_sources/gunshots is the CC-BY 3.0
+The source pack in art/audio/sources/weapon/gunshots is the CC-BY 3.0
 "Gunshots!" pack by dklon. The rocket launch WAVs were built earlier from the
 CC0 OpenGameArt rocket engine and bang packs already kept in this project.
 """
@@ -19,8 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 RATE = 48_000
 TARGET_PEAK = 10.0 ** (-1.0 / 20.0)
 
-GUNSHOT_DIR = ROOT / "tmp" / "weapon_sound_sources" / "gunshots"
-ROCKET_DIR = ROOT / "rocket_sound_options_v4"
+GUNSHOT_DIR = ROOT / "art" / "audio" / "sources" / "weapon" / "gunshots"
+AUDITION_DIR = ROOT / "art" / "audio" / "auditions"
+ROCKET_DIR = AUDITION_DIR / "rocket" / "fire" / "v4"
 
 
 def read_wav(path: Path) -> np.ndarray:
@@ -225,19 +226,19 @@ def main() -> None:
 
     for name, source, seconds, source_gain, start, end, decay, crack, seed in ROCKET_OPTIONS:
         write_wav(
-            ROOT / "rocket_impact_sound_options" / name,
+            AUDITION_DIR / "rocket" / "impact" / "v1" / name,
             make_rocket_option(source, seconds, source_gain, start, end, decay, crack, seed),
         )
 
     for name, source, seconds, source_gain, start, end, decay, crack, seed in SNIPER_OPTIONS:
         write_wav(
-            ROOT / "sniper_sound_options" / name,
+            AUDITION_DIR / "sniper" / "v1" / name,
             make_sniper_option(source, seconds, source_gain, start, end, decay, crack, seed),
         )
 
     for name, source, seconds, source_gain, start, end, decay, snap, seed, tick_time, tick_gain in REVOLVER_OPTIONS:
         write_wav(
-            ROOT / "revolver_sound_options" / name,
+            AUDITION_DIR / "revolver" / "v1" / name,
             make_revolver_option(source, seconds, source_gain, start, end, decay, snap, seed, tick_time, tick_gain),
         )
 
