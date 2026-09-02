@@ -22,6 +22,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sniper_fov", "Field of view for Sniper Rifle ADS.", 45.0F, archivedClient, 20.0F, 140.0F});
+  console.registerCvar({"cl_zoom_smooth", "Smooth general +zoom field-of-view changes.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_zoom_duration_ms", "General +zoom transition duration in milliseconds.", 180, archivedClient, 50.0F, 1000.0F});
   console.registerCvar({"cl_zoom_sensitivity", "First-person mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
   console.registerCvar({"cl_death_spectate_threshold", "Respawn delay in seconds at which a dead player switches to a living teammate after the camera hold.", 3.0F, archivedClient, 0.0F, 30.0F});
   console.registerCvar({"cl_death_camera_hold", "Seconds to retain the local death-position view before teammate spectating is allowed.", 0.5F, archivedClient, 0.0F, 10.0F});
@@ -295,6 +297,10 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_teammate_name_b", "Floating teammate name tag blue channel.", 255, archivedClient, 0.0F, 255.0F});
 }
 
+float generalZoomDurationMilliseconds(const ConsoleSystem& console) {
+  return static_cast<float>(console.getInt("cl_zoom_duration_ms"));
+}
+
 float resolvedZoomFieldOfView(
   float baseFieldOfView,
   float generalZoomFieldOfView,
@@ -310,6 +316,37 @@ float resolvedZoomFieldOfView(
       (sniperZoomFieldOfView - baseFieldOfView) * smoothAmount;
   }
   return zoomHeld ? generalZoomFieldOfView : baseFieldOfView;
+}
+
+float advanceGeneralZoomAmount(
+  float currentAmount,
+  bool zoomHeld,
+  bool smoothEnabled,
+  float durationMilliseconds,
+  float elapsedSeconds
+) {
+  const float targetAmount = zoomHeld ? 1.0F : 0.0F;
+  if (!smoothEnabled || durationMilliseconds <= 0.0F) {
+    return targetAmount;
+  }
+
+  const float step = std::max(0.0F, elapsedSeconds) * 1000.0F /
+    durationMilliseconds;
+  const float current = std::clamp(currentAmount, 0.0F, 1.0F);
+  return std::clamp(
+    current + std::clamp(targetAmount - current, -step, step),
+    0.0F,
+    1.0F
+  );
+}
+
+float generalZoomFieldOfView(
+  float baseFieldOfView,
+  float zoomFieldOfView,
+  float zoomAmount
+) {
+  return baseFieldOfView +
+    (zoomFieldOfView - baseFieldOfView) * std::clamp(zoomAmount, 0.0F, 1.0F);
 }
 
 float zoomSensitivityMultiplier(
@@ -329,6 +366,25 @@ float zoomSensitivityMultiplier(
     return 1.0F;
   }
   return std::tan(zoomHalfAngle) / baseTangent;
+}
+
+float transitioningZoomSensitivityMultiplier(
+  float baseFieldOfView,
+  float liveFieldOfView,
+  float manualMultiplier,
+  float zoomAmount
+) {
+  if (manualMultiplier > 0.0F) {
+    const float amount = std::clamp(zoomAmount, 0.0F, 1.0F);
+    if (amount <= 0.0F) {
+      return 1.0F;
+    }
+    if (amount >= 1.0F) {
+      return manualMultiplier;
+    }
+    return 1.0F + (manualMultiplier - 1.0F) * amount;
+  }
+  return zoomSensitivityMultiplier(baseFieldOfView, liveFieldOfView, 0.0F);
 }
 
 } // namespace lg
