@@ -26,7 +26,7 @@ int main() {
   int failures = 0;
   lg::ViewModelPresentationController controller;
   const lg::ViewModelPresentationInput active{
-    {8.0F, 3.0F, 0.0F}, 18.0F, -9.0F, true, false, 1.0F / 60.0F
+    {{8.0F, 3.0F, 0.0F}, true, false, 1.0F / 60.0F, 8.0F}, 18.0F, -9.0F
   };
   const lg::ViewModelPresentationInput unchanged = active;
 
@@ -34,8 +34,9 @@ int main() {
   disabled.motionScale = 0.0F;
   failures += expect(neutral(controller.update(active, disabled)),
     "master scale zero should return an exactly neutral output");
-  failures += expect(active.localVelocity.x == unchanged.localVelocity.x &&
-    active.mouseDeltaX == unchanged.mouseDeltaX && active.grounded == unchanged.grounded,
+  failures += expect(active.motion.localVelocity.x == unchanged.motion.localVelocity.x &&
+    active.mouseDeltaX == unchanged.mouseDeltaX &&
+      active.motion.grounded == unchanged.motion.grounded,
     "presentation update should not mutate its input");
 
   controller.reset();
@@ -57,12 +58,12 @@ int main() {
     "viewmodel response should stay competitively subtle and bounded");
   controller.reset();
   lg::ViewModelPresentationInput airborne{
-    {0.0F, 0.0F, -12.0F}, 0.0F, 0.0F, false, false, 1.0F / 60.0F
+    {{0.0F, 0.0F, -12.0F}, false, false, 1.0F / 60.0F, 8.0F}, 0.0F, 0.0F
   };
   const auto airborneOutput = controller.update(airborne);
   (void)airborneOutput;
   lg::ViewModelPresentationInput landed{
-    {0.0F, 0.0F, 0.0F}, 0.0F, 0.0F, true, false, 1.0F / 60.0F
+    {{0.0F, 0.0F, 0.0F}, true, false, 1.0F / 60.0F, 8.0F}, 0.0F, 0.0F
   };
   const auto landing = controller.update(landed);
   failures += expect(landing.translation.z < 0.0F && landing.rotationRadians.x < 0.0F,
@@ -82,7 +83,7 @@ int main() {
 
   controller.reset();
   lg::ViewModelPresentationInput sliding = active;
-  sliding.sliding = true;
+  sliding.motion.sliding = true;
   auto slideOutput = controller.update(sliding);
   for (int frame = 0; frame < 20; ++frame) {
     slideOutput = controller.update(sliding);
@@ -92,6 +93,15 @@ int main() {
       slideOutput.translation.z < -0.02F &&
       slideOutput.rotationRadians.x > 0.02F,
     "sliding should push the visible weapon forward and low"
+  );
+
+  sliding.motion.grounded = false;
+  const auto airborneSlideOutput = controller.update(sliding);
+  failures += expect(
+    airborneSlideOutput.translation.x > 0.02F &&
+      airborneSlideOutput.translation.z < -0.02F &&
+      airborneSlideOutput.rotationRadians.x > 0.02F,
+    "a crouched glide should keep the slide pose visible in the air"
   );
 
   return failures == 0 ? 0 : 1;

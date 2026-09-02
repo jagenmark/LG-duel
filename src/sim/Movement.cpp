@@ -735,6 +735,7 @@ void simulateGroundedOrAirborne(
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
+  const bool wasSlideActive = isGlideSlideActive(player, tuning);
   applyCrouchState(player, command, arena, playerProxies);
   if (!command.jump) {
     player.jumpHeld = false;
@@ -767,7 +768,7 @@ void simulateGroundedOrAirborne(
   const bool jumpStarted =
     (player.onGround || wasOnGround) && command.jump && !player.jumpHeld;
   if (jumpStarted) {
-    if (slideActive) {
+    if (wasSlideActive) {
       Vec3 planarVelocity = horizontal(player.velocity);
       const float planarSpeed = length(planarVelocity);
       const float slideJumpSpeed =

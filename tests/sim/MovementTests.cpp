@@ -592,10 +592,23 @@ int main() {
     lg::PlayerState player = groundedPlayer();
     player.velocity.x = tuning.maxGroundSpeed;
 
-    lg::UserCommand slideJump;
-    slideJump.crouch = true;
-    slideJump.jump = true;
-    runCommand(player, slideJump, tuning, 1);
+    lg::PlayerState sameTickCrouchJump = player;
+    lg::UserCommand crouchJump;
+    crouchJump.crouch = true;
+    crouchJump.jump = true;
+    runCommand(sameTickCrouchJump, crouchJump, tuning, 1);
+    failures += expect(
+      std::hypot(
+        sameTickCrouchJump.velocity.x,
+        sameTickCrouchJump.velocity.y
+      ) < tuning.maxGroundSpeed * 1.15F,
+      "crouching on the jump tick should not grant a slide jump boost"
+    );
+
+    lg::UserCommand slide;
+    slide.crouch = true;
+    runCommand(player, slide, tuning, 1);
+    runCommand(player, crouchJump, tuning, 1);
     const float takeoffSpeed = std::hypot(player.velocity.x, player.velocity.y);
     failures += expect(
       !player.onGround && player.crouched &&

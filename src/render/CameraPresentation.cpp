@@ -23,24 +23,25 @@ CameraPresentationOutput CameraPresentationController::update(
   const CameraPresentationInput& input,
   const CameraPresentationTuning& tuning
 ) {
-  const float dt = std::clamp(input.deltaSeconds, 0.0F, 0.05F);
-  const float referenceSpeed = std::max(input.referenceSpeed, 0.1F);
+  const PlayerMotionPresentationInput& motion = input.motion;
+  const float dt = std::clamp(motion.deltaSeconds, 0.0F, 0.05F);
+  const float referenceSpeed = std::max(motion.referenceSpeed, 0.1F);
   const float horizontalSpeed = std::hypot(
-    input.localVelocity.x,
-    input.localVelocity.y
+    motion.localVelocity.x,
+    motion.localVelocity.y
   );
 
   if (!initialized_) {
-    smoothedVelocity_ = input.localVelocity;
+    smoothedVelocity_ = motion.localVelocity;
     presentedEyeHeight_ = input.eyeHeightAboveFeet;
-    wasGrounded_ = input.grounded;
+    wasGrounded_ = motion.grounded;
     initialized_ = true;
   }
 
   if (dt > 0.0F) {
     const float velocityAlpha = decayAlpha(9.0F, dt);
     smoothedVelocity_ +=
-      (input.localVelocity - smoothedVelocity_) * velocityAlpha;
+      (motion.localVelocity - smoothedVelocity_) * velocityAlpha;
     presentedEyeHeight_ = std::lerp(
       presentedEyeHeight_,
       input.eyeHeightAboveFeet,
@@ -48,14 +49,14 @@ CameraPresentationOutput CameraPresentationController::update(
     );
     slideAmount_ = std::lerp(
       slideAmount_,
-      input.sliding ? 1.0F : 0.0F,
-      decayAlpha(input.sliding ? 15.0F : 10.0F, dt)
+      motion.sliding ? 1.0F : 0.0F,
+      decayAlpha(motion.sliding ? 15.0F : 10.0F, dt)
     );
 
-    if (!input.grounded) {
+    if (!motion.grounded) {
       airborneDownSpeed_ = std::max(
         airborneDownSpeed_,
-        -input.localVelocity.z
+        -motion.localVelocity.z
       );
     } else if (!wasGrounded_) {
       landingCompression_ = std::clamp(
@@ -66,10 +67,10 @@ CameraPresentationOutput CameraPresentationController::update(
       airborneDownSpeed_ = 0.0F;
     }
     landingCompression_ *= std::exp(-12.0F * dt);
-    wasGrounded_ = input.grounded;
+    wasGrounded_ = motion.grounded;
 
     const float lateralAmount = std::clamp(
-      input.localVelocity.y / referenceSpeed,
+      motion.localVelocity.y / referenceSpeed,
       -1.0F,
       1.0F
     );
@@ -98,14 +99,14 @@ CameraPresentationOutput CameraPresentationController::update(
     0.0F,
     1.5F
   );
-  const Vec3 velocityLag = input.localVelocity - smoothedVelocity_;
+  const Vec3 velocityLag = motion.localVelocity - smoothedVelocity_;
   CameraPresentationOutput output;
   output.translation = Vec3{
     std::clamp(-velocityLag.x * 0.010F, -0.055F, 0.055F),
     std::clamp(-velocityLag.y * 0.012F, -0.065F, 0.065F),
     (presentedEyeHeight_ - input.eyeHeightAboveFeet) -
       slideAmount_ * 0.07F +
-      std::clamp(-input.localVelocity.z * 0.006F, -0.05F, 0.05F) -
+      std::clamp(-motion.localVelocity.z * 0.006F, -0.05F, 0.05F) -
       landingCompression_,
   } * positionScale;
   output.rollRadians = rollRadians_;

@@ -1,16 +1,12 @@
 #pragma once
 
-#include "shared/Math.hpp"
+#include "render/PlayerMotionPresentation.hpp"
 
 namespace lg {
 
 struct CameraPresentationInput {
-  Vec3 localVelocity = {};
-  bool grounded = true;
-  bool sliding = false;
+  PlayerMotionPresentationInput motion = {};
   float eyeHeightAboveFeet = 1.55F;
-  float deltaSeconds = 0.0F;
-  float referenceSpeed = 8.0F;
 };
 
 struct CameraPresentationTuning {

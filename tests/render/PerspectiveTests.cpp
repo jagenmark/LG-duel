@@ -39,6 +39,21 @@ int main() {
   }
 
   {
+    constexpr float kThirtyDegrees = 0.52359877559F;
+    const lg::Vec3 worldOffset = lg::presentedCameraOffset(
+      {0.0F, 0.0F, 1.0F},
+      0.0F,
+      kThirtyDegrees
+    );
+    failures += expect(
+      nearlyEqual(worldOffset.x, -0.5F) &&
+        nearlyEqual(worldOffset.y, 0.0F) &&
+        nearlyEqual(worldOffset.z, 0.8660254F),
+      "pitch should rotate local vertical presentation offsets with the camera basis"
+    );
+  }
+
+  {
     const lg::PerspectiveCamera camera =
       lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 1.0F);
     lg::ProjectedPoint projected;

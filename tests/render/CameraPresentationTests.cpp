@@ -27,6 +27,17 @@ lg::CameraPresentationOutput runFor(
   return output;
 }
 
+lg::CameraPresentationInput cameraInput(
+  lg::Vec3 localVelocity,
+  bool grounded,
+  bool sliding,
+  float eyeHeight,
+  float deltaSeconds,
+  float referenceSpeed
+) {
+  return {{localVelocity, grounded, sliding, deltaSeconds, referenceSpeed}, eyeHeight};
+}
+
 } // namespace
 
 int main() {
@@ -38,7 +49,7 @@ int main() {
   disabled.rollDegrees = 0.0F;
   disabled.fovBoostDegrees = 0.0F;
   const auto disabledOutput = disabledController.update(
-    {{8.0F, 4.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F},
+    cameraInput({8.0F, 4.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F),
     disabled
   );
   failures += expect(
@@ -51,7 +62,7 @@ int main() {
   lg::CameraPresentationController movingController;
   const auto moving = runFor(
     movingController,
-    {{8.0F, 5.0F, 0.0F}, true, false, 1.55F, 1.0F / 60.0F, 10.5F},
+    cameraInput({8.0F, 5.0F, 0.0F}, true, false, 1.55F, 1.0F / 60.0F, 10.5F),
     30
   );
   failures += expect(
@@ -65,14 +76,14 @@ int main() {
 
   lg::CameraPresentationController slideController;
   (void)slideController.update(
-    {{10.5F, 0.0F, 0.0F}, true, false, 1.55F, 1.0F / 60.0F, 10.5F}
+    cameraInput({10.5F, 0.0F, 0.0F}, true, false, 1.55F, 1.0F / 60.0F, 10.5F)
   );
   const auto slideEntry = slideController.update(
-    {{10.5F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F}
+    cameraInput({10.5F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F)
   );
   const auto settledSlide = runFor(
     slideController,
-    {{10.5F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F},
+    cameraInput({10.5F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F),
     30
   );
   failures += expect(
@@ -83,15 +94,15 @@ int main() {
 
   lg::CameraPresentationController landingController;
   (void)landingController.update(
-    {{10.0F, 0.0F, 5.0F}, false, false, 1.55F, 1.0F / 60.0F, 10.5F}
+    cameraInput({10.0F, 0.0F, 5.0F}, false, false, 1.55F, 1.0F / 60.0F, 10.5F)
   );
   (void)runFor(
     landingController,
-    {{10.0F, 0.0F, -8.0F}, false, false, 1.55F, 1.0F / 60.0F, 10.5F},
+    cameraInput({10.0F, 0.0F, -8.0F}, false, false, 1.55F, 1.0F / 60.0F, 10.5F),
     20
   );
   const auto landing = landingController.update(
-    {{10.0F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F}
+    cameraInput({10.0F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F)
   );
   failures += expect(
     0.96F + landing.translation.z < 1.45F &&
@@ -102,19 +113,19 @@ int main() {
   lg::CameraPresentationController sixtyFps;
   lg::CameraPresentationController oneTwentyFps;
   (void)sixtyFps.update(
-    {{10.5F, 0.0F, 0.0F}, true, false, 1.55F, 1.0F / 60.0F, 10.5F}
+    cameraInput({10.5F, 0.0F, 0.0F}, true, false, 1.55F, 1.0F / 60.0F, 10.5F)
   );
   (void)oneTwentyFps.update(
-    {{10.5F, 0.0F, 0.0F}, true, false, 1.55F, 1.0F / 120.0F, 10.5F}
+    cameraInput({10.5F, 0.0F, 0.0F}, true, false, 1.55F, 1.0F / 120.0F, 10.5F)
   );
   const auto sixtyResult = runFor(
     sixtyFps,
-    {{10.5F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F},
+    cameraInput({10.5F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 60.0F, 10.5F),
     30
   );
   const auto oneTwentyResult = runFor(
     oneTwentyFps,
-    {{10.5F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 120.0F, 10.5F},
+    cameraInput({10.5F, 0.0F, 0.0F}, true, true, 0.96F, 1.0F / 120.0F, 10.5F),
     60
   );
   failures += expect(

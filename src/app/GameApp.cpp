@@ -10986,19 +10986,21 @@ int GameApp::run() const {
     const bool renderGrounded =
       renderPlayer.onGround ||
       renderPlayer.movementMode == MovementMode::Grounded;
-    const bool renderSliding = isGlideSlideActive(
-      renderPlayer,
-      currentMovementTuning
-    );
+    const bool renderSliding =
+      isGlideSlideActive(renderPlayer, currentMovementTuning) ||
+      (!renderGrounded && renderPlayer.crouched);
+    const PlayerMotionPresentationInput motionPresentationInput{
+      localViewVelocity,
+      renderGrounded,
+      renderSliding,
+      elapsed.count(),
+      currentMovementTuning.maxGroundSpeed,
+    };
     currentRenderSettings.viewModelPresentation = viewModelPresentation.update(
       {
-        localViewVelocity,
+        motionPresentationInput,
         viewModelMouseDeltaX,
         viewModelMouseDeltaY,
-        renderGrounded,
-        renderSliding,
-        elapsed.count(),
-        currentMovementTuning.maxGroundSpeed,
       },
       {
         console.getFloat("cl_viewmodel_motion_scale"),
@@ -11014,12 +11016,8 @@ int GameApp::run() const {
         (renderPlayer.bounds.halfHeight / defaultCameraBounds.halfHeight);
     currentRenderSettings.cameraPresentation = cameraPresentation.update(
       {
-        localViewVelocity,
-        renderGrounded,
-        renderSliding,
+        motionPresentationInput,
         eyeHeightAboveFeet,
-        elapsed.count(),
-        currentMovementTuning.maxGroundSpeed,
       },
       {
         console.getFloat("cl_camera_position_response"),

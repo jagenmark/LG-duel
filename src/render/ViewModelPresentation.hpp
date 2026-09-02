@@ -1,19 +1,13 @@
 #pragma once
 
-#include "shared/Math.hpp"
+#include "render/PlayerMotionPresentation.hpp"
 
 namespace lg {
 
-// Inputs are read-only render-frame observations in view-local coordinates:
-// x is forward, y is right, and z is up. They never feed gameplay state back.
 struct ViewModelPresentationInput {
-  Vec3 localVelocity = {};
+  PlayerMotionPresentationInput motion = {};
   float mouseDeltaX = 0.0F;
   float mouseDeltaY = 0.0F;
-  bool grounded = true;
-  bool sliding = false;
-  float deltaSeconds = 0.0F;
-  float referenceSpeed = 8.0F;
 };
 
 struct ViewModelPresentationTuning {
