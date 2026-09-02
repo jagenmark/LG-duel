@@ -4102,7 +4102,7 @@ void addSettingsMenu(DrawList2D &drawList, int width, int height,
 
 void addMiscMenu(DrawList2D &drawList, int width, int height,
                  const HudRenderState &hud) {
-  addOptionMenu(drawList, width, height, "TOOLS / DEBUG", hud.miscMenuItems,
+  addOptionMenu(drawList, width, height, "GENERAL SETTINGS", hud.miscMenuItems,
                 hud.miscMenuScrollRows, hud.miscMenuHoveredRow,
                 hud.miscMenuPressedRow, hud.miscMenuFooter);
 }

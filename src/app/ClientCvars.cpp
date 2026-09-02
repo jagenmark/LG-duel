@@ -70,6 +70,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_player_name", "Local player name sent to the server.", std::string{}, archivedClient, {}, {}});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"s_play_unfocused", "Play client sound while the game window lacks focus.", false, archivedClient, {}, {}});
   console.registerCvar({"s_lg_fire_volume", "Lightning gun firing loop volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_rg_fire_volume", "Sniper Rifle fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_rg_ready_volume", "Sniper Rifle ready chime volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});

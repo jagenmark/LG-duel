@@ -2301,7 +2301,7 @@ constexpr int kSettingsApplyRow = 33;
 constexpr int kSettingsCloseRow = 34;
 constexpr int kSettingsRowCount = 35;
 
-struct SettingsMenuState {
+struct SettingsVideoMenuState {
   bool open = false;
   int selectedRow = 0;
   std::size_t scrollRows = 0;
@@ -2368,7 +2368,7 @@ struct SettingsMenuState {
   int originalDecalBudget = 128;
 };
 
-struct MiscMenuState {
+struct GeneralMenuState {
   bool open = false;
   int selectedRow = 0;
   std::size_t scrollRows = 0U;
@@ -2991,7 +2991,7 @@ bool applyVideoSettings(
   return "Unknown";
 }
 
-[[nodiscard]] bool settingsChanged(const SettingsMenuState& menu) {
+[[nodiscard]] bool settingsChanged(const SettingsVideoMenuState& menu) {
   return !sameVideoSettings(menu.pendingVideo, menu.originalVideo) ||
     menu.pendingMaxFps != menu.originalMaxFps ||
     menu.pendingRenderScale != menu.originalRenderScale ||
@@ -3022,7 +3022,7 @@ bool applyVideoSettings(
     menu.pendingDecalBudget != menu.originalDecalBudget;
 }
 
-[[nodiscard]] int matchingGraphicsProfile(const SettingsMenuState& menu) {
+[[nodiscard]] int matchingGraphicsProfile(const SettingsVideoMenuState& menu) {
   for (std::size_t index = 0; index < kGraphicsProfiles.size(); ++index) {
     const auto& values = kGraphicsProfiles[index].values;
     const auto value = [&](std::string_view name) {
@@ -3069,7 +3069,7 @@ bool applyVideoSettings(
   return -1;
 }
 
-void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
+void applyGraphicsProfile(SettingsVideoMenuState& menu, int profile) {
   const auto& values = kGraphicsProfiles[static_cast<std::size_t>(profile)].values;
   const auto value = [&](std::string_view name) {
     for (const GraphicsProfileValue& entry : values) if (entry.cvar == name) return entry.value;
@@ -3115,7 +3115,7 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
   menu.pendingDecalBudget = std::stoi(std::string(value("r_decals_max")));
 }
 
-void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& console) {
+void syncSettingsMenuFromConsole(SettingsVideoMenuState& menu, const ConsoleSystem& console) {
   menu.pendingVideo = videoSettingsFromConsole(console);
   menu.pendingMaxFps = console.getInt("r_maxfps");
   menu.pendingRenderScale = console.getFloat("r_render_scale");
@@ -3192,7 +3192,7 @@ void keepOptionMenuSelectionVisible(int selectedRow, std::size_t &scrollRows,
   scrollRows = std::min(scrollRows, maxScroll);
 }
 
-void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
+void adjustSettingsMenuValue(SettingsVideoMenuState& menu, int direction) {
   if (direction == 0) {
     return;
   }
@@ -3335,7 +3335,7 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
   }
 }
 
-void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
+void applySettingsMenu(ConsoleSystem& console, SettingsVideoMenuState& menu) {
   (void)console.execute("set vid_fullscreen " + std::to_string(menu.pendingVideo.fullscreenMode));
   (void)console.execute("set vid_width " + std::to_string(menu.pendingVideo.width));
   (void)console.execute("set vid_height " + std::to_string(menu.pendingVideo.height));
@@ -3426,7 +3426,7 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
 }
 
 [[nodiscard]] HudRenderState::SettingsMenuItem settingsMenuItem(
-  const SettingsMenuState& menu,
+  const SettingsVideoMenuState& menu,
   int row,
   std::string label,
   std::string value,
@@ -3444,7 +3444,7 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
 
 void populateSettingsMenuRenderState(
   HudRenderState& hud,
-  const SettingsMenuState& menu
+  const SettingsVideoMenuState& menu
 ) {
   if (!menu.open) {
     return;
@@ -3713,7 +3713,7 @@ void populateSettingsMenuRenderState(
   hud.settingsFooter = std::string(settingHelp[selectedRow]);
 }
 
-void populateMiscMenuRenderState(HudRenderState &hud, const MiscMenuState &menu,
+void populateMiscMenuRenderState(HudRenderState &hud, const GeneralMenuState &menu,
                                  const ConsoleSystem &console) {
   if (!menu.open) {
     return;
@@ -6362,8 +6362,8 @@ int GameApp::run() const {
   }
   (void)session.connect(serverHost_, serverPort_);
   ClientConsoleState consoleState;
-  SettingsMenuState settingsMenu;
-  MiscMenuState miscMenu;
+  SettingsVideoMenuState settingsMenu;
+  GeneralMenuState miscMenu;
   appendConsoleOutput(
     consoleState,
     "LG Duel console. Type actionlist, bindlist, cmdlist, or cvarlist."
@@ -8880,6 +8880,9 @@ int GameApp::run() const {
         !settingsMenu.open && !miscMenu.open && !wasTeammateSpectating;
     const bool windowHasInputFocus =
       (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    audio.setMuted(
+      !windowHasInputFocus && !console.getBool("s_play_unfocused")
+    );
     const bool lateMouseInputControlsView =
       baseGameInputControlsView &&
       windowHasInputFocus &&

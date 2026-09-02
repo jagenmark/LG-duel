@@ -149,6 +149,7 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 |---|---:|---:|---|---|---|---|
 | `s_enable` | bool | `1` | bool | Ingen direkt | Arkiv | Slår av/på klientens ljudeffekter. |
 | `s_volume` | float | `0.35` | `0..1` | Ingen direkt | Arkiv | Volym för hit-, countdown- och round-ljud. |
+| `s_play_unfocused` | bool | `0` | bool | Ingen direkt | Archive | Plays client sound while the game window lacks focus. The F11 general settings menu toggles it. |
 | `s_footstep_volume` | float | `0.45` | `0..1` | Ingen direkt | Arkiv | Separat fotstegsvolym. Multipliceras med `s_volume`. |
 | `s_frag_volume` | float | `1.5` | `0..2` | None | Archive | Frag/kill sound scale, multiplied by `s_volume`. |
 | `s_rg_fire_volume` | float | `1` | `0..1` | None | Archive | Sniper Rifle fire sound scale, multiplied by `s_volume`. The old `rg` cvar name stays for config compatibility. |
@@ -389,7 +390,7 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_damage_numbers_damage_color` | bool | `0` | bool | Ingen direkt | When enabled, damage numbers blend from the configured color toward red as damage increases. Headshots are shown as bold numeric text with a red accent instead of a `HEADSHOT` label. |
 | `r_damage_numbers_offset_x` | float | `0` | `-400..400` | Ingen direkt | Horizontal screen offset from the projected world-space damage anchor. |
 | `r_damage_numbers_offset_y` | float | `-46` | `-400..400` | Ingen direkt | Vertical screen offset from the projected world-space damage anchor. |
-| `r_damage_indicator` | bool | `1` | bool | Ingen direkt | Shows the directional damage warning as a restrained crescent at the screen edge. The F11 tools menu toggles the same archived cvar. |
+| `r_damage_indicator` | bool | `1` | bool | Ingen direkt | Shows the directional damage warning as a restrained crescent at the screen edge. The F11 general settings menu toggles the same archived cvar. |
 | `r_damage_indicator_duration` | float | `0.8` | `0.05..3` seconds | Ingen direkt | Lifetime of each directional damage warning. |
 | `r_damage_indicator_opacity` | float | `0.85` | `0..1` | Ingen direkt | Maximum opacity of each warning. |
 | `r_damage_indicator_distance` | float | `24` | `24..800` pixels | Ingen direkt | Inset of the warning from the screen edge. |
@@ -555,7 +556,7 @@ the newest message.
 | `toggleconsole` | inga | Öppnar/stänger konsolen. |
 | `actionlist` | inga | Listar bindbara gameplay-actions. |
 | `settings` | none | Opens the graphics menu. Default bind: `F10`. |
-| `misc` | none | Opens the tools and debug menu. Default bind: `F11`. |
+| `misc` | none | Opens the general settings menu. Default bind: `F11`. |
 | `mcguffin_throw` | none | Throws the carried McGuffin using the authoritative server tuning. Default bind: `G`. |
 | `spectate_next` | none | Follows the next eligible player. Death spectating is restricted to living teammates; dedicated spectators cycle every living active player. Mouse1 performs the same contextual action without changing its normal `+attack` bind. |
 | `spectate_prev` | none | Follows the previous eligible player. Death spectating is restricted to living teammates; dedicated spectators cycle every living active player. Mouse2 performs the same contextual action without changing its normal `+zoom` bind. |

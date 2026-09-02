@@ -77,6 +77,22 @@ int main() {
       console.getBool("r_damage_indicator"),
       "directional damage should default on");
 
+  failures += expect(
+      !console.getBool("s_play_unfocused") &&
+        items[static_cast<std::size_t>(
+          lg::MiscMenuRow::SoundWhenUnfocused)].label ==
+          "Sound when unfocused" &&
+        items[static_cast<std::size_t>(
+          lg::MiscMenuRow::SoundWhenUnfocused)].value == "Off",
+      "F11 should show sound while unfocused as off by default");
+  (void)lg::adjustMiscMenuValue(
+      console, lg::MiscMenuRow::SoundWhenUnfocused, 1, draft);
+  failures += expect(
+      console.getBool("s_play_unfocused") &&
+        lg::miscMenuItems(console, draft)[static_cast<std::size_t>(
+          lg::MiscMenuRow::SoundWhenUnfocused)].value == "On",
+      "F11 should toggle sound while unfocused");
+
   (void)lg::adjustMiscMenuValue(
       console, lg::MiscMenuRow::DamageIndicator, 1, draft);
   failures += expect(
