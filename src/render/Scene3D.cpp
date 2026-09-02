@@ -4487,17 +4487,17 @@ Vec3 sniperRifleMuzzleSocket() {
 
 namespace {
 
-[[nodiscard]] Vec3 viewModelCameraMotion(
+[[nodiscard]] Vec3 cameraPresentationMotion(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
   return
     cameraForward(player.viewYawRadians, player.viewPitchRadians) *
-      settings.viewModelPresentation.cameraTranslation.x +
+      settings.cameraPresentation.translation.x +
     yawRight(player.viewYawRadians) *
-      settings.viewModelPresentation.cameraTranslation.y +
+      settings.cameraPresentation.translation.y +
     cameraUp(player.viewYawRadians, player.viewPitchRadians) *
-      settings.viewModelPresentation.cameraTranslation.z;
+      settings.cameraPresentation.translation.z;
 }
 
 [[nodiscard]] Vec3 sniperRifleMuzzlePositionForViewModelPlayer(
@@ -4566,7 +4566,7 @@ Vec3 firstPersonSniperRifleMuzzlePosition(
   const RenderSettings& settings
 ) {
   PlayerState viewModelPlayer = player;
-  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  viewModelPlayer.position += cameraPresentationMotion(player, settings);
   // This matches the rendered mesh's authored socket after view motion.
   return sniperRifleMuzzlePositionForViewModelPlayer(viewModelPlayer, settings);
 }
@@ -4583,7 +4583,7 @@ Vec3 firstPersonPlasmaGunMuzzlePosition(
   const RenderSettings& settings
 ) {
   PlayerState viewModelPlayer = player;
-  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  viewModelPlayer.position += cameraPresentationMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     viewModelPlayer,
     settings.weaponPosition,
@@ -4606,7 +4606,7 @@ Vec3 firstPersonMachineGunMuzzlePosition(
   const RenderSettings& settings
 ) {
   PlayerState viewModelPlayer = player;
-  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  viewModelPlayer.position += cameraPresentationMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     viewModelPlayer,
     settings.weaponPosition,
@@ -4642,7 +4642,7 @@ Vec3 firstPersonRevolverMuzzlePosition(
   const RenderSettings& settings
 ) {
   PlayerState viewModelPlayer = player;
-  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  viewModelPlayer.position += cameraPresentationMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     viewModelPlayer,
     settings.weaponPosition,
@@ -4680,7 +4680,7 @@ Vec3 firstPersonGrenadeLauncherMuzzlePosition(
   const RenderSettings& settings
 ) {
   PlayerState viewModelPlayer = player;
-  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  viewModelPlayer.position += cameraPresentationMotion(player, settings);
   const WeaponModelFrame frame = firstPersonWeaponModelFrame(
     viewModelPlayer,
     settings.weaponPosition,
@@ -4754,7 +4754,7 @@ Vec3 firstPersonFreezeGunMuzzlePosition(
 ) {
   PlayerState viewModelPlayer = player;
   viewModelPlayer.position.z += cameraVerticalOffset;
-  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  viewModelPlayer.position += cameraPresentationMotion(player, settings);
   return freezeGunMuzzlePositionForViewModelPlayer(viewModelPlayer, settings);
 }
 
@@ -4765,7 +4765,7 @@ Vec3 firstPersonLightningGunMuzzlePosition(
 ) {
   PlayerState viewModelPlayer = player;
   viewModelPlayer.position.z += cameraVerticalOffset;
-  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  viewModelPlayer.position += cameraPresentationMotion(player, settings);
   return lightningGunMuzzlePositionForViewModelPlayer(viewModelPlayer, settings);
 }
 
@@ -6653,7 +6653,7 @@ Scene3D buildPerspectiveScene(
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
     0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
-  const Vec3 cameraMotion = viewModelCameraMotion(player, settings);
+  const Vec3 cameraMotion = cameraPresentationMotion(player, settings);
   const Vec3 cameraPosition = player.position + cameraMotion +
     Vec3{0.0F, 0.0F, eyeHeight + cameraVerticalOffset};
   PlayerState viewModelPlayer = player;
@@ -6661,17 +6661,14 @@ Scene3D buildPerspectiveScene(
   viewModelPlayer.position += cameraMotion;
 
   Scene3D scene;
-  scene.camera = makePerspectiveCamera(
+  scene.camera = makePresentedPerspectiveCamera(
     cameraPosition,
     player.viewYawRadians,
     player.viewPitchRadians,
-    std::clamp(
-      settings.fieldOfView + settings.cameraFovOffsetDegrees,
-      45.0F,
-      160.0F
-    ),
+    settings.fieldOfView,
+    settings.cameraPresentation.fovOffsetDegrees,
     aspectRatio,
-    settings.cameraRollRadians
+    settings.cameraPresentation.rollRadians
   );
   scene.lights.sunDirection = arena.sunLight.direction;
   scene.lights.sunColor = arena.sunLight.color;

@@ -11,6 +11,7 @@ struct ViewModelPresentationInput {
   float mouseDeltaX = 0.0F;
   float mouseDeltaY = 0.0F;
   bool grounded = true;
+  bool sliding = false;
   float deltaSeconds = 0.0F;
   float referenceSpeed = 8.0F;
 };
@@ -21,19 +22,12 @@ struct ViewModelPresentationTuning {
   float swayScale = 0.55F;
   float inertiaScale = 0.55F;
   float landingScale = 0.65F;
-  float cameraPositionResponse = 0.08F;
-  float cameraRollDegrees = 5.5F;
-  float cameraFovBoostDegrees = 7.5F;
 };
 
 struct ViewModelPresentationOutput {
   Vec3 translation = {};
   // View-local pitch, yaw, and roll offsets. These rotate only the viewmodel.
   Vec3 rotationRadians = {};
-  // Camera outputs stay in presentation and never change the aim basis.
-  Vec3 cameraTranslation = {};
-  float cameraRollRadians = 0.0F;
-  float cameraFovOffsetDegrees = 0.0F;
 };
 
 class ViewModelPresentationController {
@@ -49,8 +43,7 @@ private:
   Vec3 smoothedVelocity_ = {};
   Vec3 previousVelocity_ = {};
   Vec3 sway_ = {};
-  float cameraRollRadians_ = 0.0F;
-  float cameraFovOffsetDegrees_ = 0.0F;
+  float slideAmount_ = 0.0F;
   float landingCompression_ = 0.0F;
   float airborneDownSpeed_ = 0.0F;
   bool wasGrounded_ = true;

@@ -7,7 +7,6 @@ namespace lg {
 namespace {
 
 constexpr float kTau = 6.28318530718F;
-constexpr float kDegreesToRadians = 0.01745329252F;
 
 float decayAlpha(float rate, float dt) {
   return 1.0F - std::exp(-rate * dt);
@@ -19,11 +18,6 @@ Vec3 lerp(Vec3 from, Vec3 to, float amount) {
 
 float nonNegative(float value) {
   return std::max(value, 0.0F);
-}
-
-float smoothStep(float value) {
-  value = std::clamp(value, 0.0F, 1.0F);
-  return value * value * (3.0F - 2.0F * value);
 }
 
 } // namespace
@@ -66,31 +60,10 @@ ViewModelPresentationOutput ViewModelPresentationController::update(
     }
     landingCompression_ *= std::exp(-14.0F * dt);
     wasGrounded_ = input.grounded;
-
-    const float lateralSpeed = std::clamp(
-      input.localVelocity.y / referenceSpeed,
-      -1.0F,
-      1.0F
-    );
-    const float rollTarget =
-      -lateralSpeed *
-      std::clamp(tuning.cameraRollDegrees, 0.0F, 12.0F) *
-      kDegreesToRadians;
-    cameraRollRadians_ = std::lerp(
-      cameraRollRadians_,
-      rollTarget,
-      decayAlpha(7.5F, dt)
-    );
-
-    const float speedAmount = smoothStep(
-      (horizontalSpeed / referenceSpeed - 0.25F) / 0.75F
-    );
-    const float fovTarget =
-      speedAmount * std::clamp(tuning.cameraFovBoostDegrees, 0.0F, 20.0F);
-    cameraFovOffsetDegrees_ = std::lerp(
-      cameraFovOffsetDegrees_,
-      fovTarget,
-      decayAlpha(5.0F, dt)
+    slideAmount_ = std::lerp(
+      slideAmount_,
+      input.sliding ? 1.0F : 0.0F,
+      decayAlpha(input.sliding ? 18.0F : 11.0F, dt)
     );
 
     // Acceleration is consumed below through the velocity lag; retaining this
@@ -102,12 +75,12 @@ ViewModelPresentationOutput ViewModelPresentationController::update(
 
   const float moving = std::clamp(horizontalSpeed / referenceSpeed, 0.0F, 1.0F);
   const float bob = nonNegative(tuning.bobScale);
-  const Vec3 bobTranslation = input.grounded ? Vec3{
+  const Vec3 bobTranslation = input.grounded && !input.sliding ? Vec3{
     -0.006F * std::cos(stridePhase_ * 2.0F) * moving,
     0.012F * std::sin(stridePhase_) * moving,
     -0.016F * std::fabs(std::sin(stridePhase_)) * moving,
   } * bob : Vec3{};
-  const Vec3 bobRotation = input.grounded ? Vec3{
+  const Vec3 bobRotation = input.grounded && !input.sliding ? Vec3{
     0.004F * std::sin(stridePhase_ * 2.0F) * moving,
     0.003F * std::sin(stridePhase_) * moving,
     -0.008F * std::sin(stridePhase_) * moving,
@@ -133,17 +106,23 @@ ViewModelPresentationOutput ViewModelPresentationController::update(
   const Vec3 landingRotation =
     Vec3{-landingCompression_ * 0.25F, 0.0F, 0.0F} * landing;
   const float swayScale = nonNegative(tuning.swayScale);
+  const Vec3 slideTranslation = {
+    0.065F * slideAmount_,
+    0.0F,
+    -0.055F * slideAmount_,
+  };
+  const Vec3 slideRotation = {
+    0.055F * slideAmount_,
+    0.0F,
+    0.0F,
+  };
 
   ViewModelPresentationOutput output;
-  output.translation = (bobTranslation + inertiaTranslation + landingTranslation) * master;
+  output.translation =
+    (bobTranslation + inertiaTranslation + landingTranslation + slideTranslation) * master;
   output.rotationRadians =
-    (bobRotation + inertiaRotation + landingRotation + sway_ * swayScale) * master;
-  // The translation and roll stay bounded and feed only the rendered camera.
-  // Gameplay aim continues to use the unmodified player view angles.
-  output.cameraTranslation = output.translation *
-    std::clamp(tuning.cameraPositionResponse, 0.0F, 0.15F);
-  output.cameraRollRadians = cameraRollRadians_;
-  output.cameraFovOffsetDegrees = cameraFovOffsetDegrees_;
+    (bobRotation + inertiaRotation + landingRotation + slideRotation +
+      sway_ * swayScale) * master;
   return output;
 }
 

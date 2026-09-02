@@ -15,6 +15,11 @@ namespace {
 constexpr float kCrouchHeightScale = 0.62F;
 constexpr float kCrouchGroundSpeedScale = 0.35F;
 constexpr float kSneakGroundSpeedScale = 0.52F;
+constexpr float kSlideMinimumSpeedScale = 0.55F;
+constexpr float kSlideFrictionScale = 0.08F;
+constexpr float kSlideAccelerationScale = 0.35F;
+constexpr float kSlideJumpSpeedScale = 1.16F;
+constexpr float kAirSteerRadiansPerSecond = 4.5F;
 
 [[nodiscard]] Vec3 horizontal(Vec3 value) {
   return {value.x, value.y, 0.0F};
@@ -563,11 +568,11 @@ void decrementDashCooldown(PlayerState& player) {
 
 void applyAirControl(
   Vec3& velocity,
-  const UserCommand& command,
   Vec3 wishDirection,
   float fixedDt
 ) {
-  if (command.forwardMove <= 0.0F || length(wishDirection) <= 0.0F) {
+  wishDirection = horizontal(wishDirection);
+  if (length(wishDirection) <= 0.0001F) {
     return;
   }
 
@@ -578,17 +583,21 @@ void applyAirControl(
     return;
   }
 
-  planarVelocity = planarVelocity / speed;
-  const float alignment = dot(planarVelocity, wishDirection);
-  if (alignment <= 0.0F) {
-    return;
-  }
-
-  constexpr float kQuakeWorldAirControl = 32.0F;
-  const float control =
-    kQuakeWorldAirControl * alignment * alignment * fixedDt;
-  planarVelocity = normalize((planarVelocity * speed) + (wishDirection * control));
-  planarVelocity *= speed;
+  wishDirection = normalize(wishDirection);
+  const float currentYaw = std::atan2(planarVelocity.y, planarVelocity.x);
+  const float wishYaw = std::atan2(wishDirection.y, wishDirection.x);
+  const float yawDelta = std::atan2(
+    std::sin(wishYaw - currentYaw),
+    std::cos(wishYaw - currentYaw)
+  );
+  const float maxTurn = kAirSteerRadiansPerSecond * fixedDt;
+  const float steeredYaw = currentYaw +
+    std::clamp(yawDelta, -maxTurn, maxTurn);
+  planarVelocity = {
+    std::cos(steeredYaw) * speed,
+    std::sin(steeredYaw) * speed,
+    0.0F,
+  };
   velocity.x = planarVelocity.x;
   velocity.y = planarVelocity.y;
   velocity.z = verticalSpeed;
@@ -743,6 +752,12 @@ void simulateGroundedOrAirborne(
     localTuning.groundAcceleration *= std::clamp(icePoolTuning.controlScale, 0.0F, 1.0F);
   }
 
+  const bool slideActive = isGlideSlideActive(player, tuning);
+  if (slideActive) {
+    localTuning.groundFriction *= kSlideFrictionScale;
+    localTuning.groundAcceleration *= kSlideAccelerationScale;
+  }
+
   const bool knockbackActive = player.knockbackTicksRemaining > 0;
   // Knockback uses air acceleration and skips ground friction while retaining
   // physical ground contact for collision, landing, and snapshot semantics.
@@ -752,6 +767,17 @@ void simulateGroundedOrAirborne(
   const bool jumpStarted =
     (player.onGround || wasOnGround) && command.jump && !player.jumpHeld;
   if (jumpStarted) {
+    if (slideActive) {
+      Vec3 planarVelocity = horizontal(player.velocity);
+      const float planarSpeed = length(planarVelocity);
+      const float slideJumpSpeed =
+        tuning.maxGroundSpeed * kSlideJumpSpeedScale;
+      if (planarSpeed > 0.0001F && planarSpeed < slideJumpSpeed) {
+        planarVelocity *= slideJumpSpeed / planarSpeed;
+        player.velocity.x = planarVelocity.x;
+        player.velocity.y = planarVelocity.y;
+      }
+    }
     player.velocity.z = tuning.jumpImpulse;
     player.jumpHeld = true;
     player.onGround = false;
@@ -803,7 +829,7 @@ void simulateGroundedOrAirborne(
       fixedDt
     );
     if (useAirMovement && tuning.airControlEnabled) {
-      applyAirControl(player.velocity, command, wishDirection, fixedDt);
+      applyAirControl(player.velocity, wishDirection, fixedDt);
     }
   }
   applyDashAcceleration(player, tuning, fixedDt);
@@ -937,6 +963,16 @@ void simulateFlying(
 }
 
 } // namespace
+
+bool isGlideSlideActive(
+  const PlayerState& player,
+  const MovementTuning& tuning
+) {
+  const float planarSpeed = std::hypot(player.velocity.x, player.velocity.y);
+  return player.onGround &&
+    player.crouched &&
+    planarSpeed >= tuning.maxGroundSpeed * kSlideMinimumSpeedScale;
+}
 
 void simulateMovement(
   PlayerState& player,

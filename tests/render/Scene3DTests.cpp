@@ -4969,7 +4969,7 @@ int main() {
     "MG muzzle and casing origins should match their authored sockets in every weapon position"
   );
   lg::RenderSettings swayedMachineGunSettings = localMachineGunSettings;
-  swayedMachineGunSettings.viewModelPresentation.cameraTranslation =
+  swayedMachineGunSettings.cameraPresentation.translation =
     {0.045F, -0.030F, 0.020F};
   const lg::Scene3D swayedMachineGunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -5371,7 +5371,7 @@ int main() {
   lg::RenderSettings swayedSniperSettings = localSniperSettings;
   swayedSniperSettings.viewModelPresentation.translation = {0.06F, -0.04F, 0.03F};
   swayedSniperSettings.viewModelPresentation.rotationRadians = {0.08F, -0.06F, 0.03F};
-  swayedSniperSettings.viewModelPresentation.cameraTranslation =
+  swayedSniperSettings.cameraPresentation.translation =
     {0.025F, -0.015F, 0.010F};
   const lg::Scene3D swayedSniperScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -5416,7 +5416,7 @@ int main() {
   lg::RenderSettings localRevolverSettings = settings;
   localRevolverSettings.localSelectedWeapon = lg::Weapon::Revolver;
   localRevolverSettings.viewModelHandsEnabled = true;
-  localRevolverSettings.viewModelPresentation.cameraTranslation =
+  localRevolverSettings.cameraPresentation.translation =
     {0.035F, -0.020F, 0.015F};
   const lg::Scene3D localRevolverScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -5494,7 +5494,7 @@ int main() {
     "first-person revolver should submit body, cylinder, and its intentional one-handed pose"
   );
   lg::RenderSettings localRevolverTracerSettings = idleRevolverSettings;
-  localRevolverTracerSettings.viewModelPresentation.cameraTranslation =
+  localRevolverTracerSettings.cameraPresentation.translation =
     {0.040F, 0.025F, -0.015F};
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> localRevolverFires = {};
   localRevolverFires[0].fired = true;
@@ -5711,7 +5711,7 @@ int main() {
     {0.025F, -0.015F, 0.010F};
   localLightningGunSettings.viewModelPresentation.rotationRadians =
     {0.030F, -0.020F, 0.010F};
-  localLightningGunSettings.viewModelPresentation.cameraTranslation =
+  localLightningGunSettings.cameraPresentation.translation =
     {0.045F, -0.030F, 0.020F};
   constexpr float kLocalLightningCameraVerticalOffset = 0.12F;
   const std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
@@ -5761,7 +5761,7 @@ int main() {
     {0.025F, -0.015F, 0.010F};
   localFreezeGunSettings.viewModelPresentation.rotationRadians =
     {0.030F, -0.020F, 0.010F};
-  localFreezeGunSettings.viewModelPresentation.cameraTranslation =
+  localFreezeGunSettings.cameraPresentation.translation =
     {0.045F, -0.030F, 0.020F};
   localFreezeGunSettings.freezeGunFiringAmount = 1.0F;
   constexpr float kLocalFreezeCameraVerticalOffset = 0.12F;
@@ -5857,7 +5857,7 @@ int main() {
   lg::RenderSettings localGrenadeLauncherSettings = settings;
   localGrenadeLauncherSettings.localSelectedWeapon =
     lg::Weapon::GrenadeLauncher;
-  localGrenadeLauncherSettings.viewModelPresentation.cameraTranslation =
+  localGrenadeLauncherSettings.cameraPresentation.translation =
     {0.045F, -0.030F, 0.020F};
   const lg::Scene3D localGrenadeLauncherScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -6171,7 +6171,7 @@ int main() {
     "first-person plasma projectile origin should match the authored muzzle socket"
   );
   lg::RenderSettings swayedPlasmaGunSettings = localPlasmaGunSettings;
-  swayedPlasmaGunSettings.viewModelPresentation.cameraTranslation =
+  swayedPlasmaGunSettings.cameraPresentation.translation =
     {0.045F, -0.030F, 0.020F};
   const lg::Scene3D swayedPlasmaGunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -6801,7 +6801,7 @@ int main() {
   lg::RenderSettings swayedLocalPlasmaProjectileSettings =
     localShotgunWeaponStartSettings;
   swayedLocalPlasmaProjectileSettings.localSelectedWeapon = lg::Weapon::PlasmaGun;
-  swayedLocalPlasmaProjectileSettings.viewModelPresentation.cameraTranslation =
+  swayedLocalPlasmaProjectileSettings.cameraPresentation.translation =
     {0.045F, -0.030F, 0.020F};
   const lg::Scene3D swayedLocalPlasmaProjectileScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -7300,7 +7300,7 @@ int main() {
   lg::RenderSettings localGrenadeProjectileSettings = settings;
   localGrenadeProjectileSettings.localSelectedWeapon =
     lg::Weapon::GrenadeLauncher;
-  localGrenadeProjectileSettings.viewModelPresentation.cameraTranslation =
+  localGrenadeProjectileSettings.cameraPresentation.translation =
     {0.045F, -0.030F, 0.020F};
   const lg::Scene3D localGrenadeProjectileScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,

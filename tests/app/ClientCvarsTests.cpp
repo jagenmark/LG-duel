@@ -518,16 +518,16 @@ int main() {
       console.execute("cl_viewmodel_landing_scale") ==
         "cl_viewmodel_landing_scale = 0.65 (default 0.65)" &&
       console.execute("cl_camera_position_response") ==
-        "cl_camera_position_response = 0.08 (default 0.08)" &&
-      console.execute("cl_camera_position_response 0.16") ==
+        "cl_camera_position_response = 0.7 (default 0.7)" &&
+      console.execute("cl_camera_position_response 1.6") ==
         "value out of range for cl_camera_position_response" &&
       console.execute("cl_camera_roll") ==
-        "cl_camera_roll = 5.5 (default 5.5)" &&
-      console.execute("cl_camera_roll 12.1") ==
+        "cl_camera_roll = 2.5 (default 2.5)" &&
+      console.execute("cl_camera_roll 8.1") ==
         "value out of range for cl_camera_roll" &&
       console.execute("cl_camera_fov_boost") ==
-        "cl_camera_fov_boost = 7.5 (default 7.5)" &&
-      console.execute("cl_camera_fov_boost 20.1") ==
+        "cl_camera_fov_boost = 3.5 (default 3.5)" &&
+      console.execute("cl_camera_fov_boost 12.1") ==
         "value out of range for cl_camera_fov_boost",
     "first-person motion cvars should expose bounded glide defaults"
   );

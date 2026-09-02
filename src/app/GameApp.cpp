@@ -6540,6 +6540,7 @@ int GameApp::run() const {
   float pendingLateViewModelMouseDeltaY = 0.0F;
   std::array<PlayerPresentationState, kDuelPlayerCount> playerPresentationStates = {};
   ViewModelPresentationController viewModelPresentation;
+  CameraPresentationController cameraPresentation;
   WeaponSwitchPresentationController localWeaponSwitchPresentation;
   std::array<WeaponSwitchPresentationController, kDuelPlayerCount>
     remoteWeaponSwitchPresentations = {};
@@ -6678,6 +6679,7 @@ int GameApp::run() const {
     previousFrameUsedPresentationView = false;
     playerPresentationStates = {};
     viewModelPresentation.reset();
+    cameraPresentation.reset();
     localWeaponSwitchPresentation.reset();
     remoteWeaponSwitchPresentations = {};
     weaponPresentationLifecycle.reset();
@@ -8939,6 +8941,7 @@ int GameApp::run() const {
       hasLastRemoteHealth = {};
       remoteDeathFadeAgeSeconds = {};
       viewModelPresentation.reset();
+      cameraPresentation.reset();
       localWeaponSwitchPresentation.reset();
       remoteWeaponSwitchPresentations = {};
       weaponPresentationLifecycle.reset();
@@ -10980,12 +10983,20 @@ int GameApp::run() const {
       dot(renderPlayer.velocity, yawRight(renderPlayer.viewYawRadians)),
       renderPlayer.velocity.z,
     };
+    const bool renderGrounded =
+      renderPlayer.onGround ||
+      renderPlayer.movementMode == MovementMode::Grounded;
+    const bool renderSliding = isGlideSlideActive(
+      renderPlayer,
+      currentMovementTuning
+    );
     currentRenderSettings.viewModelPresentation = viewModelPresentation.update(
       {
         localViewVelocity,
         viewModelMouseDeltaX,
         viewModelMouseDeltaY,
-        renderPlayer.onGround || renderPlayer.movementMode == MovementMode::Grounded,
+        renderGrounded,
+        renderSliding,
         elapsed.count(),
         currentMovementTuning.maxGroundSpeed,
       },
@@ -10995,15 +11006,27 @@ int GameApp::run() const {
         console.getFloat("cl_viewmodel_sway_scale"),
         console.getFloat("cl_viewmodel_inertia_scale"),
         console.getFloat("cl_viewmodel_landing_scale"),
+      }
+    );
+    constexpr CollisionBounds defaultCameraBounds = {};
+    const float eyeHeightAboveFeet = renderPlayer.bounds.halfHeight +
+      0.65F *
+        (renderPlayer.bounds.halfHeight / defaultCameraBounds.halfHeight);
+    currentRenderSettings.cameraPresentation = cameraPresentation.update(
+      {
+        localViewVelocity,
+        renderGrounded,
+        renderSliding,
+        eyeHeightAboveFeet,
+        elapsed.count(),
+        currentMovementTuning.maxGroundSpeed,
+      },
+      {
         console.getFloat("cl_camera_position_response"),
         console.getFloat("cl_camera_roll"),
         console.getFloat("cl_camera_fov_boost"),
       }
     );
-    currentRenderSettings.cameraRollRadians =
-      currentRenderSettings.viewModelPresentation.cameraRollRadians;
-    currentRenderSettings.cameraFovOffsetDegrees =
-      currentRenderSettings.viewModelPresentation.cameraFovOffsetDegrees;
     weaponAnimationTiming.reset();
     if (deathCamera.mode != DeathCameraMode::Alive) {
       currentRenderSettings.crosshairEnabled = false;
@@ -11247,7 +11270,7 @@ int GameApp::run() const {
         sniperScopeActive,
         sniperAdsAmount
       );
-      currentRenderSettings.cameraFovOffsetDegrees = 0.0F;
+      currentRenderSettings.cameraPresentation.fovOffsetDegrees = 0.0F;
     }
     if (sniperScopeActive) {
       // The scope owns the center view while ADS is held; hiding the viewmodel

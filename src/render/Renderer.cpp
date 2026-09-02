@@ -8162,17 +8162,14 @@ void appendCommandBatches(
   const float eyeHeight =
     0.65F *
     (player.bounds.halfHeight / kDefaultPlayerBounds.halfHeight);
-  return makePerspectiveCamera(
+  return makePresentedPerspectiveCamera(
     player.position + Vec3{0.0F, 0.0F, eyeHeight},
     player.viewYawRadians,
     player.viewPitchRadians,
-    std::clamp(
-      settings.fieldOfView + settings.cameraFovOffsetDegrees,
-      45.0F,
-      160.0F
-    ),
+    settings.fieldOfView,
+    settings.cameraPresentation.fovOffsetDegrees,
     aspectRatio,
-    settings.cameraRollRadians
+    settings.cameraPresentation.rollRadians
   );
 }
 

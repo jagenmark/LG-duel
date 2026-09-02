@@ -37,6 +37,11 @@ struct MovementTuning {
   float flightGravityCancel = 1.0F;
 };
 
+[[nodiscard]] bool isGlideSlideActive(
+  const PlayerState& player,
+  const MovementTuning& tuning
+);
+
 void simulateMovement(
   PlayerState& player,
   const UserCommand& command,

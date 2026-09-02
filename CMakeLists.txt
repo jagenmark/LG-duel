@@ -126,6 +126,7 @@ add_library(lg_duel_client_app
   src/app/TextInput.cpp
   src/app/TracerPresentation.cpp
   src/render/BitmapFont.cpp
+  src/render/CameraPresentation.cpp
   src/render/ChatLayout.cpp
   src/render/CaptureWriter.cpp
   src/render/CombatEffects.cpp

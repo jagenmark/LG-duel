@@ -559,6 +559,91 @@ int main() {
   }
 
   {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 6.0F;
+    tuning.maxGroundSpeed = 10.5F;
+    tuning.maxAirSpeed = 10.5F;
+    lg::PlayerState standing = groundedPlayer();
+    lg::PlayerState sliding = groundedPlayer();
+    standing.velocity.x = 10.5F;
+    sliding.velocity.x = 10.5F;
+
+    lg::UserCommand noInput;
+    lg::UserCommand slide = noInput;
+    slide.crouch = true;
+    runCommand(standing, noInput, tuning, 30);
+    runCommand(sliding, slide, tuning, 30);
+
+    failures += expect(
+      sliding.crouched &&
+        lg::isGlideSlideActive(sliding, tuning) &&
+        sliding.velocity.x > 9.0F &&
+        sliding.position.x > standing.position.x + 0.5F,
+      "a fast crouch should become a low slide that carries speed"
+    );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.maxGroundSpeed = 10.5F;
+    tuning.maxAirSpeed = 10.5F;
+    tuning.airAcceleration = 3.0F;
+    tuning.airControlEnabled = true;
+    lg::PlayerState player = groundedPlayer();
+    player.velocity.x = tuning.maxGroundSpeed;
+
+    lg::UserCommand slideJump;
+    slideJump.crouch = true;
+    slideJump.jump = true;
+    runCommand(player, slideJump, tuning, 1);
+    const float takeoffSpeed = std::hypot(player.velocity.x, player.velocity.y);
+    failures += expect(
+      !player.onGround && player.crouched &&
+        takeoffSpeed >= tuning.maxGroundSpeed * 1.15F &&
+        player.velocity.z > 7.7F,
+      "jumping from a slide should keep the low pose and add horizontal carry"
+    );
+
+    lg::UserCommand airTurn;
+    airTurn.crouch = true;
+    airTurn.rightMove = 1.0F;
+    runCommand(player, airTurn, tuning, 20);
+    const float steeredSpeed = std::hypot(player.velocity.x, player.velocity.y);
+    failures += expect(
+      player.velocity.y < -5.0F && steeredSpeed > takeoffSpeed * 0.95F,
+      "side-only air input should make a clear turn without dropping carry"
+    );
+
+    bool landedSliding = false;
+    for (int tick = 0; tick < 180; ++tick) {
+      lg::UserCommand landingInput;
+      landingInput.crouch = true;
+      landingInput.forwardMove = 1.0F;
+      runCommand(player, landingInput, tuning, 1);
+      if (player.onGround) {
+        landedSliding = lg::isGlideSlideActive(player, tuning);
+        break;
+      }
+    }
+    const float landingSpeed = std::hypot(player.velocity.x, player.velocity.y);
+    failures += expect(
+      landedSliding && landingSpeed > takeoffSpeed * 0.85F,
+      "landing while crouched should retain enough speed to chain the slide"
+    );
+
+    lg::UserCommand secondJump;
+    secondJump.crouch = true;
+    secondJump.jump = true;
+    runCommand(player, secondJump, tuning, 1);
+    failures += expect(
+      !player.onGround &&
+        std::hypot(player.velocity.x, player.velocity.y) >=
+          tuning.maxGroundSpeed * 1.15F,
+      "a retained landing slide should start a second slide jump"
+    );
+  }
+
+  {
     lg::UserCommand coast;
     lg::MovementTuning tuning;
     tuning.groundFriction = 20.0F;

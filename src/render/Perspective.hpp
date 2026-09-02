@@ -57,6 +57,29 @@ struct ProjectedPoint {
   };
 }
 
+[[nodiscard]] inline PerspectiveCamera makePresentedPerspectiveCamera(
+  Vec3 position,
+  float yawRadians,
+  float pitchRadians,
+  float baseFieldOfViewDegrees,
+  float fieldOfViewOffsetDegrees,
+  float aspectRatio,
+  float rollRadians
+) {
+  return makePerspectiveCamera(
+    position,
+    yawRadians,
+    pitchRadians,
+    std::clamp(
+      baseFieldOfViewDegrees + fieldOfViewOffsetDegrees,
+      45.0F,
+      160.0F
+    ),
+    aspectRatio,
+    rollRadians
+  );
+}
+
 [[nodiscard]] inline Vec3 perspectiveCameraSpace(
   const PerspectiveCamera& camera,
   Vec3 worldPosition
