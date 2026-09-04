@@ -17,6 +17,11 @@ namespace lg {
 // three sweeps absorbs short client stalls without allowing an unbounded queue.
 inline constexpr std::size_t kMaxQueuedProjectileUpdatePackets = 64;
 
+// Bound socket work and retained commands independently. Excess datagrams stay
+// in the socket until the next update; full command queues rely on client retry.
+inline constexpr std::size_t kMaxServerDatagramsPerUpdate = 64;
+inline constexpr std::size_t kMaxQueuedServerCommands = 256;
+
 class UdpServerTransport final : public NetTransport {
 public:
   using NetTransport::receiveReplayTransferMessage;

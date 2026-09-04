@@ -1577,7 +1577,8 @@ int main() {
     // The caller's body value is deliberately wrong. UDP transport stamps the
     // observed sentinel, authenticates with clientIndex, and the server assigns
     // the released body rather than trusting either client-provided body value.
-    joinRed.command.sequence = 1;
+    // The connection already sent spectator chat at sequence 7.
+    joinRed.command.sequence = 8;
     joinRed.playerIndex = 0;
     joinRed.requestTeam = true;
     joinRed.requestedTeam = lg::Team::Red;

@@ -288,6 +288,8 @@ struct UdpServerTransport::Impl {
     std::uint32_t latestCommandDatagramSequence = 0;
     std::uint32_t commandDatagramAckBits = 0;
     std::uint32_t lastCombatStatsTick = 0;
+    std::uint32_t latestCommandSequence = 0;
+    bool hasCommandSequence = false;
     bool wantsScoreboardStats = false;
     std::uint8_t playerIndex = kNoAssignedPlayer;
     Clock::time_point lastChatSend = Clock::time_point::min();
@@ -320,6 +322,15 @@ struct UdpServerTransport::Impl {
 
   bool translateCommand(std::size_t clientIndex, CommandPacket& packet) {
     ClientSlot& client = clients[clientIndex];
+    // Roster changes happen here, before ServerGame can reject old input.
+    // Keep ordering on the connection, including while it has no player body.
+    if (commands.size() >= kMaxQueuedServerCommands ||
+        (client.hasCommandSequence &&
+         !isSequenceNewer(packet.command.sequence, client.latestCommandSequence))) {
+      return false;
+    }
+    client.latestCommandSequence = packet.command.sequence;
+    client.hasCommandSequence = true;
     if (packet.requestSpectator) {
       if (client.playerIndex != kNoAssignedPlayer &&
           spectatorCount() >= kMaxSpectatorClients) {
@@ -354,7 +365,7 @@ struct UdpServerTransport::Impl {
       return;
     }
 
-    while (true) {
+    for (std::size_t received = 0; received < kMaxServerDatagramsPerUpdate; ++received) {
       Endpoint sender;
       WirePacket wire;
       if (!receiveWire(socket, sender, wire)) {
@@ -416,6 +427,8 @@ struct UdpServerTransport::Impl {
           clients[slotIndex].latestCommandDatagramSequence = 0;
           clients[slotIndex].commandDatagramAckBits = 0;
           clients[slotIndex].lastCombatStatsTick = 0;
+          clients[slotIndex].latestCommandSequence = 0;
+          clients[slotIndex].hasCommandSequence = false;
           clients[slotIndex].wantsScoreboardStats = false;
           clients[slotIndex].lastChatSend = Clock::time_point::min();
           clients[slotIndex].replayMessages.clear();

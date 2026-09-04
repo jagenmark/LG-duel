@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "pr-verification.yml"
+PERFORMANCE_WORKFLOW_PATH = WORKFLOW_PATH.with_name("performance-smoke.yml")
 REPAIR_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "pr267-review-fixes.yml"
 
 EXPECTED_JOBS = {
@@ -41,7 +42,8 @@ class PrVerificationWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        cls.jobs = workflow_jobs(cls.workflow)
+        cls.performance_workflow = PERFORMANCE_WORKFLOW_PATH.read_text(encoding="utf-8")
+        cls.jobs = workflow_jobs(cls.workflow) | workflow_jobs(cls.performance_workflow)
 
     def test_workflow_is_read_only_and_has_no_repair_code(self) -> None:
         header = self.workflow.partition("\njobs:\n")[0]
@@ -62,7 +64,6 @@ class PrVerificationWorkflowTests(unittest.TestCase):
         source_jobs = {
             "linux-build-and-tests",
             "windows-build-and-tests",
-            "live-client-server-smoke",
             "linux-sanitizers",
             "performance-smoke",
         }
@@ -100,6 +101,29 @@ class PrVerificationWorkflowTests(unittest.TestCase):
                 self.assertIn("uses: actions/upload-artifact@v4", job)
                 self.assertRegex(job, r"(?m)^          retention-days: 14$")
 
+    def test_live_smoke_reuses_release_build_and_still_gates_failure(self) -> None:
+        windows = self.jobs["windows-build-and-tests"]
+        gate = self.jobs["live-client-server-smoke"]
+        self.assertIn("cmake --build --preset msvc --config Release", windows)
+        self.assertIn("ctest --preset msvc -C Release", windows)
+        self.assertIn("--build-dir build/msvc/Release", windows)
+        self.assertIn("live: ${{ steps.live.outcome }}", windows)
+        self.assertIn("!cancelled() && steps.build.outcome == 'success'", windows)
+        self.assertIn("needs: windows-build-and-tests", gate)
+        self.assertIn('test "${{ needs.windows-build-and-tests.outputs.live }}" = success', gate)
+        self.assertNotIn("cmake ", gate)
+        self.assertNotIn("actions/checkout", gate)
+        self.assertNotIn("build/live", self.workflow)
+
+    def test_performance_cannot_cancel_required_checks(self) -> None:
+        self.assertNotIn("performance-smoke:", self.workflow)
+        self.assertIn("group: performance-smoke-", self.performance_workflow)
+        self.assertNotIn("group: pr-verification-", self.performance_workflow)
+        # Concurrency is job-scoped so an unrelated, skipped label run cannot
+        # cancel an in-progress benchmark either.
+        self.assertNotRegex(self.performance_workflow, r"(?m)^concurrency:")
+        self.assertIn("    concurrency:", self.jobs["performance-smoke"])
+
     def test_performance_check_keeps_its_opt_in_gate(self) -> None:
         performance = self.jobs["performance-smoke"]
         self.assertIn("github.event_name == 'workflow_dispatch'", performance)
@@ -109,7 +133,9 @@ class PrVerificationWorkflowTests(unittest.TestCase):
         )
 
     def test_label_event_can_start_performance_check(self) -> None:
-        header = self.workflow.partition("\njobs:\n")[0]
+        header = self.performance_workflow.partition("\njobs:\n")[0]
+        self.assertNotIn("      - labeled", self.workflow)
+        self.assertIn("github.event.label.name == 'performance-smoke'", self.performance_workflow)
         self.assertRegex(
             header,
             r"(?ms)^  pull_request:\n"

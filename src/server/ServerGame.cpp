@@ -2420,6 +2420,8 @@ void ServerGame::resetMatch() {
   const std::uint32_t serverTick = snapshot_.serverTick;
   const auto playerNames = snapshot_.playerNames;
   const auto connectedPlayers = snapshot_.connectedPlayers;
+  const auto acknowledgedCommand = snapshot_.acknowledgedCommand;
+  const auto hasAcknowledgedCommand = snapshot_.hasAcknowledgedCommand;
   const auto botPlayers = botPlayers_;
   const GameMode gameMode = snapshot_.gameMode;
   const auto teams = snapshot_.teams;
@@ -2434,6 +2436,9 @@ void ServerGame::resetMatch() {
   snapshot_.damageFeedbackRevision = damageFeedbackRevision_;
   snapshot_.map = mapDescriptor_;
   snapshot_.connectedPlayers = connectedPlayers;
+  // Match state resets, but each connection keeps its command sequence.
+  snapshot_.acknowledgedCommand = acknowledgedCommand;
+  snapshot_.hasAcknowledgedCommand = hasAcknowledgedCommand;
   snapshot_.botPlayers = botPlayers;
   snapshot_.gameMode = gameMode;
   snapshot_.teams = teams;
@@ -2536,7 +2541,6 @@ void ServerGame::resetMatch() {
   viewedServerTicks_ = {};
   hasCommand_ = {};
   receivedCommandThisTick_ = {};
-  playerSessions_ = {};
   botMotors_ = {};
   botSenseFrames_ = {};
   botSenseFrameValid_ = {};

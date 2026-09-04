@@ -1,0 +1,101 @@
+name: Performance smoke
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: "1"
+  LG_CANDIDATE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  # Run this optional evidence job only when a PR has the performance-smoke
+  # label, or when a maintainer starts the workflow by hand.
+  performance-smoke:
+    name: performance-smoke
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'performance-smoke') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'performance-smoke'))
+    concurrency:
+      group: performance-smoke-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+
+      - name: Run bounded hosted-runner performance check
+        env:
+          BASELINE: ${{ github.event.pull_request.base.sha || 'HEAD^' }}
+          CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >
+          python scripts/lg_compare_benchmarks.py
+          --baseline "$BASELINE"
+          --candidate "$CANDIDATE"
+          --suite pr_headless
+          --repetitions 5
+          --profile pr_headless
+          --not-comparable-exit-zero
+          --output verification/benchmarks
+
+      - name: Collect CI evidence
+        if: always()
+        shell: bash
+        run: |
+          status="${{ job.status }}"
+          comparison="verification/benchmarks/comparison.json"
+          if [[ -f "$comparison" ]]; then
+            status="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["status"].lower())' "$comparison")"
+          fi
+          python scripts/lg_verification.py collect-ci \
+            --evidence-root verification \
+            --platform linux \
+            --category performance \
+            --status "$status"
+
+      - name: Add performance report to the run summary
+        if: always()
+        shell: bash
+        run: |
+          report="verification/benchmarks/report.md"
+          if [[ -f "$report" ]]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Performance smoke" >> "$GITHUB_STEP_SUMMARY"
+            echo "The report was not produced. See the uploaded evidence." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-smoke-${{ github.run_attempt }}
+          path: |
+            verification/**
+            !verification/benchmarks/temp/**
+          if-no-files-found: warn
+          retention-days: 14
