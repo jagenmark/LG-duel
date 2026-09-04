@@ -19,6 +19,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: windows-playtest-${{ github.ref }}-${{ inputs.server_host }}-${{ inputs.server_port }}
+  cancel-in-progress: true
+
 jobs:
   windows-package:
     runs-on: windows-latest

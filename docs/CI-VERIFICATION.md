@@ -6,9 +6,12 @@ a new commit arrives. Each job has a time limit and uploads its JSON, JUnit,
 logs, and other evidence even when a check fails.
 
 The main Linux and Windows CTest steps run two independent test programs at a
-time. Tests that open UDP sockets use system-assigned ports, and tests that write
-files use separate paths, so this keeps the same checks while cutting idle CPU
-time.
+time. Linux uses Debug and Windows uses Release, including the full test suite.
+The local `msvc` preset still defaults to Debug; CI overrides the build and test
+configuration explicitly. Linux Debug and sanitizer checks retain unoptimized
+and sanitizer coverage. Tests that open UDP sockets use system-assigned ports,
+and tests that write files use separate paths, so this keeps the same checks
+while cutting idle CPU time.
 
 ## Required checks
 
@@ -42,14 +45,20 @@ does not silently weaken protection.
 ## Optional PR checks
 
 `performance-smoke` runs when a pull request has the `performance-smoke` label,
-or when a maintainer starts the PR verification workflow by hand. It is not a
-required status check. Keep it out of the required-check list so a hosted-runner
+or when a maintainer starts the separate **Performance smoke** workflow by hand.
+Label events do not restart PR verification. Unrelated label additions skip the
+performance job, and its job-level concurrency cannot cancel required checks.
+It is not a required status check. Keep it out of the required-check list so a hosted-runner
 timing result cannot block a merge. When it runs, tool errors and hard packet or
 queue-limit failures still fail the job. A `NOT_COMPARABLE` result remains useful
 evidence and does not fail the job.
 
 `live-client-server-smoke` checks the real client, UDP server, input path, and
-snapshot path with the fallback renderer. Keep it visible at first. Make it a
+snapshot path with the fallback renderer. Its three scenarios reuse the Windows
+Release build after CTest, even if CTest fails. Detailed live evidence is included
+in the Windows artifact; the separate live check gates the recorded outcome and
+fails if smoke failed or could not run. This avoids a second Windows checkout,
+configure, and compilation. Keep it visible at first. Make it a
 required check once its hosted-runner record is stable.
 
 The workflow writes evidence under `verification/`. CTest writes JUnit files to
