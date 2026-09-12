@@ -1083,6 +1083,33 @@ bool readVec3(Reader& reader, Vec3& value) {
     reader.readFloat(value.z);
 }
 
+bool writeGlide(Writer& writer, const GlideDuelState& state) {
+  if (!validGlideDuelState(state) || !writer.writeU32(state.roundNumber)) return false;
+  for (const auto& position : state.pickupPositions) if (!writeVec3(writer, position)) return false;
+  if (!writer.writeU8(state.claimedMask)) return false;
+  for (const auto buff : state.buffs) if (!writer.writeU8(static_cast<std::uint8_t>(buff))) return false;
+  for (const auto ticks : state.buffTicks) if (!writer.writeU16(ticks)) return false;
+  return writer.writeU32(state.pickupSequence) && writer.writeU8(state.lastCollector) &&
+    writer.writeU8(static_cast<std::uint8_t>(state.lastPickup)) && writer.writeU16(state.announcementTicks);
+}
+
+bool readGlide(Reader& reader, GlideDuelState& state) {
+  if (!reader.readU32(state.roundNumber)) return false;
+  for (auto& position : state.pickupPositions) if (!readVec3(reader, position)) return false;
+  if (!reader.readU8(state.claimedMask)) return false;
+  for (auto& buff : state.buffs) {
+    std::uint8_t value = 0;
+    if (!reader.readU8(value)) return false;
+    buff = static_cast<GlidePowerup>(value);
+  }
+  for (auto& ticks : state.buffTicks) if (!reader.readU16(ticks)) return false;
+  std::uint8_t pickup = 0;
+  if (!reader.readU32(state.pickupSequence) || !reader.readU8(state.lastCollector) ||
+      !reader.readU8(pickup) || !reader.readU16(state.announcementTicks)) return false;
+  state.lastPickup = static_cast<GlidePowerup>(pickup);
+  return validGlideDuelState(state);
+}
+
 bool writePlayer(Writer& writer, const PlayerState& player) {
   return writeVec3(writer, player.position) &&
     writeVec3(writer, player.velocity) &&
@@ -2214,6 +2241,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   if (!writer.writeU8(static_cast<std::uint8_t>(snapshot.gameMode))) {
     return false;
   }
+  if (snapshot.gameMode == GameMode::GlideDuel && !writeGlide(writer, snapshot.glide)) return false;
   for (Team team : snapshot.teams) {
     if (!writer.writeU8(static_cast<std::uint8_t>(team))) {
       return false;
@@ -2605,6 +2633,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     return false;
   }
   decoded.gameMode = static_cast<GameMode>(gameMode);
+  if (decoded.gameMode == GameMode::GlideDuel && !readGlide(reader, decoded.glide)) return false;
   for (Team& team : decoded.teams) {
     std::uint8_t encodedTeam = 0;
     if (!reader.readU8(encodedTeam)) {

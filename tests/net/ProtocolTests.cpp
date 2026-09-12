@@ -9,8 +9,35 @@
 #include <iostream>
 #include <limits>
 #include <string_view>
+#include <utility>
 
 namespace {
+
+lg::GlideDuelState glideFixture() {
+  lg::GlideDuelState state;
+  state.roundNumber = 17U;
+  state.pickupPositions = {{{1.25F, -2.5F, 3.75F}, {4.5F, 5.25F, -6.75F}, {-7.25F, 8.5F, 9.75F}}};
+  state.claimedMask = 5U;
+  state.buffs = {lg::GlidePowerup::Surge, lg::GlidePowerup::Guard};
+  state.buffTicks = {750U, 123U};
+  state.pickupSequence = 0x12345678U;
+  state.lastCollector = 1U;
+  state.lastPickup = lg::GlidePowerup::Repair;
+  state.announcementTicks = 250U;
+  return state;
+}
+
+bool sameGlide(const lg::GlideDuelState& a, const lg::GlideDuelState& b) {
+  for (std::size_t i = 0; i < 3; ++i) {
+    if (a.pickupPositions[i].x != b.pickupPositions[i].x ||
+        a.pickupPositions[i].y != b.pickupPositions[i].y ||
+        a.pickupPositions[i].z != b.pickupPositions[i].z) return false;
+  }
+  return a.roundNumber == b.roundNumber && a.claimedMask == b.claimedMask &&
+    a.buffs == b.buffs && a.buffTicks == b.buffTicks && a.pickupSequence == b.pickupSequence &&
+    a.lastCollector == b.lastCollector && a.lastPickup == b.lastPickup &&
+    a.announcementTicks == b.announcementTicks;
+}
 
 int expect(bool condition, std::string_view message) {
   if (condition) {
@@ -1962,6 +1989,19 @@ int main() {
       "bounded gameplay encoding should preserve a snapshot that already fits"
     );
 
+    auto glideBurst = twoBeamBurst;
+    glideBurst.gameMode = lg::GameMode::GlideDuel;
+    glideBurst.glide = glideFixture();
+    for (const bool configuration : {false, true}) {
+      glideBurst.hasConfiguration = configuration;
+      failures += expect(lg::encodeBoundedGameplaySnapshot(glideBurst, boundedTwoBeamWire) &&
+        boundedTwoBeamWire.size() <= lg::kMaxUdpApplicationDatagramBytes &&
+        lg::decodeServerSnapshot(boundedTwoBeamWire, decodedTwoBeam) &&
+        sameGlide(glideBurst.glide, decodedTwoBeam.glide) &&
+        decodedTwoBeam.lightningGuns[0].active && decodedTwoBeam.lightningGuns[1].active,
+        "busy Glide snapshot preserves authoritative state and beams within datagram budget");
+    }
+
     lg::ServerSnapshot recipientlessBurst = unboundedBurst;
     for (auto& events : recipientlessBurst.localHitFeedbackEvents) {
       events.fill({});
@@ -2290,6 +2330,54 @@ int main() {
         ack.sequence == 8U,
       "chat history acknowledgements should round trip"
     );
+  }
+
+  {
+    for (const bool configuration : {false, true}) {
+      lg::ServerSnapshot source;
+      source.map = testMapDescriptor();
+      source.gameMode = lg::GameMode::GlideDuel;
+      source.hasConfiguration = configuration;
+      source.glide = glideFixture();
+      lg::WirePacket wire;
+      lg::ServerSnapshot decoded;
+      failures += expect(lg::encodeServerSnapshot(source, wire) && wire.size() <= 1200U &&
+        lg::decodeServerSnapshot(wire, decoded) && sameGlide(source.glide, decoded.glide),
+        "Glide authoritative state round trips with and without configuration within packet budget");
+      lg::WirePacket expanded;
+      failures += expect(expandSnapshotForMutation(wire, expanded), "expand Glide packet for adversarial mutations");
+      // Locate the distinctive first position (1.25, -2.5, 3.75) following roundNumber.
+      const std::array<std::uint8_t, 12> marker = {0, 0, 160, 63, 0, 0, 32, 192, 0, 0, 112, 64};
+      const auto found = std::search(expanded.begin(), expanded.end(), marker.begin(), marker.end());
+      failures += expect(found != expanded.end(), "Glide payload is present in both snapshot forms");
+      if (found != expanded.end()) {
+        const auto start = static_cast<std::size_t>(found - expanded.begin()) - 4U;
+        for (const auto mutation : std::array<std::pair<std::size_t, std::uint8_t>, 8>{{
+            {40U, 8U}, {41U, 3U}, {44U, 3U}, {43U, 0U},
+            {51U, 2U}, {52U, 4U}, {53U, 251U}, {7U, 127U}}}) {
+          auto corrupt = expanded;
+          corrupt[start + mutation.first] = mutation.second;
+          if (mutation.first == 43U) corrupt[start + 44U] = 0U;
+          // Recompress so rejection exercises Glide validation, not the packet size limit.
+          failures += expect(compactSnapshotForMutation(corrupt, start + mutation.first) &&
+            !lg::decodeServerSnapshot(corrupt, decoded), "invalid Glide wire state must not decode");
+        }
+      }
+      for (unsigned invalid = 0; invalid < 8; ++invalid) {
+        source.glide = glideFixture();
+        switch (invalid) {
+        case 0: source.glide.claimedMask = 8U; break;
+        case 1: source.glide.buffs[0] = lg::GlidePowerup::Repair; break;
+        case 2: source.glide.buffTicks[0] = 751U; break;
+        case 3: source.glide.buffTicks[0] = 0U; break;
+        case 4: source.glide.lastCollector = 2U; break;
+        case 5: source.glide.lastPickup = static_cast<lg::GlidePowerup>(4U); break;
+        case 6: source.glide.announcementTicks = 251U; break;
+        case 7: source.glide.pickupPositions[1].z = std::numeric_limits<float>::infinity(); break;
+        }
+        failures += expect(!lg::encodeServerSnapshot(source, wire), "invalid Glide state must not encode");
+      }
+    }
   }
 
   return failures == 0 ? 0 : 1;
