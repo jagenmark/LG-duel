@@ -18,6 +18,7 @@ inline constexpr std::array<std::uint16_t, 3> kGlidePickupSpawnTicks = {8U * 125
 // Public, authoritative state. Timings and round conditions derive from the
 // round clock; checkpoints preserve ownership and layout across replay seeks.
 struct GlideDuelState {
+  bool arenaReady = false;
   std::uint32_t roundNumber = 0;
   std::array<Vec3, 3> pickupPositions = {};
   std::uint8_t claimedMask = 0;
@@ -69,6 +70,7 @@ struct GlideDuelState {
 }
 // -1 means no active/announced pickup. includePreview adds the three-second cue.
 [[nodiscard]] inline int glidePickupWave(const GlideDuelState& state, std::uint32_t remaining, bool includePreview = false) {
+  if (!state.arenaReady) return -1;
   const auto elapsed = glideElapsedTicks(remaining);
   for (std::size_t i = 0; i < 3; ++i) {
     if (!(state.claimedMask & (1U << i)) && elapsed >= kGlidePickupSpawnTicks[i] - (includePreview ? 375U : 0U) &&
@@ -86,6 +88,7 @@ struct GlideDuelState {
 }
 [[nodiscard]] inline MovementTuning glideRoundMovement(MovementTuning base, std::uint32_t round) {
   base.glideMovementEnabled = true;
+  base.flightEnabled = false;
   switch (glideCondition(round)) {
   case GlideCondition::Float: base.gravity *= 0.7F; break;
   case GlideCondition::Blast: break;
