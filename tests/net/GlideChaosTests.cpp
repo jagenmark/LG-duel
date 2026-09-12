@@ -80,6 +80,13 @@ int main() {
   f.change([](auto& c) { c.glide.roundNumber = 3; });
   check(std::abs(f.game->snapshot().movementTuning.dashCooldown - .51F) < .001F,
     "RUSH derives shorter dash cooldown from base tuning");
+  {
+    lg::CommandPacket tuning; tuning.playerIndex = 0; tuning.command.sequence = 1;
+    tuning.requestMovementTuning = true; tuning.movementTuning = f.game->snapshot().movementTuning;
+    f.transport.sendCommand(tuning); f.tick();
+    check(std::abs(f.game->snapshot().movementTuning.dashCooldown - .51F) < .001F,
+      "echoed client configuration does not compound the RUSH multiplier");
+  }
   f.reset(lg::GameMode::Duel);
   check(!f.game->snapshot().movementTuning.glideMovementEnabled &&
       f.game->snapshot().movementTuning.gravity == 24.0F &&
@@ -87,6 +94,11 @@ int main() {
     "leaving Glide restores configured classic movement");
   f.reset(lg::GameMode::GlideDuel, lg::MatchPhase::WaitingForReady);
   check(f.game->snapshot().glide.roundNumber == 0, "waiting does not consume a condition");
+  for (std::size_t slot = 0; slot < 2; ++slot) {
+    if (f.game->snapshot().readyPlayers[slot]) continue;
+    lg::CommandPacket ready; ready.playerIndex = static_cast<std::uint8_t>(slot);
+    ready.command.sequence = 1; ready.toggleReady = true; f.transport.sendCommand(ready);
+  }
   f.tick();
   check(f.game->snapshot().glide.roundNumber == 1 &&
     lg::glideCondition(f.game->snapshot().glide.roundNumber) == lg::GlideCondition::Float,
@@ -117,7 +129,11 @@ int main() {
       c.glide.buffTicks = {static_cast<std::uint16_t>(attackerBuff == lg::GlidePowerup::None ? 0 : 750),
         static_cast<std::uint16_t>(defenderBuff == lg::GlidePowerup::None ? 0 : 750)};
     });
-    f.shoot(0, 1); return health - f.game->snapshot().players[1].health;
+    f.shoot(0, 1);
+    const int removed = health - f.game->snapshot().players[1].health;
+    check(f.game->snapshot().weaponFires[0].damageApplied == removed,
+      "published weapon damage matches modified health removed");
+    return removed;
   };
   const int normal = damage(lg::GlidePowerup::None, lg::GlidePowerup::None);
   const int surge = damage(lg::GlidePowerup::Surge, lg::GlidePowerup::None);

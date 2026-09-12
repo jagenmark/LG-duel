@@ -343,7 +343,7 @@ private:
   void removeBotAtPlayerIndex(std::size_t playerIndex);
   [[nodiscard]] std::uint32_t randomU32();
   [[nodiscard]] float randomFloat(float minValue, float maxValue);
-  void applyDamageAndKnockback(
+  int applyDamageAndKnockback(
     std::size_t attackerIndex,
     std::size_t targetIndex,
     int damageApplied,

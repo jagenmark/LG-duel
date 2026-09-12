@@ -32,18 +32,57 @@ Use matching client/server builds for the new mode ID.
 - First to seven round wins. Two seconds to prepare and two between rounds.
 - Each round lasts at most 45 seconds. Elimination wins immediately; at the
   buzzer the player with more health wins. Equal health replays the round.
-- The last 15 seconds are **Overdrive**: damage doubles, including self-damage.
-  The HUD announces Overdrive and shows the time remaining.
+- The last 15 seconds are **Overdrive**: enemy damage doubles and a visible
+  circle closes from 24 to 4 metres around the final pickup location. Outside
+  the circle, both players lose 8 HP per second. Self-damage and zone damage
+  do not gain the Overdrive multiplier.
 - Both players respawn with the same configured health and weapon ammunition.
   All existing weapons are available; server damage/ammo settings still apply.
-- Health pickups and vampirism are disabled in this mode. Every hit matters.
+- Ordinary map health pickups and vampirism are disabled. Timed contested
+  power-ups provide brief advantages and a chance to recover.
 - The mode enables glide movement and disables flight. Only slots 1 and 2
   participate; additional connected slots do not enter the duel.
 - After a match, press F3 to ready for the rematch. F5 resets the match.
 
-The movement toggle also works in other modes: `g_glide_movement 1`. Switching
-away from Glide Duel keeps that toggle enabled; use `g_glide_movement 0` to
-return to classic movement.
+The movement toggle also works in other modes: `g_glide_movement 1`. Glide Duel
+applies its movement profile without changing the configured base values;
+switching modes restores those values.
+
+## Conditions and contested power-ups
+
+The countdown announces a condition shared by both players. It rotates even
+when a round ends in a draw:
+
+| Condition | What changes | Opportunity |
+|---|---|---|
+| FLOAT | 30% lower gravity | Carry a slide jump over cover; punish exposed landings. |
+| BLAST | 50% stronger enemy knockback | Push the opponent off their route or out of the closing circle. |
+| RUSH | 40% shorter dash cooldown | Chase an advantage or dash back to contest a pickup. |
+
+Power-ups appear 8, 20, and 32 seconds into each round. A world marker and HUD
+announce the location and type three seconds early. Each pickup remains for
+eight seconds or until one player collects it. The order rotates each round.
+
+| Power-up | Effect |
+|---|---|
+| SURGE | 35% more enemy damage for six seconds. |
+| GUARD | 35% less incoming enemy damage for six seconds. |
+| REPAIR | Restore 25 HP, capped at the round's starting health. |
+
+Touch a marker to collect it. REPAIR stays available when you are at full health.
+Temporary buffs do not stack; REPAIR does not replace an active buff. Zone and
+self-damage ignore SURGE and GUARD. The HUD shows your active buff and remaining
+time, and announces each collection.
+
+Locations are open standing points reachable from both actual round spawns.
+The final circle centers on the last pickup, away from the central pillar.
+Maps without a common reachable area retain the standard round clock and
+Overdrive damage, with contested pickups and the closing circle disabled.
+
+Read the condition, race or ambush the next pickup, spend the brief advantage,
+and move toward the final circle before it closes. Bots follow the same public
+announcements, contest pickups while firing, and navigate toward the circle's
+interior without receiving hidden opponent positions.
 
 ## Playing the movement
 
@@ -108,6 +147,6 @@ all health styles**. Positive X moves right; positive Y moves down. For example,
 60 pixels up. Set both to `0` to restore the default position. Offsets support
 `-16384..16384`; `cl_health_size` still controls scale.
 
-The September 12 movement update uses game protocol 66 and replay simulation
-revision 3. Use matching builds; recordings from earlier simulation revisions
+This update uses game protocol 67, replay format 9, and replay simulation
+revision 4. Use matching builds; recordings from earlier simulation revisions
 are rejected rather than played with different movement physics.

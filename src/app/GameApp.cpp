@@ -4263,6 +4263,13 @@ bool sameRuntimeMovementTuning(
     lhs.groundFriction == rhs.groundFriction &&
     lhs.stopSpeed == rhs.stopSpeed &&
     lhs.maxGroundSpeed == rhs.maxGroundSpeed &&
+    lhs.dashTargetSpeed == rhs.dashTargetSpeed &&
+    lhs.dashMaxSpeed == rhs.dashMaxSpeed &&
+    lhs.dashAcceleration == rhs.dashAcceleration &&
+    lhs.dashDuration == rhs.dashDuration &&
+    lhs.dashCooldown == rhs.dashCooldown &&
+    lhs.dashGroundHopVelocity == rhs.dashGroundHopVelocity &&
+    lhs.dashAirHopVelocity == rhs.dashAirHopVelocity &&
     lhs.flightAcceleration == rhs.flightAcceleration &&
     lhs.maxFlightSpeed == rhs.maxFlightSpeed &&
     lhs.flightDamping == rhs.flightDamping &&

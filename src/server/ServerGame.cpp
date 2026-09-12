@@ -1014,6 +1014,11 @@ void ServerGame::tick(float fixedDt) {
         ? combatPlayers[targetIndex]
         : historyFrame.players[targetIndex];
       target.health = combatPlayers[targetIndex].health;
+      // Resolve nominal hit damage before round resistance. The combat helper
+      // normally caps at target health; applying GUARD after that cap would let
+      // a low-health player survive an otherwise lethal shot.
+      if (snapshot_.gameMode == GameMode::GlideDuel && target.health > 0)
+        target.health = std::numeric_limits<int>::max();
       hitTargetPositions[attackerIndex] = target.position;
     }
     if (
@@ -1339,7 +1344,7 @@ void ServerGame::tick(float fixedDt) {
         freezeResult.damageApplied = 0;
       }
     }
-    applyDamageAndKnockback(
+    const int actualLightningDamage = applyDamageAndKnockback(
       attackerIndex,
       lightningTargets[attackerIndex],
       snapshot_.lightningGuns[attackerIndex].damageApplied,
@@ -1353,7 +1358,9 @@ void ServerGame::tick(float fixedDt) {
         hitTargetPositions[attackerIndex],
       }
     );
-    applyDamageAndKnockback(
+    if (lightningTargets[attackerIndex] < kDuelPlayerCount)
+      snapshot_.lightningGuns[attackerIndex].damageApplied = actualLightningDamage;
+    snapshot_.weaponFires[attackerIndex].damageApplied = applyDamageAndKnockback(
       attackerIndex,
       weaponTargets[attackerIndex],
       snapshot_.weaponFires[attackerIndex].damageApplied,
@@ -1367,7 +1374,7 @@ void ServerGame::tick(float fixedDt) {
         hitTargetPositions[attackerIndex],
       }
     );
-    applyDamageAndKnockback(
+    const int actualFreezeDamage = applyDamageAndKnockback(
       attackerIndex,
       freezeTargets[attackerIndex],
       snapshot_.lightningGuns[attackerIndex].damageApplied,
@@ -1382,6 +1389,8 @@ void ServerGame::tick(float fixedDt) {
       }
     );
 
+    if (freezeTargets[attackerIndex] < kDuelPlayerCount)
+      snapshot_.lightningGuns[attackerIndex].damageApplied = actualFreezeDamage;
     ShotgunResolution& shotgun = shotgunResolutions[attackerIndex];
     if (!shotgun.fire.fired) {
       continue;
@@ -1396,13 +1405,7 @@ void ServerGame::tick(float fixedDt) {
       if (target.playerIndex >= kDuelPlayerCount) {
         continue;
       }
-      const bool damagePhase =
-        snapshot_.matchPhase == MatchPhase::Live || warmupPhase();
-      if (damagePhase && damageAllowed(attackerIndex, target.playerIndex)) {
-        const PlayerState& player = snapshot_.players[target.playerIndex];
-        actualShotgunDamage += std::clamp(target.requestedDamage, 0, player.health);
-      }
-      applyDamageAndKnockback(
+      actualShotgunDamage += applyDamageAndKnockback(
         attackerIndex,
         target.playerIndex,
         target.requestedDamage,
@@ -4105,7 +4108,7 @@ const ServerGame::HistoryFrame& ServerGame::historyFrameForTick(
   return history_.front();
 }
 
-void ServerGame::applyDamageAndKnockback(
+int ServerGame::applyDamageAndKnockback(
   std::size_t attackerIndex,
   std::size_t targetIndex,
   int damageApplied,
@@ -4115,20 +4118,20 @@ void ServerGame::applyDamageAndKnockback(
   DamageContext context
 ) {
   if (attackerIndex >= kDuelPlayerCount || targetIndex >= kDuelPlayerCount) {
-    return;
+    return 0;
   }
   const bool combatPhase =
     snapshot_.matchPhase == MatchPhase::Live ||
     snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
     snapshot_.matchPhase == MatchPhase::WaitingForReady;
   if (!combatPhase) {
-    return;
+    return 0;
   }
 
   PlayerState& attacker = snapshot_.players[attackerIndex];
   PlayerState& target = snapshot_.players[targetIndex];
   if (target.health <= 0) {
-    return;
+    return 0;
   }
 
   const bool wasAlive = target.health > 0;
@@ -4294,6 +4297,7 @@ void ServerGame::applyDamageAndKnockback(
   if (wasAlive && target.health == 0 && damageApplied > 0) {
     handlePlayerDeath(targetIndex, attackerIndex);
   }
+  return damageApplied;
 }
 
 void ServerGame::handlePlayerDeath(
@@ -4753,7 +4757,7 @@ void ServerGame::simulateRockets(float fixedDt) {
       const float knockbackScale =
         static_cast<float>(knockbackDamage) /
         static_cast<float>(std::max(1, splashDamage));
-      applyDamageAndKnockback(
+      const int actualDamage = applyDamageAndKnockback(
         rocket.owner,
         playerIndex,
         appliedDamage,
@@ -4778,6 +4782,8 @@ void ServerGame::simulateRockets(float fixedDt) {
               rocket.sequence,
             }
       );
+      if (playerIndex == rocket.owner) explosion.ownerDamageApplied = actualDamage;
+      else explosion.opponentDamageApplied = actualDamage;
     }
     appendCombatEvent(
       snapshot_.rocketExplosions,
@@ -6734,6 +6740,12 @@ void ServerGame::receiveCommands() {
     }
 
     if (packet.requestMovementTuning) {
+      if (snapshot_.gameMode == GameMode::GlideDuel) {
+        packet.movementTuning.glideMovementEnabled = movementTuning_.glideMovementEnabled;
+        packet.movementTuning.flightEnabled = movementTuning_.flightEnabled;
+        if (std::abs(packet.movementTuning.dashCooldown - snapshot_.movementTuning.dashCooldown) < 0.0001F)
+          packet.movementTuning.dashCooldown = movementTuning_.dashCooldown;
+      }
       const std::string playerName = packet.playerName.empty()
         ? snapshot_.playerNames[playerIndex]
         : packet.playerName;
