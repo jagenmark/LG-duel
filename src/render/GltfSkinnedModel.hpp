@@ -345,5 +345,8 @@ private:
 
 [[nodiscard]] GltfSkinnedModel& duelistMaleModel();
 [[nodiscard]] GltfSkinnedModel& workerPlayerModel();
+[[nodiscard]] GltfSkinnedModel& ratchPlayerModel();
+[[nodiscard]] GltfSkinnedModel& playerModelForSetting(int setting);
+[[nodiscard]] bool usesPipPlayerRig(const GltfSkinnedModel& model);
 
 } // namespace lg

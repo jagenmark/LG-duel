@@ -38,6 +38,7 @@ enum class PlayerPoseLayerMask : std::uint8_t {
 };
 
 struct PlayerPresentationConfig {
+  float standingHalfHeight = 0.0F;
   float moveEnterSpeed = 0.35F;
   float moveExitSpeed = 0.20F;
   float directionSwitchMargin = 0.12F;
@@ -89,6 +90,7 @@ struct PlayerPresentationFrame {
   std::uint8_t poseLayerCount = 0;
   float proceduralLean = 0.0F;
   float torsoAimPitchRadians = 0.0F;
+  float standingHalfHeight = 0.0F;
   PlayerPresentationDiagnostics diagnostics = {};
 };
 

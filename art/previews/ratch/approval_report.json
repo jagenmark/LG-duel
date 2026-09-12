@@ -1,0 +1,19 @@
+{
+  "integration_approved": "2026-09-05",
+  "polish_requested": "2026-09-12",
+  "status": "draft PR for current polish; final reference fidelity not claimed",
+  "selectable_in_game": true,
+  "runtime_sha256": "6b42d12791201ea48f00dce9f7ff0092ae68e0c6d24f69e8f1a47d740b564992",
+  "pip_source_sha256": "0d925d33b3596417095ac72f5d2fd8c8387d189da372623ce3df1775ece20d5d",
+  "blender_sha256": "a96ddee29660b37a5714594bf4bd040a4405b5ece8da2aa494e55f33d8675275",
+  "counts": {
+    "primitives": 21,
+    "vertices": 457665,
+    "triangles": 858224,
+    "materials": 21,
+    "animations": 25,
+    "joints": 16
+  },
+  "review": "revision_review.json",
+  "limitations": "../../source/ratch/LIMITATIONS.md"
+}

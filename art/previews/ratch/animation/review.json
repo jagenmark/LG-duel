@@ -1,0 +1,110 @@
+[
+  {
+    "clip": "Idle_Gun_TwoHanded",
+    "frame": 12,
+    "view": "three_quarter",
+    "image": "art/previews/ratch/animation/Idle_Gun_TwoHanded_12_three_quarter.png"
+  },
+  {
+    "clip": "Idle_Gun_TwoHanded",
+    "frame": 12,
+    "view": "side",
+    "image": "art/previews/ratch/animation/Idle_Gun_TwoHanded_12_side.png"
+  },
+  {
+    "clip": "RUN",
+    "frame": 6,
+    "view": "three_quarter",
+    "image": "art/previews/ratch/animation/RUN_6_three_quarter.png"
+  },
+  {
+    "clip": "RUN",
+    "frame": 6,
+    "view": "side",
+    "image": "art/previews/ratch/animation/RUN_6_side.png"
+  },
+  {
+    "clip": "RUN",
+    "frame": 18,
+    "view": "three_quarter",
+    "image": "art/previews/ratch/animation/RUN_18_three_quarter.png"
+  },
+  {
+    "clip": "RUN",
+    "frame": 18,
+    "view": "side",
+    "image": "art/previews/ratch/animation/RUN_18_side.png"
+  },
+  {
+    "clip": "DUCKING",
+    "frame": 12,
+    "view": "three_quarter",
+    "image": "art/previews/ratch/animation/DUCKING_12_three_quarter.png"
+  },
+  {
+    "clip": "DUCKING",
+    "frame": 12,
+    "view": "side",
+    "image": "art/previews/ratch/animation/DUCKING_12_side.png"
+  },
+  {
+    "clip": "GLIDE_SLIDE",
+    "frame": 12,
+    "view": "three_quarter",
+    "image": "art/previews/ratch/animation/GLIDE_SLIDE_12_three_quarter.png"
+  },
+  {
+    "clip": "GLIDE_SLIDE",
+    "frame": 12,
+    "view": "side",
+    "image": "art/previews/ratch/animation/GLIDE_SLIDE_12_side.png"
+  },
+  {
+    "clip": "LEAN_LEFT",
+    "frame": 12,
+    "view": "three_quarter",
+    "image": "art/previews/ratch/animation/LEAN_LEFT_12_three_quarter.png",
+    "sampled_clip": "Idle_Gun_TwoHanded",
+    "composition": "runtime procedural Spine-subtree lean",
+    "side_lean_degrees": 34.0,
+    "frozen_pose_max_delta": 5.960464477539063e-08,
+    "unchanged_child_basis_max_delta": 0.0
+  },
+  {
+    "clip": "LEAN_LEFT",
+    "frame": 12,
+    "view": "side",
+    "image": "art/previews/ratch/animation/LEAN_LEFT_12_side.png",
+    "sampled_clip": "Idle_Gun_TwoHanded",
+    "composition": "runtime procedural Spine-subtree lean",
+    "side_lean_degrees": 34.0,
+    "frozen_pose_max_delta": 5.960464477539063e-08,
+    "unchanged_child_basis_max_delta": 0.0
+  },
+  {
+    "clip": "JUMP",
+    "frame": 7,
+    "view": "three_quarter",
+    "image": "art/previews/ratch/animation/JUMP_7_three_quarter.png"
+  },
+  {
+    "clip": "JUMP",
+    "frame": 7,
+    "view": "side",
+    "image": "art/previews/ratch/animation/JUMP_7_side.png"
+  },
+  {
+    "clip": "Death",
+    "frame": 18,
+    "view": "three_quarter",
+    "image": "art/previews/ratch/animation/Death_18_three_quarter.png",
+    "framing": "evaluated skinned bounds with 12% padding"
+  },
+  {
+    "clip": "Death",
+    "frame": 18,
+    "view": "side",
+    "image": "art/previews/ratch/animation/Death_18_side.png",
+    "framing": "evaluated skinned bounds with 12% padding"
+  }
+]

@@ -1,0 +1,27 @@
+{
+  "vertices": 443914,
+  "triangles": 858224,
+  "materials": 21,
+  "bones": [
+    "Hips",
+    "Spine",
+    "Head",
+    "Arm.L",
+    "Forearm.L",
+    "Hand.L",
+    "Arm.R",
+    "Forearm.R",
+    "Hand.R",
+    "weapon_socket",
+    "Thigh.L",
+    "Shin.L",
+    "Foot.L",
+    "Thigh.R",
+    "Shin.R",
+    "Foot.R"
+  ],
+  "approval_status": "integration approved 2026-09-05; polish requested 2026-09-12",
+  "reference": "art/concepts/ratch_reference.png",
+  "integration_status": "installed",
+  "revision_date": "2026-09-12"
+}

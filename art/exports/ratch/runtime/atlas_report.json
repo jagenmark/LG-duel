@@ -1,0 +1,359 @@
+[
+  {
+    "material": "pants.001",
+    "region": [
+      1024,
+      0,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -0.8114524483680725,
+      -2.2544023990631104,
+      0.8887605667114258,
+      0.36986488103866577
+    ],
+    "textured": true
+  },
+  {
+    "material": "shirt",
+    "region": [
+      1536,
+      0,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -1.8177000284194946,
+      -3.702054500579834,
+      1.5923000574111938,
+      -1.242030143737793
+    ],
+    "textured": true
+  },
+  {
+    "material": "skin.001",
+    "region": [
+      1536,
+      1536,
+      128,
+      128
+    ],
+    "interior_pixels": 112,
+    "original_uv_bounds": [
+      -1.824349284172058,
+      -4.641720294952393,
+      1.6339722871780396,
+      -1.2528398036956787
+    ],
+    "textured": false
+  },
+  {
+    "material": "coat",
+    "region": [
+      1024,
+      512,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -1.7707719802856445,
+      -5.619497776031494,
+      1.747381567955017,
+      -0.3930717706680298
+    ],
+    "textured": true
+  },
+  {
+    "material": "coat_edge",
+    "region": [
+      1536,
+      512,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -1.594984531402588,
+      -5.521564483642578,
+      1.2750639915466309,
+      1.0277999639511108
+    ],
+    "textured": true
+  },
+  {
+    "material": "vest",
+    "region": [
+      0,
+      1024,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -0.9179001450538635,
+      -3.4482998847961426,
+      0.26009997725486755,
+      -1.729299783706665
+    ],
+    "textured": true
+  },
+  {
+    "material": "thread",
+    "region": [
+      1664,
+      1536,
+      128,
+      128
+    ],
+    "interior_pixels": 112,
+    "original_uv_bounds": [
+      -1.7374628782272339,
+      -5.5317158699035645,
+      1.5804224014282227,
+      0.9972178936004639
+    ],
+    "textured": false
+  },
+  {
+    "material": "brass",
+    "region": [
+      1792,
+      1536,
+      128,
+      128
+    ],
+    "interior_pixels": 112,
+    "original_uv_bounds": [
+      -0.8921734094619751,
+      -2.9793002605438232,
+      0.5609734058380127,
+      0.680899977684021
+    ],
+    "textured": false
+  },
+  {
+    "material": "leather.001",
+    "region": [
+      512,
+      1024,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -1.789021611213684,
+      -5.369544506072998,
+      1.7283504009246826,
+      0.9974847435951233
+    ],
+    "textured": true
+  },
+  {
+    "material": "crease",
+    "region": [
+      1920,
+      1536,
+      128,
+      128
+    ],
+    "interior_pixels": 112,
+    "original_uv_bounds": [
+      -1.8194706439971924,
+      -4.587800025939941,
+      1.584755539894104,
+      -1.3884482383728027
+    ],
+    "textured": false
+  },
+  {
+    "material": "patch_red",
+    "region": [
+      1024,
+      1024,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -0.8675116896629333,
+      -5.33111047744751,
+      1.2681924104690552,
+      -0.3783402442932129
+    ],
+    "textured": true
+  },
+  {
+    "material": "patch_plaid",
+    "region": [
+      1536,
+      1024,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -0.8144514560699463,
+      -3.528099536895752,
+      0.9127413630485535,
+      0.1732378602027893
+    ],
+    "textured": true
+  },
+  {
+    "material": "patch_blue",
+    "region": [
+      0,
+      1536,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -1.6030480861663818,
+      -2.63815975189209,
+      0.8583104610443115,
+      0.9974847435951233
+    ],
+    "textured": true
+  },
+  {
+    "material": "sole",
+    "region": [
+      512,
+      1536,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -1.2296981811523438,
+      0.781000018119812,
+      0.8800982236862183,
+      1.1296000480651855
+    ],
+    "textured": true
+  },
+  {
+    "material": "face",
+    "region": [
+      0,
+      0,
+      1024,
+      1024
+    ],
+    "interior_pixels": 992,
+    "original_uv_bounds": [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+    ],
+    "textured": true
+  },
+  {
+    "material": "eye",
+    "region": [
+      1536,
+      1664,
+      128,
+      128
+    ],
+    "interior_pixels": 112,
+    "original_uv_bounds": [
+      -0.3722171187400818,
+      -4.604878902435303,
+      0.17441710829734802,
+      -4.4499711990356445
+    ],
+    "textured": false
+  },
+  {
+    "material": "iris.001",
+    "region": [
+      1664,
+      1664,
+      128,
+      128
+    ],
+    "interior_pixels": 112,
+    "original_uv_bounds": [
+      -0.3567522466182709,
+      -4.545665264129639,
+      0.04624772444367409,
+      -4.475915431976318
+    ],
+    "textured": false
+  },
+  {
+    "material": "black.001",
+    "region": [
+      1792,
+      1664,
+      128,
+      128
+    ],
+    "interior_pixels": 112,
+    "original_uv_bounds": [
+      -0.34419572353363037,
+      -4.527237415313721,
+      0.025324270129203796,
+      -4.490967750549316
+    ],
+    "textured": false
+  },
+  {
+    "material": "hair_light",
+    "region": [
+      1920,
+      1664,
+      128,
+      128
+    ],
+    "interior_pixels": 112,
+    "original_uv_bounds": [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+    ],
+    "textured": false
+  },
+  {
+    "material": "hair.001",
+    "region": [
+      1024,
+      1536,
+      512,
+      512
+    ],
+    "interior_pixels": 480,
+    "original_uv_bounds": [
+      -0.4125228226184845,
+      -5.003394603729248,
+      1.0,
+      1.0
+    ],
+    "textured": true
+  },
+  {
+    "material": "hair_gray",
+    "region": [
+      1536,
+      1792,
+      128,
+      128
+    ],
+    "interior_pixels": 112,
+    "original_uv_bounds": [
+      0.09549150615930557,
+      0.0,
+      1.0,
+      1.0
+    ],
+    "textured": false
+  }
+]

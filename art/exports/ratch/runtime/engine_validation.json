@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "asset": "assets/models/ratch/ratch.glb",
+  "ok": true,
+  "headless_cpu_only": true,
+  "gpu_render_checks": "not_run_requires_client_preview",
+  "counts": {"primitives": 21, "vertices": 457665, "triangles": 858224, "materials": 21, "animations": 25, "joints": 16},
+  "bounds": {"min": [-0.556860805,0.00899999961,-0.224778876], "max": [0.557045877,2.09700012,0.2447384]},
+  "sampling": {"instances": 16, "pose_samples": 1200, "checksum": 280208.41, "timing_threshold_used": false},
+  "nodes": ["Head","Hand.L","Forearm.L","Arm.L","weapon_socket","Hand.R","Forearm.R","Arm.R","Spine","Foot.L","Shin.L","Thigh.L","Foot.R","Shin.R","Thigh.R","Hips","Ratch_ApprovalMesh","PipFuse_Rig"],
+  "proxy_nodes": [],
+  "weapon_attachment_nodes": ["weapon_socket"],
+  "checks": [
+    {"name": "load", "pass": true, "detail": "GltfSkinnedModel loaded the asset"},
+    {"name": "glb_structure", "pass": true, "detail": "glTF 2 JSON and binary chunks parsed"},
+    {"name": "mesh_primitives", "pass": true, "detail": "primitives=21 vertices=457665 triangles=858224"},
+    {"name": "bounds", "pass": true, "detail": "finite ordered model and primitive bounds"},
+    {"name": "skin_influences_max_four", "pass": true, "detail": "no JOINTS_1/WEIGHTS_1 data and WEIGHTS_0 is VEC4"},
+    {"name": "skin_weights_normalized", "pass": true, "detail": "all encoded WEIGHTS_0 sums are within 0.002 of one; weighted_vertices=457665"},
+    {"name": "outline_cpu_eligibility", "pass": true, "detail": "triangle primitives and bounds are present; GPU outline output requires client preview"},
+    {"name": "collision_proxy_alignment", "pass": true, "detail": "no collision or hitbox proxy nodes encoded; manifest may require them"},
+    {"name": "animations_sampleable", "pass": true, "detail": "sampled each clip at three fixed times"},
+    {"name": "multiple_instance_cpu_sampling", "pass": true, "detail": "fixed headless samples for instances=16; no wall-clock pass threshold"}
+  ]
+}

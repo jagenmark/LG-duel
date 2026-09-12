@@ -10737,6 +10737,9 @@ int GameApp::run() const {
           continue;
         }
         PlayerPresentationConfig presentationConfig;
+        // Preserve skeleton size while the interpolated collision capsule changes stance.
+        presentationConfig.standingHalfHeight = renderSnapshot.players[playerIndex].bounds.halfHeight /
+          (renderSnapshot.players[playerIndex].crouched ? kCrouchHeightScale : 1.0F);
         presentationConfig.leanScale = teammate
           ? console.getFloat("r_teammate_lean_scale")
           : console.getFloat("r_enemy_lean_scale");
@@ -10881,6 +10884,9 @@ int GameApp::run() const {
           ? RemoteBodyFade{}
           : remoteBodyFadeAtAge(0.0F);
         PlayerPresentationConfig presentationConfig;
+        // Preserve skeleton size while the interpolated collision capsule changes stance.
+        presentationConfig.standingHalfHeight = renderSnapshot.players[playerIndex].bounds.halfHeight /
+          (renderSnapshot.players[playerIndex].crouched ? kCrouchHeightScale : 1.0F);
         presentationConfig.leanScale = teammate
           ? console.getFloat("r_teammate_lean_scale")
           : console.getFloat("r_enemy_lean_scale");

@@ -1071,7 +1071,8 @@ void hashSha256Block(
 
 [[nodiscard]] bool legacyDuelistClothMaterial(std::string_view materialName) {
   // The pre-manifest Duelist marks its flat team-tinted cloth by name.
-  return materialName == "MAT_ClothPrimary" ||
+  return materialName == "PipFuse_Jacket" ||
+    materialName == "MAT_ClothPrimary" ||
     materialName == "MAT_ClothAccent";
 }
 
@@ -1335,7 +1336,11 @@ void resolveGlobalMatrix(
 [[nodiscard]] bool upperBodyPoseIncludesNode(std::string_view name) {
   // Upper-body animation layers start at the spine so locomotion remains
   // authoritative for root, pelvis, and leg motion.
-  return name == "Abdomen" ||
+  return name == "Spine" ||
+    name.starts_with("Arm.") ||
+    name.starts_with("Forearm.") ||
+    name.starts_with("Hand.") ||
+    name == "Abdomen" ||
     name == "Torso" ||
     name == "Chest" ||
     name == "spine_01" ||
@@ -1896,7 +1901,9 @@ bool GltfSkinnedModel::appendBonePalette(
   if (std::fabs(aimPitch) > 0.0001F) {
     for (std::size_t index = 0; index < nodes_.size(); ++index) {
       float share = 0.0F;
-      if (nodes_[index].name == "spine_01") share = 0.35F;
+      if (nodes_[index].name == "Spine") share = 0.85F;
+      else if (nodes_[index].name == "Head") share = 0.15F;
+      else if (nodes_[index].name == "spine_01") share = 0.35F;
       else if (nodes_[index].name == "spine_02") share = 0.40F;
       else if (nodes_[index].name == "neck") share = 0.15F;
       else if (nodes_[index].name == "head") share = 0.10F;
@@ -1935,7 +1942,7 @@ bool GltfSkinnedModel::appendBonePalette(
   if (std::fabs(sideLean) > 0.0001F) {
     const auto abdomen = std::find_if(
       nodes_.begin(), nodes_.end(),
-      [](const Node& node) { return node.name == "Abdomen"; }
+      [](const Node& node) { return node.name == "Abdomen" || node.name == "Spine"; }
     );
     if (abdomen != nodes_.end()) {
       const int abdomenIndex = static_cast<int>(abdomen - nodes_.begin());
@@ -2156,12 +2163,35 @@ GltfSkinnedModel& workerPlayerModel() {
     attemptedLoad = true;
     constexpr std::array<std::string_view, 4> prefixes = {{"", "../", "../../", "../../../"}};
     for (std::string_view prefix : prefixes) {
-      if (model.load(std::string(prefix) + "assets/models/quaternius_worker/quaternius_worker.glb")) {
+      if (model.load(std::string(prefix) + "assets/models/pip_fuse/pip_fuse.glb")) {
         return model;
       }
     }
   }
   return model;
+}
+
+GltfSkinnedModel& ratchPlayerModel() {
+  static GltfSkinnedModel model;
+  static bool attemptedLoad = false;
+  if (!attemptedLoad) {
+    attemptedLoad = true;
+    constexpr std::array<std::string_view, 4> prefixes = {{"", "../", "../../", "../../../"}};
+    for (std::string_view prefix : prefixes) {
+      if (model.load(std::string(prefix) + "assets/models/ratch/ratch.glb")) {
+        return model;
+      }
+    }
+  }
+  return model;
+}
+
+GltfSkinnedModel& playerModelForSetting(int setting) {
+  return setting == 2 ? ratchPlayerModel() : workerPlayerModel();
+}
+
+bool usesPipPlayerRig(const GltfSkinnedModel& model) {
+  return &model == &workerPlayerModel() || &model == &ratchPlayerModel();
 }
 
 } // namespace lg

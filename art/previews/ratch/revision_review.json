@@ -1,0 +1,99 @@
+{
+  "approval_status": "approved",
+  "face": {
+    "changes": [
+      "Closed eyeballs behind asymmetric apertures and broad continuous lids",
+      "Orbital and cheek relief with a lower nasal tip and carved nostrils",
+      "Baked facial pigment, nose redness and local occlusion in a 1024px atlas region",
+      "Corrected ellipsoid and orbital winding; consistent facial normals and UV islands"
+    ],
+    "remaining_reference_differences": [
+      "Skin is smoother and more symmetric than the reference",
+      "Hair reads as sculpted locks rather than fine natural fibers",
+      "Game lighting remains darker than the studio; fine strand edges still alias at distance"
+    ]
+  },
+  "boots": {
+    "cause": "stacked ellipsoids created visible separation, rigid foot-only upper weights separated from shin cuff",
+    "fix": "continuous upper on flat-topped sole, overlapping welt, upper ankle Foot/Shin blend and cuff overlap",
+    "reviewed": [
+      "RUN_18_side.png",
+      "GLIDE_SLIDE_12_side.png"
+    ]
+  },
+  "lean": {
+    "cause": "inherited clip is axial spine twist; runtime adds a procedural lateral bend",
+    "fix": "gallery composes idle with 34-degree spine bend and freezes local base transforms before rendering",
+    "source_clips_modified": false
+  },
+  "checks": [
+    "25 clip input/output samples preserved",
+    "16 joint bind/hierarchy preserved",
+    "Finite normalized skin weights",
+    "Engine asset validation: 1200 pose samples at 16 instances",
+    "Material metadata and varying UV validation: all 21 primitives",
+    "Final asset rendered through SDL_GPU/Vulkan"
+  ],
+  "live_game_integrated": true,
+  "revision_date": "2026-09-12",
+  "integration_approval_date": "2026-09-05",
+  "revision_status": "user-requested polish installed",
+  "hair": {
+    "changes": [
+      "Broader tapered textured locks",
+      "Longer temple coverage and denser sideburn layering",
+      "Moustache cross-section thickness preserved during fitting"
+    ],
+    "previous_triangles": 1090730,
+    "current_triangles": 858224,
+    "reduction_percent": 21.3
+  },
+  "runtime_verification": {
+    "renderer": "SDL_GPU/vulkan",
+    "gpu": "Intel(R) Graphics (LNL)",
+    "map": "eyetoeye",
+    "camera_matched_to_previous_capture": true,
+    "images": [
+      "in_game.png",
+      "in_game_closeup.png"
+    ],
+    "observations": [
+      "Recessed eyes, nose redness and facial cavity shading visible in game",
+      "Moustache no longer has the collapsed-surface pattern",
+      "Hair and clothes remain dark under the unchanged game lighting",
+      "Reduced outer garment tint keeps coat and trousers brown; waistcoat retains team colour"
+    ],
+    "source_installed_build_sha256": {
+      "ratch.glb": "6b42d12791201ea48f00dce9f7ff0092ae68e0c6d24f69e8f1a47d740b564992",
+      "ratch_albedo.png": "ec7668e3cdc818602614306160aba8d037e2fab6bef41f0d834e22c654b30eaa",
+      "ratch_material_mask.png": "41ce4abe37bd647626f947746e77632932526df3ff5a0e603e56f2074c962e9d",
+      "material-manifest.json": "d9c34d5134a5f54fa11d156d69d25e5aa43133c4ecf8b321c8122870a43dc56b"
+    },
+    "owned_client_and_server_stopped": true,
+    "restored_cvars": {
+      "r_player_model": 1,
+      "r_dev_camera_draw_connected_body": 0,
+      "r_draw_player_outlines": 1
+    }
+  },
+  "palette": {
+    "team_tint_weights": {
+      "coat": 0.04,
+      "coat_edge": 0.03,
+      "shirt": 0.06,
+      "vest": 0.65,
+      "pants": 0.02,
+      "patches": 0.035
+    },
+    "purpose": "Preserve the reference brown outer garments while retaining a team cue on the waistcoat"
+  },
+  "review_gallery": {
+    "stills_refreshed": 11,
+    "animation_images_refreshed": 16,
+    "all_images_newer_than_blend": false,
+    "comparison_controls_verified": true,
+    "death_camera": "Fits evaluated skinned bounds with 12% padding to avoid clipping the fallen pose",
+    "compressed_blend_note": "Lossless compressed PR copy saved after the renders; model content is unchanged."
+  },
+  "pr_verification": "pr_gpu_verification.json"
+}
