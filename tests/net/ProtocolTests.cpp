@@ -4,13 +4,42 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <limits>
 #include <string_view>
+#include <utility>
 
 namespace {
+
+lg::GlideDuelState glideFixture() {
+  lg::GlideDuelState state;
+  state.arenaReady = true;
+  state.roundNumber = 17U;
+  state.pickupPositions = {{{1.25F, -2.5F, 3.75F}, {4.5F, 5.25F, -6.75F}, {-7.25F, 8.5F, 9.75F}}};
+  state.claimedMask = 5U;
+  state.buffs = {lg::GlidePowerup::Surge, lg::GlidePowerup::Guard};
+  state.buffTicks = {750U, 123U};
+  state.pickupSequence = 0x12345678U;
+  state.lastCollector = 1U;
+  state.lastPickup = lg::GlidePowerup::Repair;
+  state.announcementTicks = 250U;
+  return state;
+}
+
+bool sameGlide(const lg::GlideDuelState& a, const lg::GlideDuelState& b) {
+  for (std::size_t i = 0; i < 3; ++i) {
+    if (a.pickupPositions[i].x != b.pickupPositions[i].x ||
+        a.pickupPositions[i].y != b.pickupPositions[i].y ||
+        a.pickupPositions[i].z != b.pickupPositions[i].z) return false;
+  }
+  return a.arenaReady == b.arenaReady && a.roundNumber == b.roundNumber && a.claimedMask == b.claimedMask &&
+    a.buffs == b.buffs && a.buffTicks == b.buffTicks && a.pickupSequence == b.pickupSequence &&
+    a.lastCollector == b.lastCollector && a.lastPickup == b.lastPickup &&
+    a.announcementTicks == b.announcementTicks;
+}
 
 int expect(bool condition, std::string_view message) {
   if (condition) {
@@ -875,6 +904,7 @@ int main() {
       frag.attackerPlayerIndex = 0;
       frag.targetPlayerIndex = static_cast<std::uint8_t>(slot);
       frag.weapon = lg::Weapon::RocketLauncher;
+      frag.headshot = slot != 0 && slot % 2 == 1;
     }
     source.fragActiveMask = 0xFFFFU;
 
@@ -890,7 +920,8 @@ int main() {
     for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
       keptNewest = keptNewest && decoded.fragEvents[slot].active &&
         decoded.fragEvents[slot].sequence == slot + 17U &&
-        decoded.fragEvents[slot].attackerPlayerIndex == 0;
+        decoded.fragEvents[slot].attackerPlayerIndex == 0 &&
+        decoded.fragEvents[slot].headshot == (slot != 0 && slot % 2 == 1);
     }
     failures += expect(
       keptNewest,
@@ -1960,6 +1991,19 @@ int main() {
       "bounded gameplay encoding should preserve a snapshot that already fits"
     );
 
+    auto glideBurst = twoBeamBurst;
+    glideBurst.gameMode = lg::GameMode::GlideDuel;
+    glideBurst.glide = glideFixture();
+    for (const bool configuration : {false, true}) {
+      glideBurst.hasConfiguration = configuration;
+      failures += expect(lg::encodeBoundedGameplaySnapshot(glideBurst, boundedTwoBeamWire) &&
+        boundedTwoBeamWire.size() <= lg::kMaxUdpApplicationDatagramBytes &&
+        lg::decodeServerSnapshot(boundedTwoBeamWire, decodedTwoBeam) &&
+        sameGlide(glideBurst.glide, decodedTwoBeam.glide) &&
+        decodedTwoBeam.lightningGuns[0].active && decodedTwoBeam.lightningGuns[1].active,
+        "busy Glide snapshot preserves authoritative state and beams within datagram budget");
+    }
+
     lg::ServerSnapshot recipientlessBurst = unboundedBurst;
     for (auto& events : recipientlessBurst.localHitFeedbackEvents) {
       events.fill({});
@@ -2288,6 +2332,95 @@ int main() {
         ack.sequence == 8U,
       "chat history acknowledgements should round trip"
     );
+  }
+
+  {
+    for (const bool configuration : {false, true}) {
+      lg::ServerSnapshot source;
+      source.map = testMapDescriptor();
+      source.gameMode = lg::GameMode::GlideDuel;
+      source.hasConfiguration = configuration;
+      source.glide = glideFixture();
+      lg::WirePacket wire;
+      lg::ServerSnapshot decoded;
+      failures += expect(lg::encodeServerSnapshot(source, wire) && wire.size() <= 1200U &&
+        lg::decodeServerSnapshot(wire, decoded) && sameGlide(source.glide, decoded.glide),
+        "Glide authoritative state round trips with and without configuration within packet budget");
+      lg::WirePacket expanded;
+      failures += expect(expandSnapshotForMutation(wire, expanded), "expand Glide packet for adversarial mutations");
+      // Locate the distinctive first position (1.25, -2.5, 3.75) following roundNumber.
+      const std::array<std::uint8_t, 12> marker = {0, 0, 160, 63, 0, 0, 32, 192, 0, 0, 112, 64};
+      const auto found = std::search(expanded.begin(), expanded.end(), marker.begin(), marker.end());
+      failures += expect(found != expanded.end(), "Glide payload is present in both snapshot forms");
+      if (found != expanded.end()) {
+        const auto start = static_cast<std::size_t>(found - expanded.begin()) - 5U;
+        for (const auto mutation : std::array<std::pair<std::size_t, std::uint8_t>, 9>{{
+            {0U, 2U}, {41U, 8U}, {42U, 3U}, {45U, 3U}, {44U, 0U},
+            {52U, 2U}, {53U, 4U}, {54U, 251U}, {8U, 127U}}}) {
+          auto corrupt = expanded;
+          corrupt[start + mutation.first] = mutation.second;
+          if (mutation.first == 44U) corrupt[start + 45U] = 0U;
+          // Recompress so rejection exercises Glide validation, not the packet size limit.
+          failures += expect(compactSnapshotForMutation(corrupt, start + mutation.first) &&
+            !lg::decodeServerSnapshot(corrupt, decoded), "invalid Glide wire state must not decode");
+        }
+      }
+      for (unsigned invalid = 0; invalid < 8; ++invalid) {
+        source.glide = glideFixture();
+        switch (invalid) {
+        case 0: source.glide.claimedMask = 8U; break;
+        case 1: source.glide.buffs[0] = lg::GlidePowerup::Repair; break;
+        case 2: source.glide.buffTicks[0] = 751U; break;
+        case 3: source.glide.buffTicks[0] = 0U; break;
+        case 4: source.glide.lastCollector = 2U; break;
+        case 5: source.glide.lastPickup = static_cast<lg::GlidePowerup>(4U); break;
+        case 6: source.glide.announcementTicks = 251U; break;
+        case 7: source.glide.pickupPositions[1].z = std::numeric_limits<float>::infinity(); break;
+        }
+        failures += expect(!lg::encodeServerSnapshot(source, wire), "invalid Glide state must not encode");
+      }
+    }
+  }
+
+  {
+    lg::ServerSnapshot source;
+    source.map = testMapDescriptor();
+    source.gameMode = lg::GameMode::GlideDuel;
+    source.glide = glideFixture();
+    source.movementTuning.gravity = 16.8F;
+    source.hasConfiguration = true;
+    lg::WirePacket wire;
+    lg::ServerSnapshot decoded;
+    failures += expect(lg::encodeServerSnapshot(source, wire) &&
+      lg::decodeServerSnapshot(wire, decoded) && decoded.movementTuning.gravity == 16.8F,
+      "FLOAT gravity round trips exactly in snapshot configuration");
+    lg::WirePacket expanded;
+    failures += expect(expandSnapshotForMutation(wire, expanded), "expand gravity snapshot for corruption");
+    const auto bits = std::bit_cast<std::uint32_t>(16.8F);
+    const std::array<std::uint8_t, 4> marker = {
+      static_cast<std::uint8_t>(bits), static_cast<std::uint8_t>(bits >> 8U),
+      static_cast<std::uint8_t>(bits >> 16U), static_cast<std::uint8_t>(bits >> 24U)};
+    const auto found = std::search(expanded.begin(), expanded.end(), marker.begin(), marker.end());
+    failures += expect(found != expanded.end(), "snapshot contains serialized gravity");
+    if (found != expanded.end()) {
+      const auto offset = static_cast<std::size_t>(found - expanded.begin());
+      for (const float gravity : {-1.0F, 100001.0F, std::numeric_limits<float>::quiet_NaN(),
+          std::numeric_limits<float>::infinity()}) {
+        auto corrupt = expanded;
+        const auto invalidBits = std::bit_cast<std::uint32_t>(gravity);
+        for (unsigned i = 0; i < 4; ++i) corrupt[offset + i] = static_cast<std::uint8_t>(invalidBits >> (i * 8U));
+        failures += expect(compactSnapshotForMutation(corrupt, offset) &&
+          !lg::decodeServerSnapshot(corrupt, decoded), "invalid snapshot gravity must not decode");
+        source.movementTuning.gravity = gravity;
+        failures += expect(!lg::encodeServerSnapshot(source, wire), "invalid snapshot gravity must not encode");
+      }
+    }
+    for (const float gravity : {0.0F, 100000.0F}) {
+      source.movementTuning.gravity = gravity;
+      failures += expect(lg::encodeServerSnapshot(source, wire) &&
+        lg::decodeServerSnapshot(wire, decoded) && decoded.movementTuning.gravity == gravity,
+        "snapshot gravity accepts replay-compatible boundary values");
+    }
   }
 
   return failures == 0 ? 0 : 1;

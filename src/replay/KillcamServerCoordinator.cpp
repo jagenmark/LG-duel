@@ -178,7 +178,7 @@ void KillcamServerCoordinator::drainCompletedEncodes(
 void KillcamServerCoordinator::drainLethalEvents() {
   const std::vector<ReplayLethalEvent> events = server_.takeReplayLethalEvents();
   for (const ReplayLethalEvent& event : events) {
-    if (!config_.enabled || server_.snapshot().gameMode != GameMode::Duel ||
+    if (!config_.enabled || !isDuelGameMode(server_.snapshot().gameMode) ||
         event.victim >= kDuelPlayerCount ||
         server_.isBotSlot(event.victim)) {
       ++stats_.skippedEvents;

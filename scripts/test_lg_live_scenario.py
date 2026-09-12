@@ -30,6 +30,21 @@ class LiveScenarioTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.capture_path.unlink(missing_ok=True)
 
+    def test_validator_prefers_platform_executable(self) -> None:
+        for platform_name, filename in (("Linux", "lg_duel_scenarios"),
+                                        ("Windows", "lg_duel_scenarios.exe")):
+            with self.subTest(platform=platform_name), tempfile.TemporaryDirectory() as temp:
+                build = Path(temp)
+                for name in ("lg_duel_scenarios", "lg_duel_scenarios.exe"):
+                    (build / name).touch()
+                result = mock.Mock(returncode=0, stdout="{}")
+                with mock.patch.object(lg_launch.platform, "system", return_value=platform_name), \
+                     mock.patch.object(lg_live_scenario.subprocess, "run", return_value=result) as run, \
+                     mock.patch.object(lg_live_scenario, "_safe_live_fields", return_value={"validated": True}):
+                    self.assertEqual(lg_live_scenario.validate_live_scenario(build / "scenario.json", build, 3), {"validated": True})
+                self.assertEqual(run.call_args.args[0][0], str(build / filename))
+                self.assertIn("--validate-only", run.call_args.args[0])
+
     def test_free_port_probes_the_requested_socket_type(self) -> None:
         real_socket = socket.socket
         with mock.patch.object(

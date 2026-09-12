@@ -4,6 +4,7 @@
 #include "sim/Combat.hpp"
 #include "sim/Arena.hpp"
 #include "sim/GameMode.hpp"
+#include "sim/GlideDuel.hpp"
 #include "sim/IcePool.hpp"
 #include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
@@ -18,7 +19,7 @@
 
 namespace lg {
 
-inline constexpr std::uint16_t kProtocolVersion = 63;
+inline constexpr std::uint16_t kProtocolVersion = 67;
 inline constexpr std::size_t kDuelPlayerCount = kMaxPlayers;
 inline constexpr std::size_t kMaxSpectatorClients = 8;
 inline constexpr std::size_t kMaxNetworkClients =
@@ -93,6 +94,13 @@ struct MatchRules {
   GameMode gameMode,
   MatchRules configured
 ) {
+  if (gameMode == GameMode::GlideDuel) {
+    configured.roundLimit = 7;
+    configured.playerLimit = 2;
+    configured.timeLimitMinutes = 0;
+    configured.countdownTicks = 2U * 125U;
+    configured.roundEndTicks = 2U * 125U;
+  }
   if (gameMode == GameMode::FreeForAll) {
     configured.roundLimit = static_cast<std::uint16_t>(kFreeForAllScoreLimit);
     configured.timeLimitMinutes = kFreeForAllTimeLimitMinutes;
@@ -295,6 +303,7 @@ struct FragEvent {
   std::uint8_t attackerPlayerIndex = 255;
   std::uint8_t targetPlayerIndex = 255;
   Weapon weapon = Weapon::LightningGun;
+  bool headshot = false;
 };
 
 struct LocalHitFeedbackEvent {
@@ -475,6 +484,7 @@ struct ServerSnapshot {
   std::uint8_t mcguffinRound = 0;
   Team mcguffinRedBaseOwner = Team::Red;
   Team mcguffinBlueBaseOwner = Team::Blue;
+  GlideDuelState glide = {};
   McGuffinSnapshot mcguffin = {};
   McGuffinConfig mcguffinConfig = {};
   Team roundWinningTeam = Team::None;

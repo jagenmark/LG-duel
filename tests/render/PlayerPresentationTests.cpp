@@ -176,6 +176,37 @@ int main() {
     frame.diagnostics.currentState == lg::PlayerLocomotionState::CrouchWalk,
     "moving crouch should select crouch walk"
   );
+  player.velocity.x = -2.0F;
+  frame = lg::updatePlayerPresentation(postureState, player, 0.20F, 5U, config);
+  failures += expect(
+    frame.poseLayers[0].animationName == "CROUCH_BACK",
+    "backward crouch walking should select backward planted steps"
+  );
+  lg::PlayerPresentationConfig stableSizeConfig = config;
+  stableSizeConfig.standingHalfHeight = 0.9F;
+  player.bounds.halfHeight = 0.81F; // interpolated halfway through the capsule change
+  frame = lg::updatePlayerPresentation(postureState, player, 0.016F, 5U, stableSizeConfig);
+  failures += expect(
+    std::fabs(frame.standingHalfHeight - 0.9F) < 0.0001F,
+    "interpolated crouch bounds should preserve the authoritative skeleton size"
+  );
+  player.bounds.halfHeight = 0.9F;
+  lg::PlayerPresentationConfig slideConfig = config;
+  slideConfig.glideSlideActive = true;
+  player.velocity.x = 8.0F;
+  frame = lg::updatePlayerPresentation(postureState, player, 0.20F, 5U, slideConfig);
+  failures += expect(
+    frame.diagnostics.currentState == lg::PlayerLocomotionState::Slide &&
+      frame.poseLayers[0].animationName == "GLIDE_SLIDE",
+    "a glide slide should hold a planted slide pose instead of cycling walking feet"
+  );
+  slideConfig.glideSlideActive = false;
+  player.velocity.x = 2.0F;
+  frame = lg::updatePlayerPresentation(postureState, player, 0.20F, 5U, config);
+  failures += expect(
+    frame.diagnostics.currentState == lg::PlayerLocomotionState::CrouchWalk,
+    "slowing below slide speed should return to crouch walking"
+  );
   player.crouched = false;
   player.sneaking = true;
   frame = lg::updatePlayerPresentation(postureState, player, 0.016F, 5U, config);

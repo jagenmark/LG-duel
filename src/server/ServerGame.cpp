@@ -698,7 +698,7 @@ void ServerGame::tick(float fixedDt) {
     if (cooldown > 0) {
       --cooldown;
       if (cooldown == 0) {
-        snapshot_.healthPickupAvailable[index] = true;
+        snapshot_.healthPickupAvailable[index] = snapshot_.gameMode != GameMode::GlideDuel;
       }
     }
   }
@@ -748,7 +748,7 @@ void ServerGame::tick(float fixedDt) {
       snapshot_.players[playerIndex],
       command,
       arena_,
-      movementTuning_,
+      snapshot_.movementTuning,
       snapshot_.icePools,
       icePoolTuning_,
       fixedDt,
@@ -831,6 +831,7 @@ void ServerGame::tick(float fixedDt) {
   }
   updateKillVolumes();
   updateHealthPickups();
+  updateGlidePickups();
   updateMcGuffin();
   updateFootstepAudioEvents();
 
@@ -1013,6 +1014,11 @@ void ServerGame::tick(float fixedDt) {
         ? combatPlayers[targetIndex]
         : historyFrame.players[targetIndex];
       target.health = combatPlayers[targetIndex].health;
+      // Resolve nominal hit damage before round resistance. The combat helper
+      // normally caps at target health; applying GUARD after that cap would let
+      // a low-health player survive an otherwise lethal shot.
+      if (snapshot_.gameMode == GameMode::GlideDuel && target.health > 0)
+        target.health = std::numeric_limits<int>::max();
       hitTargetPositions[attackerIndex] = target.position;
     }
     if (
@@ -1338,7 +1344,7 @@ void ServerGame::tick(float fixedDt) {
         freezeResult.damageApplied = 0;
       }
     }
-    applyDamageAndKnockback(
+    const int actualLightningDamage = applyDamageAndKnockback(
       attackerIndex,
       lightningTargets[attackerIndex],
       snapshot_.lightningGuns[attackerIndex].damageApplied,
@@ -1352,7 +1358,9 @@ void ServerGame::tick(float fixedDt) {
         hitTargetPositions[attackerIndex],
       }
     );
-    applyDamageAndKnockback(
+    if (lightningTargets[attackerIndex] < kDuelPlayerCount)
+      snapshot_.lightningGuns[attackerIndex].damageApplied = actualLightningDamage;
+    snapshot_.weaponFires[attackerIndex].damageApplied = applyDamageAndKnockback(
       attackerIndex,
       weaponTargets[attackerIndex],
       snapshot_.weaponFires[attackerIndex].damageApplied,
@@ -1366,7 +1374,7 @@ void ServerGame::tick(float fixedDt) {
         hitTargetPositions[attackerIndex],
       }
     );
-    applyDamageAndKnockback(
+    const int actualFreezeDamage = applyDamageAndKnockback(
       attackerIndex,
       freezeTargets[attackerIndex],
       snapshot_.lightningGuns[attackerIndex].damageApplied,
@@ -1381,6 +1389,8 @@ void ServerGame::tick(float fixedDt) {
       }
     );
 
+    if (freezeTargets[attackerIndex] < kDuelPlayerCount)
+      snapshot_.lightningGuns[attackerIndex].damageApplied = actualFreezeDamage;
     ShotgunResolution& shotgun = shotgunResolutions[attackerIndex];
     if (!shotgun.fire.fired) {
       continue;
@@ -1395,13 +1405,7 @@ void ServerGame::tick(float fixedDt) {
       if (target.playerIndex >= kDuelPlayerCount) {
         continue;
       }
-      const bool damagePhase =
-        snapshot_.matchPhase == MatchPhase::Live || warmupPhase();
-      if (damagePhase && damageAllowed(attackerIndex, target.playerIndex)) {
-        const PlayerState& player = snapshot_.players[target.playerIndex];
-        actualShotgunDamage += std::clamp(target.requestedDamage, 0, player.health);
-      }
-      applyDamageAndKnockback(
+      actualShotgunDamage += applyDamageAndKnockback(
         attackerIndex,
         target.playerIndex,
         target.requestedDamage,
@@ -1423,6 +1427,7 @@ void ServerGame::tick(float fixedDt) {
   }
 
   simulateRockets(fixedDt);
+  updateGlideZone();
 
   // A projectile blast can resolve several lethal targets in one tick. Keep
   // the match live while the combat batch runs so every kill scores, then use
@@ -1513,6 +1518,17 @@ void ServerGame::tick(float fixedDt) {
     }
   }
 
+  if (tickStartedLive && snapshot_.gameMode == GameMode::GlideDuel &&
+      snapshot_.matchPhase == MatchPhase::Live) {
+    if (snapshot_.phaseTicksRemaining > 0) --snapshot_.phaseTicksRemaining;
+    if (snapshot_.phaseTicksRemaining == 0) {
+      const int first = snapshot_.players[0].health;
+      const int second = snapshot_.players[1].health;
+      if (first == second) beginRoundDraw();
+      else beginRoundEnd(first > second ? 0U : 1U);
+    }
+  }
+
   if (tickStartedLive) {
     ++snapshot_.liveTicksElapsed;
     // McGuffin rounds end through score control and the final-hold rule. A
@@ -1527,7 +1543,7 @@ void ServerGame::tick(float fixedDt) {
         static_cast<std::uint32_t>(snapshot_.matchRules.timeLimitMinutes) *
         60U * 125U;
       if (snapshot_.liveTicksElapsed >= limitTicks) {
-        if (snapshot_.gameMode == GameMode::Duel) {
+        if (isDuelGameMode(snapshot_.gameMode)) {
           const auto leader = uniqueScoreLeader(snapshot_.scores, occupiedPlayers());
           if (leader.has_value()) {
             beginMatchEnd(*leader);
@@ -1777,7 +1793,7 @@ bool ServerGame::applyReplayGameplayConfig(
   // maxAirSpeed and clamping knockback duration. A replay payload is already
   // validated and must retain its exact serialized values for hash equality.
   movementTuning_ = config.movementTuning;
-  snapshot_.movementTuning = movementTuning_;
+  snapshot_.movementTuning = effectiveMovementTuning();
   knockbackTimeMs_ = config.knockbackTimeMs;
   snapshot_.knockbackTimeMs = knockbackTimeMs_;
   // Keep the serialized balance sub-objects exact as well. The live runtime
@@ -1822,7 +1838,7 @@ replay::ReplayMetadata ServerGame::replayMetadata() const {
   metadata.mapContentHash = snapshot_.map.contentHash;
   metadata.gameMode = snapshot_.gameMode;
   metadata.matchRules = matchRules_;
-  metadata.visibility = snapshot_.gameMode == GameMode::Duel
+  metadata.visibility = isDuelGameMode(snapshot_.gameMode)
     ? replay::ReplayVisibility::DuelOnly
     : replay::ReplayVisibility::DeveloperFull;
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
@@ -1853,7 +1869,8 @@ void ServerGame::recordReplayLethal(
   std::size_t targetIndex,
   Weapon weapon,
   replay::LethalKind kind,
-  std::uint32_t projectileSequence
+  std::uint32_t projectileSequence,
+  bool headshot
 ) {
   if (targetIndex >= kDuelPlayerCount) return;
   replay::ReplayLethalEvent event;
@@ -1868,6 +1885,8 @@ void ServerGame::recordReplayLethal(
   event.kind = attackerIndex == targetIndex
     ? replay::LethalKind::Self
     : attackerIndex < kDuelPlayerCount ? kind : replay::LethalKind::World;
+  event.headshot = headshot && event.kind == replay::LethalKind::Direct &&
+    event.killer != event.victim;
   event.sequence = ++replayLethalSequence_;
   if (event.sequence == 0U) event.sequence = ++replayLethalSequence_;
   if (replayRecorder_ != nullptr && replayRecorder_->active()) {
@@ -2101,6 +2120,7 @@ replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
     target.resting = source.resting;
     target.ageTicks = source.ageTicks;
   }
+  checkpoint.glide = snapshot_.glide;
   checkpoint.match.gameMode = snapshot_.gameMode;
   checkpoint.match.phase = snapshot_.matchPhase;
   checkpoint.match.phaseTicksRemaining = snapshot_.phaseTicksRemaining;
@@ -2239,9 +2259,10 @@ bool ServerGame::restoreReplayCheckpoint(
   snapshot_.projectileRevision = checkpoint.projectileRevision;
   snapshot_.map = mapDescriptor_;
   snapshot_.gameMode = checkpoint.match.gameMode;
+  snapshot_.glide = checkpoint.glide;
   matchRules_ = metadata.matchRules;
   updateEffectiveMatchRules();
-  snapshot_.movementTuning = configuredSnapshot.movementTuning;
+  snapshot_.movementTuning = effectiveMovementTuning();
   snapshot_.playerSizeScaleXY = configuredSnapshot.playerSizeScaleXY;
   snapshot_.playerSizeScaleZ = configuredSnapshot.playerSizeScaleZ;
   snapshot_.lightningKnockback = configuredSnapshot.lightningKnockback;
@@ -2456,7 +2477,7 @@ void ServerGame::resetMatch() {
     player.position.z = arena_.spawnPositions[spawnIndex].z + player.bounds.halfHeight;
   }
   updateEffectiveMatchRules();
-  snapshot_.movementTuning = movementTuning_;
+  snapshot_.movementTuning = effectiveMovementTuning();
   snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
   snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
   snapshot_.lightningKnockback = lightningKnockback_;
@@ -2763,7 +2784,7 @@ void ServerGame::setConnectedPlayers(
   }
 
   const bool abortActiveMatch = !warmupPhase() &&
-    (snapshot_.gameMode == GameMode::Duel ||
+    (isDuelGameMode(snapshot_.gameMode) ||
      snapshot_.gameMode == GameMode::ClanArena);
   if (abortActiveMatch) {
     // Roster cleanup below changes replay authority at the current tick.
@@ -3186,7 +3207,7 @@ void ServerGame::setRuntimeGameplayTuning(
     previousNavigationBounds.radius != nextNavigationBounds.radius ||
     previousNavigationBounds.halfHeight != nextNavigationBounds.halfHeight;
   movementTuning_ = normalizedMovementTuning;
-  snapshot_.movementTuning = movementTuning_;
+  snapshot_.movementTuning = effectiveMovementTuning();
   playerSizeScaleXY_ = playerSizeScaleXY;
   playerSizeScaleZ_ = playerSizeScaleZ;
   snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
@@ -3365,7 +3386,7 @@ BotRosterChange ServerGame::addBots(std::optional<std::size_t> count) {
   std::size_t added = 0;
   for (
     std::size_t playerIndex = 0;
-    playerIndex < kDuelPlayerCount && added < requested;
+    playerIndex < (snapshot_.gameMode == GameMode::GlideDuel ? 2U : kDuelPlayerCount) && added < requested;
     ++playerIndex
   ) {
     if (isOccupiedSlot(playerIndex)) {
@@ -3596,6 +3617,7 @@ bool ServerGame::isHumanPlayer(std::size_t playerIndex) const {
 }
 
 bool ServerGame::isOccupiedSlot(std::size_t playerIndex) const {
+  if (snapshot_.gameMode == GameMode::GlideDuel && playerIndex >= 2U) return false;
   return isHumanPlayer(playerIndex) || isBotSlot(playerIndex);
 }
 
@@ -3608,7 +3630,7 @@ std::array<bool, kDuelPlayerCount> ServerGame::occupiedPlayers() const {
 }
 
 const MatchRules& ServerGame::matchRules() const {
-  return matchRules_;
+  return snapshot_.gameMode == GameMode::GlideDuel ? snapshot_.matchRules : matchRules_;
 }
 
 void ServerGame::updateMatchState() {
@@ -3619,6 +3641,9 @@ void ServerGame::updateMatchState() {
       for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
         snapshot_.readyPlayers[index] = botPlayers_[index];
       }
+      snapshot_.glide = {};
+      snapshot_.movementTuning = effectiveMovementTuning();
+      bumpReplayConfigurationRevision();
       snapshot_.scores = {};
       snapshot_.teamScores = {};
       snapshot_.mcguffinRoundsWon = {};
@@ -3655,6 +3680,9 @@ void ServerGame::updateMatchState() {
     if (snapshot_.phaseTicksRemaining == 0) {
       snapshot_.matchPhase = MatchPhase::Live;
       snapshot_.roundWinner = 255;
+      if (snapshot_.gameMode == GameMode::GlideDuel) {
+        snapshot_.phaseTicksRemaining = kGlideRoundTicks;
+      }
     }
     break;
   case MatchPhase::RoundEnd:
@@ -3672,6 +3700,9 @@ void ServerGame::updateMatchState() {
       --snapshot_.phaseTicksRemaining;
     }
     if (snapshot_.phaseTicksRemaining == 0) {
+      snapshot_.glide = {};
+      snapshot_.movementTuning = effectiveMovementTuning();
+      bumpReplayConfigurationRevision();
       snapshot_.scores = {};
       snapshot_.teamScores = {};
       snapshot_.mcguffinRoundsWon = {};
@@ -3699,19 +3730,21 @@ void ServerGame::beginCountdown() {
     snapshot_.overtime = false;
   }
   snapshot_.matchPhase = MatchPhase::Countdown;
-  snapshot_.phaseTicksRemaining = matchRules_.countdownTicks;
+  snapshot_.phaseTicksRemaining = snapshot_.matchRules.countdownTicks;
   snapshot_.roundWinner = 255;
   snapshot_.roundWinningTeam = Team::None;
   respawnRound();
+  if (snapshot_.gameMode == GameMode::GlideDuel) beginGlideRound();
   if (snapshot_.phaseTicksRemaining == 0) {
     snapshot_.matchPhase = MatchPhase::Live;
+    if (snapshot_.gameMode == GameMode::GlideDuel) snapshot_.phaseTicksRemaining = kGlideRoundTicks;
   }
 }
 
 void ServerGame::beginRoundDraw() {
   snapshot_.roundWinner = 255;
   snapshot_.roundWinningTeam = Team::None;
-  snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
+  snapshot_.phaseTicksRemaining = snapshot_.matchRules.roundEndTicks;
   snapshot_.matchPhase = MatchPhase::RoundEnd;
 }
 
@@ -3724,7 +3757,7 @@ void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
   }
   awardDuelRound(snapshot_.scores, winnerIndex);
   snapshot_.roundWinner = static_cast<std::uint8_t>(winnerIndex);
-  snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
+  snapshot_.phaseTicksRemaining = snapshot_.matchRules.roundEndTicks;
   snapshot_.matchPhase = MatchPhase::RoundEnd;
   bool overtimeWinner = false;
   if (snapshot_.overtime) {
@@ -3732,7 +3765,7 @@ void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
     overtimeWinner = leader.has_value() && *leader == winnerIndex;
   }
   if (
-    hasWonDuel(snapshot_.scores, winnerIndex, matchRules_.roundLimit) ||
+    hasWonDuel(snapshot_.scores, winnerIndex, snapshot_.matchRules.roundLimit) ||
     overtimeWinner
   ) {
     beginMatchEnd(winnerIndex);
@@ -3748,7 +3781,7 @@ void ServerGame::beginRoundEnd(Team winnerTeam) {
   }
   awardClanArenaRound(snapshot_.teamScores, winnerTeam);
   snapshot_.roundWinningTeam = winnerTeam;
-  snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
+  snapshot_.phaseTicksRemaining = snapshot_.matchRules.roundEndTicks;
   snapshot_.matchPhase = MatchPhase::RoundEnd;
   bool overtimeWinner = false;
   if (snapshot_.overtime) {
@@ -3756,7 +3789,7 @@ void ServerGame::beginRoundEnd(Team winnerTeam) {
     overtimeWinner = leader.has_value() && *leader == winnerTeam;
   }
   if (
-    hasWonClanArena(snapshot_.teamScores, winnerTeam, matchRules_.roundLimit) ||
+    hasWonClanArena(snapshot_.teamScores, winnerTeam, snapshot_.matchRules.roundLimit) ||
     overtimeWinner
   ) {
     beginMatchEnd(winnerTeam);
@@ -3794,7 +3827,7 @@ bool ServerGame::enoughPlayersConnected() const {
     occupied.end(),
     true
   ));
-  if (occupiedCount < matchRules_.playerLimit) {
+  if (occupiedCount < snapshot_.matchRules.playerLimit) {
     return false;
   }
   if (!isTeamGameMode(snapshot_.gameMode)) {
@@ -4075,7 +4108,7 @@ const ServerGame::HistoryFrame& ServerGame::historyFrameForTick(
   return history_.front();
 }
 
-void ServerGame::applyDamageAndKnockback(
+int ServerGame::applyDamageAndKnockback(
   std::size_t attackerIndex,
   std::size_t targetIndex,
   int damageApplied,
@@ -4085,25 +4118,35 @@ void ServerGame::applyDamageAndKnockback(
   DamageContext context
 ) {
   if (attackerIndex >= kDuelPlayerCount || targetIndex >= kDuelPlayerCount) {
-    return;
+    return 0;
   }
   const bool combatPhase =
     snapshot_.matchPhase == MatchPhase::Live ||
     snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
     snapshot_.matchPhase == MatchPhase::WaitingForReady;
   if (!combatPhase) {
-    return;
+    return 0;
   }
 
   PlayerState& attacker = snapshot_.players[attackerIndex];
   PlayerState& target = snapshot_.players[targetIndex];
   if (target.health <= 0) {
-    return;
+    return 0;
   }
 
   const bool wasAlive = target.health > 0;
   if (!damageAllowed(attackerIndex, targetIndex)) {
     damageApplied = 0;
+  }
+  if (snapshot_.gameMode == GameMode::GlideDuel && snapshot_.matchPhase == MatchPhase::Live) {
+    float multiplier = attackerIndex != targetIndex && snapshot_.phaseTicksRemaining <= kGlideOverdriveTicks ? 2.0F : 1.0F;
+    if (attackerIndex != targetIndex && attackerIndex < 2 && targetIndex < 2) {
+      if (snapshot_.glide.buffs[attackerIndex] == GlidePowerup::Surge) multiplier *= 1.35F;
+      if (snapshot_.glide.buffs[targetIndex] == GlidePowerup::Guard) multiplier *= 0.65F;
+      if (glideCondition(snapshot_.glide.roundNumber) == GlideCondition::Blast) knockbackImpulse *= 1.5F;
+    }
+    damageApplied = static_cast<int>(std::lround(std::clamp(
+      static_cast<double>(std::max(0, damageApplied)) * multiplier, 0.0, static_cast<double>(target.health))));
   }
   // Clamp before recording feedback and statistics so every downstream system
   // observes actual health removed rather than the weapon's nominal damage.
@@ -4188,7 +4231,7 @@ void ServerGame::applyDamageAndKnockback(
     attackerIndex != targetIndex &&
     attacker.health > 0 &&
     damageApplied > 0 &&
-    vampirism_ > 0.0F
+    vampirism_ > 0.0F && snapshot_.gameMode != GameMode::GlideDuel
   ) {
     // Preserve fractional healing between hits so low damage and fractional
     // vampirism remain deterministic instead of losing value to per-hit rounding.
@@ -4231,7 +4274,8 @@ void ServerGame::applyDamageAndKnockback(
       targetIndex,
       weapon,
       context.lethalKind,
-      context.projectileSequence
+      context.projectileSequence,
+      headshot
     );
     FragEvent frag;
     frag.active = true;
@@ -4240,6 +4284,8 @@ void ServerGame::applyDamageAndKnockback(
     frag.attackerPlayerIndex = static_cast<std::uint8_t>(attackerIndex);
     frag.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
     frag.weapon = weapon;
+    frag.headshot = headshot && context.lethalKind == replay::LethalKind::Direct &&
+      attackerIndex != targetIndex;
     appendCombatEvent(
       snapshot_.fragEvents,
       snapshot_.fragActiveMask,
@@ -4251,6 +4297,7 @@ void ServerGame::applyDamageAndKnockback(
   if (wasAlive && target.health == 0 && damageApplied > 0) {
     handlePlayerDeath(targetIndex, attackerIndex);
   }
+  return damageApplied;
 }
 
 void ServerGame::handlePlayerDeath(
@@ -4291,7 +4338,7 @@ void ServerGame::handlePlayerDeath(
       snapshot_.lightningGuns[targetIndex] = {};
       snapshot_.weaponFires[targetIndex] = {};
     }
-    if (snapshot_.gameMode == GameMode::Duel) {
+    if (isDuelGameMode(snapshot_.gameMode)) {
       std::optional<std::size_t> winner;
       std::size_t aliveCount = 0;
       for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
@@ -4710,7 +4757,7 @@ void ServerGame::simulateRockets(float fixedDt) {
       const float knockbackScale =
         static_cast<float>(knockbackDamage) /
         static_cast<float>(std::max(1, splashDamage));
-      applyDamageAndKnockback(
+      const int actualDamage = applyDamageAndKnockback(
         rocket.owner,
         playerIndex,
         appliedDamage,
@@ -4735,6 +4782,8 @@ void ServerGame::simulateRockets(float fixedDt) {
               rocket.sequence,
             }
       );
+      if (playerIndex == rocket.owner) explosion.ownerDamageApplied = actualDamage;
+      else explosion.opponentDamageApplied = actualDamage;
     }
     appendCombatEvent(
       snapshot_.rocketExplosions,
@@ -4817,7 +4866,7 @@ void ServerGame::resetHealthPickups() {
   healthPickupCooldownTicks_ = {};
   snapshot_.healthPickupAvailable = {};
   for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
-    snapshot_.healthPickupAvailable[index] = true;
+    snapshot_.healthPickupAvailable[index] = snapshot_.gameMode != GameMode::GlideDuel;
   }
 }
 
@@ -4865,7 +4914,144 @@ void ServerGame::updateKillVolumes() {
   }
 }
 
+MovementTuning ServerGame::effectiveMovementTuning() const {
+  if (snapshot_.gameMode != GameMode::GlideDuel) return movementTuning_;
+  if (snapshot_.glide.roundNumber > 0) return glideRoundMovement(movementTuning_, snapshot_.glide.roundNumber);
+  auto tuning = movementTuning_;
+  tuning.glideMovementEnabled = true;
+  tuning.flightEnabled = false;
+  return tuning;
+}
+
+void ServerGame::beginGlideRound() {
+  const auto round = snapshot_.glide.roundNumber + 1U;
+  snapshot_.glide = {};
+  snapshot_.glide.roundNumber = round == 0 ? 1 : round;
+  snapshot_.movementTuning = effectiveMovementTuning();
+  bumpReplayConfigurationRevision();
+  rebuildBotNavigation();
+
+  // Both players must be able to reach each contested location. Use proven
+  // standing nodes, never the map's geometric center (often inside a pillar).
+  using Reach = std::array<bool, BotNavigationMap::kMaxNodes>;
+  const float halfHeight = botNavigationBounds(playerSizeScaleXY_, playerSizeScaleZ_).halfHeight;
+  const auto reachable = [&](Vec3 spawn) {
+    Reach seen = {};
+    if (botNavigation_.nodeCount == 0) return seen;
+    std::size_t nearest = 0;
+    float distance = std::numeric_limits<float>::max();
+    for (std::size_t i = 0; i < botNavigation_.nodeCount; ++i) {
+      const Vec3 delta = botNavigation_.nodes[i].position - spawn;
+      if (dot(delta, delta) < distance) { distance = dot(delta, delta); nearest = i; }
+    }
+    std::array<std::uint16_t, BotNavigationMap::kMaxNodes> queue = {};
+    std::size_t head = 0, tail = 0;
+    queue[tail++] = static_cast<std::uint16_t>(nearest); seen[nearest] = true;
+    while (head < tail) {
+      const auto node = queue[head++];
+      for (auto link = botNavigation_.outgoingLinkHead[node]; link != UINT16_MAX;
+           link = botNavigation_.outgoingLinkNext[link]) {
+        const auto& edge = botNavigation_.links[link];
+        if (seen[edge.to]) continue;
+        seen[edge.to] = true; queue[tail++] = edge.to;
+      }
+    }
+    return seen;
+  };
+  const Vec3 first = snapshot_.players[0].position;
+  const Vec3 second = snapshot_.players[1].position;
+  const auto reachFirst = reachable(first), reachSecond = reachable(second);
+  const Vec3 center = (first + second) * 0.5F;
+  Vec3 across = normalize(Vec3{-(second.y - first.y), second.x - first.x, 0});
+  if (length(across) < 0.5F) across = {0, 1, 0};
+  for (std::size_t wave = 0; wave < 3; ++wave) {
+    const float side = ((wave + round) % 2U) == 0 ? -1.0F : 1.0F;
+    Vec3 target = center + across * (side * 5.0F);
+    float best = std::numeric_limits<float>::max();
+    Vec3 position = first;
+    for (std::size_t i = 0; i < botNavigation_.nodeCount; ++i) {
+      if (!reachFirst[i] || !reachSecond[i]) continue;
+      const Vec3 delta = botNavigation_.nodes[i].position - target;
+      const float score = dot(delta, delta) + 4.0F * std::abs(delta.z);
+      if (score < best) {
+        best = score; position = botNavigation_.nodes[i].position;
+        position.z -= halfHeight;
+      }
+    }
+    // Disconnected arenas retain the ordinary duel clock, but cannot expose
+    // an unreachable reward or a lethal zone favoring one spawn.
+    if (best == std::numeric_limits<float>::max()) return;
+    snapshot_.glide.pickupPositions[wave] = position;
+  }
+  snapshot_.glide.arenaReady = true;
+}
+
+void ServerGame::updateGlidePickups() {
+  if (snapshot_.gameMode != GameMode::GlideDuel || snapshot_.matchPhase != MatchPhase::Live) return;
+  auto& state = snapshot_.glide;
+  if (state.announcementTicks > 0) --state.announcementTicks;
+  for (std::size_t i = 0; i < 2; ++i) {
+    if (state.buffTicks[i] > 0 && --state.buffTicks[i] == 0) state.buffs[i] = GlidePowerup::None;
+  }
+  const int wave = glidePickupWave(state, snapshot_.phaseTicksRemaining);
+  if (wave < 0) return;
+  const auto powerup = glideWavePowerup(state.roundNumber, static_cast<std::size_t>(wave));
+  const Vec3 location = state.pickupPositions[static_cast<std::size_t>(wave)];
+  std::size_t collector = 2;
+  float nearest = 1.15F * 1.15F;
+  // Alternate exact ties across rounds/waves, avoiding a permanent slot bias.
+  for (std::size_t order = 0; order < 2; ++order) {
+    const auto i = (order + state.roundNumber + static_cast<unsigned>(wave)) % 2U;
+    const auto& player = snapshot_.players[i];
+    if (!isActiveCombatant(i) || player.health <= 0 ||
+        (powerup == GlidePowerup::Repair && player.health >= healthAmount_)) continue;
+    const Vec3 delta = player.position - location;
+    const float distance = delta.x * delta.x + delta.y * delta.y;
+    if (distance < nearest && std::abs(delta.z - player.bounds.halfHeight) < 1.4F) {
+      collector = i; nearest = distance;
+    }
+  }
+  if (collector == 2) return;
+  state.claimedMask |= static_cast<std::uint8_t>(1U << wave);
+  state.lastCollector = static_cast<std::uint8_t>(collector);
+  state.lastPickup = powerup;
+  ++state.pickupSequence;
+  state.announcementTicks = 250;
+  if (powerup == GlidePowerup::Repair) {
+    snapshot_.players[collector].health = std::min(healthAmount_, snapshot_.players[collector].health + 25);
+  } else {
+    state.buffs[collector] = powerup;
+    state.buffTicks[collector] = kGlideBuffTicks;
+  }
+}
+
+void ServerGame::updateGlideZone() {
+  if (snapshot_.gameMode != GameMode::GlideDuel || snapshot_.matchPhase != MatchPhase::Live ||
+      !snapshot_.glide.arenaReady || snapshot_.phaseTicksRemaining > kGlideOverdriveTicks) return;
+  const auto elapsed = glideElapsedTicks(snapshot_.phaseTicksRemaining);
+  if (elapsed * 8U / 125U == (elapsed + 1U) * 8U / 125U) return;
+  for (std::size_t i = 0; i < 2; ++i) {
+    auto& player = snapshot_.players[i];
+    if (!isActiveCombatant(i) || player.health <= 0 ||
+        !glideOutsideZone(snapshot_.glide, snapshot_.phaseTicksRemaining, player.position)) continue;
+    --player.health;
+    const auto sequence = nextNonZeroSequence(damageTakenSequences_[i]);
+    damageTakenSequences_[i] = sequence;
+    auto& ring = snapshot_.damageTakenEvents[i];
+    const auto slot = static_cast<std::size_t>(sequence - 1U) % kDamageTakenEventWindow;
+    ring.events[slot] = {};
+    ring.events[slot].sequence = sequence;
+    ring.events[slot].presentationDamage = 1;
+    (void)setDamageTakenEventActive(ring, slot);
+    if (player.health == 0) {
+      recordReplayLethal(kDuelPlayerCount, i, selectedWeapons_[i], replay::LethalKind::World, 0U);
+      handlePlayerDeath(i, std::nullopt);
+    }
+  }
+}
+
 void ServerGame::updateHealthPickups() {
+  if (snapshot_.gameMode == GameMode::GlideDuel) return;
   for (std::size_t pickupIndex = 0; pickupIndex < arena_.healthPickupCount; ++pickupIndex) {
     if (!snapshot_.healthPickupAvailable[pickupIndex]) {
       continue;
@@ -5465,10 +5651,40 @@ void ServerGame::updateParticipatingPlayers() {
   }
 }
 
+void ServerGame::populateGlideBotObjective(BotSenseFrame& sense) const {
+  if (snapshot_.gameMode != GameMode::GlideDuel) return;
+  sense.objective = {};
+  sense.movementZone = {};
+  if (snapshot_.matchPhase != MatchPhase::Live || !snapshot_.glide.arenaReady) return;
+  const auto& glide = snapshot_.glide;
+  if (snapshot_.phaseTicksRemaining <= kGlideOverdriveTicks) {
+    sense.movementZone.active = true;
+    sense.movementZone.center = glide.pickupPositions[2];
+    sense.movementZone.center.z += sense.self.halfHeight;
+    // Leave space for speed, reaction and route-planning cadence.
+    sense.movementZone.radius = std::max(2.0F, glideZoneRadius(snapshot_.phaseTicksRemaining) - 2.0F);
+    const Vec3 delta = sense.self.position - sense.movementZone.center;
+    if (delta.x * delta.x + delta.y * delta.y > sense.movementZone.radius * sense.movementZone.radius) {
+      sense.objective.active = true;
+      sense.objective.prioritizeMovement = true;
+      sense.objective.position = sense.movementZone.center;
+      return;
+    }
+  }
+  const int wave = glidePickupWave(glide, snapshot_.phaseTicksRemaining, true);
+  if (wave < 0) return;
+  const auto powerup = glideWavePowerup(glide.roundNumber, static_cast<std::size_t>(wave));
+  if (powerup == GlidePowerup::Repair && sense.self.health >= sense.self.maxHealth) return;
+  sense.objective.active = true;
+  sense.objective.prioritizeMovement = true;
+  sense.objective.position = glide.pickupPositions[static_cast<std::size_t>(wave)];
+  sense.objective.position.z += sense.self.halfHeight;
+}
+
 void ServerGame::rebuildBotNavigation() {
   const CollisionBounds bounds =
     botNavigationBounds(playerSizeScaleXY_, playerSizeScaleZ_);
-  botNavigation_ = buildBotNavigationMap(arena_, movementTuning_, bounds);
+  botNavigation_ = buildBotNavigationMap(arena_, effectiveMovementTuning(), bounds);
   ++botNavigationBuildCount_;
 }
 
@@ -5490,6 +5706,7 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
   sense.self.maxHealth = healthAmount_;
   sense.self.onGround = self.onGround;
   sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
+  sense.self.glideEnabled = snapshot_.movementTuning.glideMovementEnabled;
   sense.selectedWeapon = selectedWeapons_[playerIndex];
   sense.forceWeapon = !botWeaponAuto_;
   sense.forcedWeapon = botWeapon_;
@@ -5581,6 +5798,7 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
     observed.nearbySplashSurface = traceWorld(arena_, targetPoint, towardTarget, 2.0F).hit;
   }
   for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
+    if (snapshot_.gameMode == GameMode::GlideDuel) break;
     const ArenaHealthPickup& pickup = arena_.healthPickups[index];
     // Availability is an authoritative dynamic fact. Do not put it into the
     // filtered frame until the pickup itself is in sight. The brain may keep
@@ -5631,6 +5849,7 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
       }
     }
   }
+  populateGlideBotObjective(sense);
   return sense;
 }
 
@@ -5662,6 +5881,7 @@ void ServerGame::updateBotCommands(float fixedDt) {
     sense.self.maxHealth = healthAmount_;
     sense.self.onGround = self.onGround;
     sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
+    sense.self.glideEnabled = snapshot_.movementTuning.glideMovementEnabled;
     sense.selectedWeapon = selectedWeapons_[playerIndex];
     sense.forceWeapon = !botWeaponAuto_;
     sense.forcedWeapon = botWeapon_;
@@ -5671,6 +5891,7 @@ void ServerGame::updateBotCommands(float fixedDt) {
     sense.dodgeOverride = botDodgeEnabled_;
     sense.dodgeMinIntervalMs = botDodgeMinIntervalMs_;
     sense.dodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
+    populateGlideBotObjective(sense);
   };
   const auto currentTargetVisible = [&](std::size_t playerIndex,
                                         std::uint8_t targetIndex) {
@@ -6210,6 +6431,7 @@ bool ServerGame::applyScenarioSetup(
   }
 
   updateParticipatingPlayers();
+  if (snapshot_.gameMode == GameMode::GlideDuel && !warmupPhase()) beginGlideRound();
   history_.clear();
   recordHistory();
   return true;
@@ -6518,6 +6740,12 @@ void ServerGame::receiveCommands() {
     }
 
     if (packet.requestMovementTuning) {
+      if (snapshot_.gameMode == GameMode::GlideDuel) {
+        packet.movementTuning.glideMovementEnabled = movementTuning_.glideMovementEnabled;
+        packet.movementTuning.flightEnabled = movementTuning_.flightEnabled;
+        if (std::abs(packet.movementTuning.dashCooldown - snapshot_.movementTuning.dashCooldown) < 0.0001F)
+          packet.movementTuning.dashCooldown = movementTuning_.dashCooldown;
+      }
       const std::string playerName = packet.playerName.empty()
         ? snapshot_.playerNames[playerIndex]
         : packet.playerName;
@@ -6725,9 +6953,15 @@ void ServerGame::receiveCommands() {
           "spawn, one Red base, one Blue base, and team spawns.\n";
         continue;
       }
+      if (!isValidGameMode(packet.requestedGameMode)) continue;
       snapshot_.gameMode = packet.requestedGameMode;
+      if (snapshot_.gameMode == GameMode::GlideDuel) {
+        setBotWeaponAuto();
+        rebuildBotNavigation();
+      }
       snapshot_.teams = {};
       resetMatch();
+      rebuildBotNavigation();
       updateClanArenaBotTeams();
       refreshWarmupRosterState();
     }

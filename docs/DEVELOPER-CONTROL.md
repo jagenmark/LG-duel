@@ -23,8 +23,9 @@ confirmation, or when no developer-control operation can perform the task.
    `exec-console`, never by typing into the game window.
 4. Give every call a short, known timeout. A map load or capture can take a few
    seconds; do not leave an agent waiting on an unbounded wrapper.
-5. On a failure, read `status` and the worktree's logs, then retry only the
-   failed bounded request. Stop the owned session when done.
+5. On a failure, read `status` and the worktree's logs. An input timeout is
+   uncertain: it may still finish, so never blindly replay it. Inspect state
+   and attach again before continuing. Stop the owned session when done.
 
 ### Agent Exec-Session Lifetime
 
@@ -651,3 +652,120 @@ preset. Cancellation cannot roll back a game change that already ran. Player
 input needs a live match and follows the same server rules as local input.
 Computer Use remains useful for unusual editor/window work, but routine
 movement, console work, camera placement, and capture do not require it.
+
+## Attached playtest sessions
+
+Ordinary `lg_control.py` and MCP control operations now **attach only**. A failed
+request does not launch a replacement client or silently change server ports.
+Start explicitly with `lg_launch.py start`. The CLI also offers
+`--start-if-needed --server-port PORT` for deliberate launch-on-demand.
+
+Each native listener returns `control_session_id`. Pin subsequent requests with
+`--session-id ID`; the listener rejects a stale ID before executing the request.
+The playtest wrapper pins every request automatically and stops after an uncertain
+request, without retrying input. Rebuild the client to use this wrapper.
+
+```bash
+python scripts/lg_playtest.py --port 28161 doctor
+python scripts/lg_playtest.py --port 28161 observe
+python scripts/lg_playtest.py --port 28161 step '{"ticks":25,"forward":1}'
+python scripts/lg_playtest.py --port 28161 run examples/playtests/glide-movement.json
+```
+
+The example expects `glide_duel` in `WAITING FOR PLAYERS` with the player at its
+spawn and no bot. It checks end displacement, health, and stopping speed; it
+records a movement loop rather than proving every intermediate movement state.
+A low endpoint speed may also result from hitting cover; inspect the route before
+interpreting it as a friction/braking result.
+Use the ordinary map/console controls to prepare that state explicitly.
+
+A step's `input` can be one object or an array of consecutive segments. Each
+segment is at most 250 ticks, a sequence at most 1250 ticks, at 125 Hz. All
+segments execute inside the game with no tool round trips or inserted neutral
+release between them. Buttons omitted in the next segment become false. The
+final release is acknowledged before the tool returns. Supply yaw and pitch
+together; `one_tick_edges: ["jump"]` pulses a button at the start of its segment.
+For longer sequences set `--timeout` above duration plus one second.
+
+```bash
+python scripts/lg_control.py --port 28161 --session-id ID send-input-sequence \
+  '[{"ticks":40,"forward":1},{"ticks":60,"forward":1,"crouch":true},{"ticks":50}]'
+```
+
+`lg_playtest.py interactive` accepts one JSON step per stdin line in a persistent
+process. Python callers can reuse `PlaytestSession(port).step(...)`. MCP exposes
+`lg_playtest_observe` (explicit control port) and `lg_playtest_step` (explicit
+port and session ID returned by observe). Refresh the MCP connection's tool
+list after updating its server.
+
+Plans validate completely before input and stop on the first failed assertion.
+They save `events.jsonl`, `result.json`, original PNG copies, and an HTML evidence
+index under `build/playtests/`. A plan without assertions is labelled `recorded`,
+not `passed`; a timeout leaves an `incomplete` report. Captures include the HUD
+and overlays. Only local predicted/authoritative player state is read by this
+wrapper; it does not read opponents or generate aim.
+
+State is sampled before image readback, and capture tick skew is recorded.
+The world continues during capture and between steps. These are endpoint images,
+not continuous video: use one input array for timing-sensitive movement, and
+human playtesting to judge mouse feel, reactive combat, and enjoyment. `doctor`
+measures state round trips separately from screenshots; those wall times include
+tooling overhead and are not a game frame-time benchmark.
+
+## Animation review while input is held
+
+`lg_animation_review.py` attaches to a selected `glide_duel` warmup session,
+resets to spawn for each shot, and captures the connected body through the
+existing external development camera. No second human or scripted bot is
+required. It temporarily enables `r_dev_camera_draw_connected_body` and remote
+bodies, then restores those values and the original view mode.
+
+```bash
+python scripts/lg_animation_review.py --port 28161 \
+  --poses stand,crouch --views front,side \
+  --output build/animation-review
+```
+
+Additional starting fixtures are `crouch_walk`, `slide`, `jump`, and `land`.
+Their ticks and fixed cameras are starting points for the default movement
+profile. Inspect `frame_state.pose_layers` for the actual clip names, sample
+times and blend weights; a fixture label alone does not prove that clip was
+shown. Moving poses may need a camera aimed farther along the route. `front`
+is a three-quarter view; `side` is perpendicular to the supplied yaw.
+
+The native building block is an input-triggered phase capture:
+
+```python
+session.request("set_camera", position=[-10, -4, 2.4], yaw=135, pitch=-10, fov=60)
+session.request("arm_phase_capture", name="crouch-side", phase="input_tick",
+                at_input_tick=60, hide_hud=True, hide_overlays=True)
+session.request("send_input_sequence", segments=[
+    {"ticks": 150, "crouch": True, "yaw": 90, "pitch": 0}])
+shot = session.request("collect_phase_capture", name="crouch-side")
+```
+
+Arming `input_tick` preserves the development camera for the next bounded input
+request. The capture occurs on the first rendered frame at or after the requested
+input tick, before neutral release. The PNG is collected after the input finishes.
+`at_input_tick` must be 1..1249 and precede the request's final input tick. If a
+frame cannot be captured before release, collection reports failure. Existing
+weapon/effect phase captures retain their original behavior.
+
+Each saved frame records requested and actual input ticks, predicted and
+authoritative local state, the body state supplied to the renderer, body
+visibility, camera mode, animation layers, and collision debug mode. Simulation
+and rendering are separate clocks: actual input ticks can be later than requested,
+and the interpolated body can lag the predicted player. Evidence records those
+values instead of claiming exact pose timing. Only one phase capture can be armed
+at once; collect it before arming the next.
+
+The wrapper saves original PNG copies, `result.json`, and an HTML review page.
+It checks body visibility, view mode and requested crouch/ground state, stops on
+failed checks, and does not grade visual quality. `--collision-debug 1` shows
+**map collision geometry**, not the player's own collision bounds. Reloading
+assets requires restarting the client because the model loader caches the GLB.
+
+The live scenario runner now resolves native executable names on Linux and uses
+the same verified runtime GPU path as the standard launcher. Its server still
+requires exactly one connected human; use the connected-body review above for
+animation fixtures instead of adding a second human to a live scenario.

@@ -518,6 +518,11 @@ std::string hudScoreLine(
   const ServerSnapshot& snapshot,
   std::size_t localPlayerIndex
 ) {
+  if (snapshot.gameMode == GameMode::GlideDuel) {
+    const std::size_t local = localPlayerIndex < 2U ? localPlayerIndex : 0U;
+    return "ROUNDS " + std::to_string(snapshot.scores[local]) + '-' +
+      std::to_string(snapshot.scores[1U - local]) + " / 7";
+  }
   if (snapshot.gameMode == GameMode::ClanArena) {
     const std::size_t localTeamIndex =
       teamScoreIndex(snapshot.teams[localPlayerIndex]);
@@ -553,6 +558,13 @@ std::string hudScoreLine(
 }
 
 std::string matchTimeLine(const ServerSnapshot& snapshot) {
+  if (snapshot.gameMode == GameMode::GlideDuel) {
+    if (snapshot.matchPhase != MatchPhase::Live) return "GLIDE DUEL - FIRST TO 7";
+    const auto seconds = (snapshot.phaseTicksRemaining + 124U) / 125U;
+    return std::string(snapshot.phaseTicksRemaining <= kGlideOverdriveTicks
+      ? "OVERDRIVE 2X DAMAGE  " : "ROUND  ") + std::to_string(seconds) +
+      "s  - MOST HEALTH WINS AT TIME";
+  }
   if (snapshot.gameMode == GameMode::McGuffin) {
     return {};
   }

@@ -1,5 +1,6 @@
 #include "app/TracerPresentation.hpp"
 #include "render/GltfSkinnedModel.hpp"
+#include "render/GlideTrail.hpp"
 #include "render/PointLightResponse.hpp"
 #include "render/Scene3D.hpp"
 #include "render/ViewModelHandPoses.hpp"
@@ -422,6 +423,48 @@ UvBounds texturedWallUvBounds(
 
 int main() {
   int failures = 0;
+  {
+    lg::GlideTrail trail;
+    lg::MovementTuning tuning;
+    tuning.glideMovementEnabled = true;
+    lg::PlayerState slider;
+    slider.health = 100;
+    slider.onGround = true;
+    slider.crouched = true;
+    slider.velocity = {10, 0, 0};
+    std::vector<lg::TransientEffect> effects;
+    trail.update(.016F, 1, false);
+    trail.observe(0, &slider, tuning);
+    slider.position.x += .2F;
+    trail.observe(0, &slider, tuning);
+    trail.appendActive(effects);
+    failures += expect(effects.size() == 2,
+      "a grounded glide should leave a trail from both boots");
+    failures += expect(!effects.empty() && effects.front().color.alpha == 0,
+      "a newly started slide should ease in from transparent");
+    slider.onGround = false;
+    slider.position.x += .2F;
+    trail.observe(0, &slider, tuning);
+    effects.clear();
+    trail.appendActive(effects);
+    failures += expect(effects.size() == 2,
+      "jumping should stop trail emission while the existing trail fades");
+    trail.update(.25F, 1, false);
+    effects.clear(); trail.appendActive(effects);
+    failures += expect(effects.empty(), "glide trails should expire promptly");
+    slider.onGround = true;
+    trail.observe(0, &slider, tuning);
+    slider.position.x += 10;
+    trail.observe(0, &slider, tuning);
+    effects.clear(); trail.appendActive(effects);
+    failures += expect(effects.empty(), "teleports must not connect foot trails across the map");
+    slider.position.x += .2F;
+    trail.observe(0, &slider, tuning);
+    trail.observe(0, nullptr, tuning);
+    effects.clear(); trail.appendActive(effects);
+    failures += expect(effects.empty(), "hidden players must not retain visible trails");
+  }
+
   const lg::RemoteBodyFade freshBodyFade = lg::remoteBodyFadeAtAge(0.0F);
   const lg::RemoteBodyFade halfwayBodyFade =
     lg::remoteBodyFadeAtAge(lg::kDeadBodyFadeDurationSeconds * 0.5F);
@@ -1998,18 +2041,77 @@ int main() {
       workerScene.remoteWeaponStats.instancesSubmitted == 1U,
     "Worker selection should load a skinned body and retain the remote weapon"
   );
-  lg::RenderSettings archivedDuelistSettings = settings;
-  archivedDuelistSettings.playerModel = 2;
-  const lg::Scene3D archivedDuelistScene = lg::buildPerspectiveScene(
-    16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
-    weaponFires, rocketExplosions, rockets, archivedDuelistSettings
+  lg::PlayerState crouchedOpponent = opponent;
+  const float opponentFeet = opponent.position.z - opponent.bounds.halfHeight;
+  crouchedOpponent.crouched = true;
+  crouchedOpponent.bounds.halfHeight *= lg::kCrouchHeightScale;
+  crouchedOpponent.position.z = opponentFeet + crouchedOpponent.bounds.halfHeight;
+  crouchedOpponent.onGround = true;
+  crouchedOpponent.movementMode = lg::MovementMode::Grounded;
+  const lg::Scene3D crouchedWorkerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, crouchedOpponent, inactiveBeam, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, workerSettings
   );
   failures += expect(
-    archivedDuelistScene.gltfPlayerModelStats.activeInstances == 1U &&
-      archivedDuelistScene.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
-      archivedDuelistScene.gltfBonePalette.size() ==
-        lg::workerPlayerModel().jointCount(),
-    "archived player-model value 2 should safely resolve to the Worker body"
+    crouchedWorkerScene.gltfPlayerModelInstances.size() == 1U &&
+      nearlyEqual(crouchedWorkerScene.gltfPlayerModelInstances[0].modelRow2.y,
+        workerScene.gltfPlayerModelInstances[0].modelRow2.y) &&
+      nearlyEqual(crouchedWorkerScene.gltfPlayerModelInstances[0].modelTranslation.z,
+        workerScene.gltfPlayerModelInstances[0].modelTranslation.z),
+    "crouching should bend a full-size skeleton at the same floor anchor, never squash the model"
+  );
+  for (const std::string_view clip : {"DUCKING", "CROUCH_WALK", "CROUCH_BACK", "CROUCH_LEFT", "CROUCH_RIGHT", "GLIDE_SLIDE"}) {
+    for (const float phase : {0.0F, 0.25F, 0.5F, 0.75F}) {
+      float meshBottom = std::numeric_limits<float>::max();
+      float meshTop = std::numeric_limits<float>::lowest();
+      for (const auto& triangle : lg::workerPlayerModel().triangles({{clip, phase, 1.0F}})) {
+        for (const auto& vertex : triangle.vertices) {
+          meshBottom = std::min(meshBottom, vertex.y);
+          meshTop = std::max(meshTop, vertex.y);
+        }
+      }
+      const float worldScale = 1.8F / lg::workerPlayerModel().localBounds().max.y;
+      failures += expect(
+        std::fabs(meshTop * worldScale - 1.44F) < 0.025F &&
+          meshBottom * worldScale >= -0.015F && meshBottom * worldScale < 0.065F,
+        "crouch and slide clip phases should match the collider top with grounded feet"
+      );
+    }
+  }
+  {
+    float bottom = std::numeric_limits<float>::max();
+    float top = std::numeric_limits<float>::lowest();
+    for (const auto& triangle : lg::workerPlayerModel().triangles({{"Death", 1.1F, 1.0F}})) {
+      for (const auto& vertex : triangle.vertices) {
+        bottom = std::min(bottom, vertex.y);
+        top = std::max(top, vertex.y);
+      }
+    }
+    failures += expect(
+      bottom >= -0.015F && bottom < 0.04F && top < 0.65F,
+      "the completed death pose should rest on the floor rather than hover at hip height"
+    );
+  }
+  lg::RenderSettings ratchSettings = settings;
+  ratchSettings.playerModel = 2;
+  const lg::Scene3D ratchScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, ratchSettings
+  );
+  failures += expect(
+    lg::ratchPlayerModel().loaded() &&
+      &lg::playerModelForSetting(2) == &lg::ratchPlayerModel() &&
+      &lg::playerModelForSetting(1) == &lg::workerPlayerModel() &&
+      lg::usesPipPlayerRig(lg::ratchPlayerModel()) &&
+      ratchScene.remoteWeaponStats.instancesSubmitted == 1U &&
+      ratchScene.gltfPlayerModelStats.activeInstances == 1U &&
+      ratchScene.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
+      ratchScene.gltfPlayerModelInstances.size() == 1U &&
+      nearlyEqual(ratchScene.gltfPlayerModelInstances[0].localBounds.max.y,
+        lg::ratchPlayerModel().localBounds().max.y) &&
+      ratchScene.gltfBonePalette.size() ==
+        lg::ratchPlayerModel().jointCount(),
+    "Ratch selection should submit its skinned body and retain the weapon"
   );
   lg::GltfSkinnedModel::PoseScratch workerPoseScratch;
   std::vector<std::array<float, 16>> workerPalette;
@@ -2276,7 +2378,22 @@ int main() {
       foundUntintedNonClothPrimitive,
     "Worker GLB should load finite primitives with normalized weights and material tint masks"
   );
-  constexpr std::array<std::string_view, 9> presentationClips = {{
+  constexpr std::array<std::string_view, 24> presentationClips = {{
+    "Idle_Gun_TwoHanded",
+    "Death",
+    "RUN",
+    "SNEAK",
+    "DUCKING",
+    "CROUCH_WALK",
+    "CROUCH_BACK",
+    "CROUCH_LEFT",
+    "CROUCH_RIGHT",
+    "SNEAK_BACK",
+    "SNEAK_LEFT",
+    "SNEAK_RIGHT",
+    "GLIDE_SLIDE",
+    "JUMP",
+    "FALL",
     "RUN_BACK",
     "STRAFE_LEFT",
     "STRAFE_RIGHT",
@@ -2399,8 +2516,8 @@ int main() {
     workerModel.loaded() &&
     !restPoseTriangles.empty() &&
     restMin.x > -0.90F && restMax.x < 0.90F &&
-    restMin.y > -0.02F && restMax.y < 1.90F &&
-    restMin.z > -0.15F && restMax.z < 0.32F;
+    restMin.y > -0.02F && restMax.y < 2.05F &&
+    restMin.z > -0.25F && restMax.z < 0.32F;
   if (!restPoseCompact) {
     std::cerr << "rest bounds min=(" << restMin.x << ", " << restMin.y << ", "
               << restMin.z << ") max=(" << restMax.x << ", " << restMax.y
@@ -2419,37 +2536,81 @@ int main() {
     std::vector<std::array<float, 16>> backPalette;
     std::vector<std::array<float, 16>> leftPalette;
     std::vector<std::array<float, 16>> rightPalette;
-    const bool runSampled = workerModel.appendBonePalette(
-      {{"RUN", 0.25F, 1.0F}},
-      runPalette,
-      runScratch
-    );
-    const bool backSampled = workerModel.appendBonePalette(
-      {{"RUN_BACK", 0.25F, 1.0F}}, backPalette, backScratch
-    );
-    const bool leftSampled = workerModel.appendBonePalette(
-      {{"STRAFE_LEFT", 0.25F, 1.0F}}, leftPalette, leftScratch
-    );
-    const bool rightSampled = workerModel.appendBonePalette(
-      {{"STRAFE_RIGHT", 0.25F, 1.0F}}, rightPalette, rightScratch
-    );
-    failures += expect(
-      runSampled &&
+    bool completePalettes = true;
+    bool distinctDirections = false;
+    // Opposite strides share a passing pose. Compare several phases rather
+    // than requiring the feet to differ at that one instant.
+    for (const float phase : {0.125F, 0.25F, 0.625F, 0.75F}) {
+      runPalette.clear(); backPalette.clear(); leftPalette.clear(); rightPalette.clear();
+      const bool sampled = workerModel.appendBonePalette(
+        {{"RUN", phase, 1.0F}}, runPalette, runScratch
+      ) && workerModel.appendBonePalette(
+        {{"RUN_BACK", phase, 1.0F}}, backPalette, backScratch
+      ) && workerModel.appendBonePalette(
+        {{"STRAFE_LEFT", phase, 1.0F}}, leftPalette, leftScratch
+      ) && workerModel.appendBonePalette(
+        {{"STRAFE_RIGHT", phase, 1.0F}}, rightPalette, rightScratch
+      );
+      completePalettes = completePalettes && sampled &&
         runPalette.size() == workerModel.jointCount() &&
-        backSampled && leftSampled && rightSampled &&
         backPalette.size() == workerModel.jointCount() &&
         leftPalette.size() == workerModel.jointCount() &&
-        rightPalette.size() == workerModel.jointCount(),
-      "Worker locomotion clips should produce complete skin palettes"
-    );
-    failures += expect(
-      backSampled && leftSampled && rightSampled &&
+        rightPalette.size() == workerModel.jointCount();
+      distinctDirections = distinctDirections || (sampled &&
         maxPaletteDelta(runPalette, backPalette) > 0.001F &&
         maxPaletteDelta(runPalette, leftPalette) > 0.001F &&
         maxPaletteDelta(runPalette, rightPalette) > 0.001F &&
-        maxPaletteDelta(leftPalette, rightPalette) > 0.001F,
-      "authored directional clips should produce visibly distinct bone palettes"
-    );
+        maxPaletteDelta(leftPalette, rightPalette) > 0.001F);
+    }
+    failures += expect(completePalettes,
+      "locomotion clips should produce complete skin palettes throughout the cycle");
+    failures += expect(distinctDirections,
+      "authored directional clips should produce visibly distinct stride cycles");
+  }
+  {
+    // Positive flexion places the knee forward of the hip/ankle line. Measure
+    // in the pelvis frame so the same rule covers the authored death fall.
+    lg::GltfSkinnedModel::PoseScratch scratch;
+    std::vector<std::array<float, 16>> palette;
+    float minimumFlexion = 1.0F;
+    std::string worstPose;
+    const auto checkKnees = [&](const std::vector<lg::SkinnedModelPoseRequest>& poses) {
+      palette.clear();
+      if (!workerModel.appendBonePalette(poses, palette, scratch)) return false;
+      lg::GltfSkinnedModel::Matrix4 hips;
+      if (!workerModel.nodeGlobalMatrix("Hips", scratch, hips)) return false;
+      const lg::Vec3 right{hips.values[0], hips.values[4], hips.values[8]};
+      for (const auto side : {"L", "R"}) {
+        lg::GltfSkinnedModel::Matrix4 thigh, shin, foot;
+        if (!workerModel.nodeGlobalMatrix(std::string("Thigh.") + side, scratch, thigh) ||
+            !workerModel.nodeGlobalMatrix(std::string("Shin.") + side, scratch, shin) ||
+            !workerModel.nodeGlobalMatrix(std::string("Foot.") + side, scratch, foot)) return false;
+        const lg::Vec3 upper{shin.values[3]-thigh.values[3], shin.values[7]-thigh.values[7], shin.values[11]-thigh.values[11]};
+        const lg::Vec3 lower{foot.values[3]-shin.values[3], foot.values[7]-shin.values[7], foot.values[11]-shin.values[11]};
+        const float signedBend = lg::dot(lg::Vec3{upper.y*lower.z-upper.z*lower.y, upper.z*lower.x-upper.x*lower.z, upper.x*lower.y-upper.y*lower.x}, right) /
+          std::sqrt(lg::dot(upper, upper) * lg::dot(lower, lower));
+        if (!std::isfinite(signedBend)) return false;
+        if (signedBend < minimumFlexion) {
+          minimumFlexion = signedBend;
+          worstPose = std::string(poses.front().animationName) + " -> " + std::string(poses.back().animationName) + " " + side;
+        }
+      }
+      return true;
+    };
+    bool sampled = true;
+    for (const auto& clip : workerModel.animationNames()) {
+      for (int frame = 0; frame <= 192; ++frame)
+        sampled = checkKnees({{clip, frame / 125.0F, 1.0F}}) && sampled;
+      for (const auto& other : workerModel.animationNames()) {
+        for (const float a : {0.0F, .125F, .25F, .5F, .75F, 1.0F})
+          for (const float b : {0.0F, .125F, .25F, .5F, .75F, 1.0F})
+            for (const float weight : {.125F, .25F, .5F, .75F, .875F})
+              sampled = checkKnees({{clip, a, 1.0F - weight}, {other, b, weight}}) && sampled;
+      }
+    }
+    if (minimumFlexion < -0.0001F) std::cerr << "Reversed knee: " << worstPose << " signed flexion " << minimumFlexion << '\n';
+    failures += expect(sampled && minimumFlexion >= -0.0001F,
+      "every player clip and crossfade must preserve forward knee hinge direction");
   }
   failures += expect(
     nearlyEqual(baseScene.camera.position.x, player.position.x) &&
@@ -3258,8 +3419,9 @@ int main() {
       rockets,
       strafeRunSettings
     );
-    constexpr std::array<std::size_t, 6> legJoints = {{
-      65U, 66U, 67U, 69U, 70U, 71U,
+    // Pip Fuse skin order: left thigh/shin, right thigh/shin.
+    constexpr std::array<std::size_t, 4> legJoints = {{
+      10U, 11U, 12U, 13U,
     }};
     const float fullStrafeLegDelta = maxPaletteDeltaAtIndices(
       strafeRunStartScene.gltfBonePalette,
@@ -7535,6 +7697,38 @@ int main() {
     !foundPlasmaFireLine,
     "plasma gun fire events should not draw a separate beam line"
   );
+
+  {
+    lg::TransientEffect marker;
+    marker.type = lg::TransientEffectType::GlidePickup;
+    marker.position = player.position + lg::Vec3{3, 0, .05F};
+    marker.lifetimeSeconds = 1;
+    marker.color = {255, 181, 72, 255};
+    const auto objectiveScene = [&](const lg::TransientEffect& effect) {
+      return lg::buildPerspectiveScene(16.0F / 9.0F, arena, player, shotgunRemotePlayers,
+        inactiveBeam, weaponFires, rocketExplosions, rockets, std::span<const lg::TransientTracer>{},
+        std::span<const lg::TransientEffect>(&effect, 1), settings);
+    };
+    const auto preview = objectiveScene(marker);
+    marker.intensity = 1;
+    const auto live = objectiveScene(marker);
+    failures += expect(live.vertices.size() > preview.vertices.size(),
+      "live Glide pickup has a complete ring while preview has visible gaps");
+    marker.type = lg::TransientEffectType::GlideZone;
+    marker.radius = 24;
+    const auto zone = objectiveScene(marker);
+    std::size_t ringVertices = 0;
+    for (const auto& vertex : zone.vertices) {
+      if (vertex.color.red == 255 && vertex.color.green == 181 && vertex.color.blue == 72) {
+        ++ringVertices;
+        const auto delta = vertex.position - marker.position;
+        failures += expect(std::isfinite(delta.x) && std::isfinite(delta.y) &&
+          delta.x * delta.x + delta.y * delta.y <= 24.2F * 24.2F,
+          "Glide zone geometry stays finite and within its authoritative radius");
+      }
+    }
+    failures += expect(ringVertices > 100, "Glide zone remains visible as a large world perimeter");
+  }
 
   const lg::TransientEffect trainerOrb = {
     lg::TransientEffectType::TrainerOrbTarget,

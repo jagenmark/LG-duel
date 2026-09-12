@@ -517,8 +517,8 @@ int main() {
     runCommand(planted, coast, oldProfile, 20);
 
     failures += expect(
-      carried.velocity.x > planted.velocity.x + 3.0F,
-      "the glide profile should keep clear forward carry after input release"
+      carried.velocity.x < planted.velocity.x && carried.velocity.x < 2.5F,
+      "glide standing movement should brake promptly on input release"
     );
 
     lg::UserCommand carve;
@@ -528,14 +528,14 @@ int main() {
     turning.velocity.x = 8.0F;
     runCommand(turning, carve, glide, 10);
     failures += expect(
-      effectiveGlide.groundAcceleration == 7.5F &&
+      effectiveGlide.groundAcceleration == 18.0F &&
         effectiveGlide.airAcceleration == 3.0F &&
-        effectiveGlide.groundFriction == 1.35F &&
-        effectiveGlide.stopSpeed == 1.0F &&
+        effectiveGlide.groundFriction == 8.0F &&
+        effectiveGlide.stopSpeed == 3.5F &&
         effectiveGlide.maxGroundSpeed == 10.5F &&
         effectiveGlide.airControlEnabled &&
-        turning.velocity.x > 6.0F && turning.velocity.y > 4.0F,
-      "the glide profile should add a new direction without dropping old carry"
+        turning.velocity.x < 4.5F && turning.velocity.y > 8.0F,
+      "glide strafing should promptly acquire the new direction"
     );
   }
 
@@ -582,6 +582,33 @@ int main() {
         sliding.position.x > standing.position.x + 0.5F,
       "a fast crouch should become a low slide that carries speed"
     );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.glideMovementEnabled = true;
+    lg::PlayerState coast = groundedPlayer(), carve = coast, brake = coast;
+    coast.velocity.x = carve.velocity.x = brake.velocity.x = 10.5F;
+    lg::UserCommand slide;
+    slide.crouch = true;
+    auto turn = slide;
+    turn.rightMove = -1.0F;
+    auto reverse = slide;
+    reverse.forwardMove = -1.0F;
+    runCommand(coast, slide, tuning, 30);
+    runCommand(carve, turn, tuning, 30);
+    runCommand(brake, reverse, tuning, 30);
+    failures += expect(carve.velocity.y > 3.0F && carve.velocity.x > 7.0F &&
+      std::hypot(carve.velocity.x, carve.velocity.y) <= coast.velocity.x + 0.02F,
+      "slide steering should make a controlled arc without adding speed");
+    failures += expect(brake.velocity.x < 2.0F && coast.velocity.x > 9.0F,
+      "opposing input should brake a slide while neutral input preserves carry");
+    lg::PlayerState gentleBrake = groundedPlayer();
+    gentleBrake.velocity.x = 10.5F;
+    reverse.forwardMove = -0.1F;
+    runCommand(gentleBrake, reverse, tuning, 30);
+    failures += expect(gentleBrake.velocity.x > 7.0F && gentleBrake.velocity.x < coast.velocity.x,
+      "analogue counter-input must scale slide braking");
   }
 
   {
@@ -1132,7 +1159,7 @@ int main() {
 
     failures += expect(
       player.crouched &&
-        player.bounds.halfHeight < standingHalfHeight &&
+        nearlyEqual(player.bounds.halfHeight, standingHalfHeight * 0.80F) &&
         nearlyEqual(player.position.z, player.bounds.halfHeight) &&
         player.velocity.x < tuning.maxGroundSpeed * 0.5F,
       "movedown should crouch, lower the grounded hitbox, and reduce ground speed when flight is off"
@@ -1145,6 +1172,31 @@ int main() {
     failures += expect(
       !player.crouched && nearlyEqual(player.bounds.halfHeight, standingHalfHeight),
       "releasing crouch should restore standing height when there is room"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    arena.min = {-10.0F, -10.0F, 0.0F};
+    arena.max = {10.0F, 10.0F, 10.0F};
+    lg::PlayerState player = groundedPlayer();
+    lg::UserCommand command;
+    command.crouch = true;
+    lg::MovementTuning tuning;
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    arena.wallCount = 1;
+    arena.walls[0] = {{-2.0F, -2.0F, 1.50F}, {2.0F, 2.0F, 2.0F}};
+    command.crouch = false;
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    failures += expect(
+      player.crouched && nearlyEqual(player.bounds.halfHeight * 2.0F, 1.44F),
+      "the taller crouch should fit a 1.50-unit opening and refuse to stand into its ceiling"
+    );
+    arena.wallCount = 0;
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    failures += expect(
+      !player.crouched && nearlyEqual(player.bounds.halfHeight * 2.0F, 1.80F),
+      "leaving low cover should restore standing collision height"
     );
   }
 

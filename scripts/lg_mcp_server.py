@@ -24,7 +24,7 @@ except ImportError:  # setup-lg-mcp.ps1 installs the runtime dependency.
     Image = None
 
 from lg_control import ControlError, load_preset, send_request
-from lg_launch import LaunchError, ensure_client, restart_owned, status_with_state, stop_owned
+from lg_launch import LaunchError, attach_client, ensure_client, restart_owned, status_with_state, stop_owned
 from lg_benchmark import (
     BenchmarkError, DEFAULT_CONTROL_PORT as DEFAULT_BENCHMARK_CONTROL_PORT,
     DEFAULT_SERVER_PORT as DEFAULT_BENCHMARK_SERVER_PORT,
@@ -112,6 +112,8 @@ DEFERRED_CANCELLATION_TOOLS = {
     "lg_set_camera",
     "lg_set_collision_debug",
     "lg_capture_screenshot",
+    "lg_playtest_observe",
+    "lg_playtest_step",
     "lg_capture_map_views",
     "lg_exec_console",
     "lg_get_cvar",
@@ -1027,6 +1029,33 @@ TOOLS.extend([
     },
 ])
 
+# Playtest actions are explicitly attached to a selected endpoint. The observe
+# result supplies the session ID required by the subsequent action.
+_PLAYTEST_INPUT = copy.deepcopy(next(tool["inputSchema"] for tool in TOOLS if tool["name"] == "lg_send_input"))
+_PLAYTEST_INPUT["properties"].pop("allow_fallback", None)
+_PLAYTEST_INPUT["properties"]["ticks"]["maximum"] = 250
+_PLAYTEST_INPUT["properties"]["one_tick_edges"] = {"type": "array", "uniqueItems": True,
+    "items": {"type": "string", "enum": ["attack", "jump", "dash", "crouch", "sneak", "zoom"]}}
+for _name, _description in (
+    ("lg_playtest_observe", "Attach without launching; return a real HUD screenshot, local state, timings, and a session ID. The live game keeps running."),
+    ("lg_playtest_step", "Send bounded input, then observe the real HUD and local state. Input may be consecutive segments with no neutral release between them. Requires the session ID returned by observe; never relaunches."),
+):
+    _properties = {
+        "control_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "session_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "timeout": {"type": "number", "minimum": 1, "maximum": 30, "default": 8},
+        "allow_fallback": {"type": "boolean", "default": False},
+        "expected_map": {"type": "string", "minLength": 1, "maxLength": 120},
+        "expected_phase": {"type": "string", "minLength": 1, "maxLength": 120},
+        **INLINE_IMAGE_PROPERTIES,
+    }
+    _required = ["control_port"]
+    if _name == "lg_playtest_step":
+        _properties["input"] = {"anyOf": [_PLAYTEST_INPUT, {"type": "array", "items": _PLAYTEST_INPUT, "minItems": 1, "maxItems": 64}]}
+        _required += ["session_id", "input"]
+    TOOLS.append({"name": _name, "description": _description, "inputSchema": {
+        "type": "object", "properties": _properties, "required": _required, "additionalProperties": False}})
+
 KNOWN_TOOL_NAMES = {
     str(tool["name"]) for tool in TOOLS if isinstance(tool.get("name"), str)
 }
@@ -1037,6 +1066,16 @@ def _state_change_possible(name: str) -> bool:
 
 
 def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name in {"lg_playtest_observe", "lg_playtest_step"}:
+        from lg_playtest import PlaytestSession
+        if name == "lg_playtest_step" and not arguments.get("session_id"):
+            raise ControlError("playtest actions require the session_id returned by observe")
+        session = PlaytestSession(
+            arguments["control_port"], session_id=arguments.get("session_id"),
+            timeout=arguments.get("timeout", 8), allow_fallback=arguments.get("allow_fallback", False),
+            expected_map=arguments.get("expected_map"), expected_phase=arguments.get("expected_phase"),
+        )
+        return session.step({"label": name, "input": arguments.get("input")})
     if name == "lg_report_tool_feedback":
         return FeedbackStore().submit(
             tool=arguments["tool"],
@@ -1209,7 +1248,7 @@ def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         "lg_wait_frames", "lg_set_player_view", "lg_set_player_weapon",
     }:
         allow_fallback = bool(arguments.get("allow_fallback", False))
-        ensure_client(
+        attach_client(
             renderer="fallback" if allow_fallback else "gpu",
             allow_fallback=allow_fallback,
         )

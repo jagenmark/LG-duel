@@ -84,6 +84,7 @@ struct ControlRequest {
   int collisionDebugMode = 0;
   std::string captureName;
   std::string capturePhase;
+  std::uint32_t captureInputTick = 0;
   bool hideHud = true;
   bool hideOverlays = true;
   std::vector<CameraViewpoint> viewpoints;
@@ -91,6 +92,7 @@ struct ControlRequest {
   std::string cvarName;
   std::string cvarValue;
   PlayerInput playerInput;
+  std::vector<PlayerInput> playerInputSequence;
   std::uint32_t waitFrames = 1;
   ClientNetworkSimulationConfig networkSimulation = {};
   std::uint32_t minimumTick = 0;

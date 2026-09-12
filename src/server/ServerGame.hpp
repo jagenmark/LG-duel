@@ -309,6 +309,11 @@ private:
     float fixedDt
   ) const;
   void rebuildBotNavigation();
+  [[nodiscard]] MovementTuning effectiveMovementTuning() const;
+  void beginGlideRound();
+  void updateGlidePickups();
+  void updateGlideZone();
+  void populateGlideBotObjective(BotSenseFrame& sense) const;
   [[nodiscard]] replay::ReplayTickInput captureResolvedReplayInput() const;
   [[nodiscard]] replay::ReplayMetadata replayMetadata() const;
   [[nodiscard]] replay::ReplayAuthorityBoundary captureReplayAuthorityBoundary() const;
@@ -326,7 +331,8 @@ private:
     std::size_t targetIndex,
     Weapon weapon,
     replay::LethalKind kind = replay::LethalKind::Direct,
-    std::uint32_t projectileSequence = 0
+    std::uint32_t projectileSequence = 0,
+    bool headshot = false
   );
   void bumpReplayConfigurationRevision();
   void applyReplayInput(const replay::ReplayTickInput& input);
@@ -337,7 +343,7 @@ private:
   void removeBotAtPlayerIndex(std::size_t playerIndex);
   [[nodiscard]] std::uint32_t randomU32();
   [[nodiscard]] float randomFloat(float minValue, float maxValue);
-  void applyDamageAndKnockback(
+  int applyDamageAndKnockback(
     std::size_t attackerIndex,
     std::size_t targetIndex,
     int damageApplied,

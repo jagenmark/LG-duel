@@ -1392,6 +1392,54 @@ GPU1:
             for call in launch.call_args_list
         ))
 
+    def test_scenario_linux_runtime_gpu_without_icd_config(self) -> None:
+        class FakeProcess:
+            def __init__(self, pid: int) -> None:
+                self.pid = pid
+
+            def poll(self):
+                return None
+
+        with tempfile.TemporaryDirectory() as temporary:
+            build, scenario, run_dir = self.scenario_files(Path(temporary))
+            with mock.patch.object(
+                lg_launch, "send_request",
+                side_effect=[ControlError("offline"), self.status()],
+            ), mock.patch.object(
+                lg_launch, "_control_endpoint_listening", return_value=False
+            ), mock.patch.object(
+                lg_launch, "resolve_client_vulkan_selection", return_value=None
+            ), mock.patch.object(
+                lg_launch, "_process_creation_time", side_effect=[1001, 1002]
+            ), mock.patch.object(
+                lg_launch, "_launch_process",
+                side_effect=[FakeProcess(301), FakeProcess(302)],
+            ) as launch, mock.patch.object(lg_launch.platform, "system", return_value="Linux"):
+                result = lg_launch.launch_scenario_session(
+                    scenario, run_dir, "run-7", 28060, 28061, build_dir=build
+                )
+
+        self.assertEqual(result["server"]["run_token"], "run-7")
+        self.assertEqual(result["client"]["creation_time"], 1002)
+        self.assertTrue(result["server"]["owned"])
+        self.assertTrue(result["client"]["owned"])
+        self.assertTrue(result["status"]["gpu_verified"])
+        self.assertEqual(len(result["binary_sha256"]["client"]), 64)
+        self.assertEqual(launch.call_args_list[0].args[1], [
+            "28060", "--live-scenario", str(scenario.resolve()),
+            "--scenario-run-dir", str(run_dir.resolve()), "--scenario-token", "run-7",
+        ])
+        self.assertEqual(launch.call_args_list[1].args[1], [
+            "127.0.0.1", "28060", "--dev-control", "--control-port", "28061",
+        ])
+        self.assertTrue(all(
+            not call.kwargs.get("survive_parent_exit", False)
+            for call in launch.call_args_list
+        ))
+
+        self.assertEqual(result["status"]["vulkan_selection_source"], "linux-sdl-runtime")
+        self.assertEqual(launch.call_args_list[1].args[4]["LG_DUEL_RENDER_BACKEND"], "gpu")
+
     def test_scenario_launch_rejects_any_listening_control_endpoint(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             build, scenario, run_dir = self.scenario_files(Path(temporary))

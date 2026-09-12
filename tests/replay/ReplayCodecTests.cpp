@@ -4,6 +4,7 @@
 #include "sim/Arena.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -11,9 +12,37 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
+
+lg::GlideDuelState glideFixture() {
+  lg::GlideDuelState state;
+  state.arenaReady = true;
+  state.roundNumber = 17U;
+  state.pickupPositions = {{{1.25F, -2.5F, 3.75F}, {4.5F, 5.25F, -6.75F}, {-7.25F, 8.5F, 9.75F}}};
+  state.claimedMask = 5U;
+  state.buffs = {lg::GlidePowerup::Surge, lg::GlidePowerup::Guard};
+  state.buffTicks = {750U, 123U};
+  state.pickupSequence = 0x12345678U;
+  state.lastCollector = 1U;
+  state.lastPickup = lg::GlidePowerup::Repair;
+  state.announcementTicks = 250U;
+  return state;
+}
+
+bool sameGlide(const lg::GlideDuelState& a, const lg::GlideDuelState& b) {
+  for (std::size_t i = 0; i < 3; ++i) {
+    if (a.pickupPositions[i].x != b.pickupPositions[i].x ||
+        a.pickupPositions[i].y != b.pickupPositions[i].y ||
+        a.pickupPositions[i].z != b.pickupPositions[i].z) return false;
+  }
+  return a.arenaReady == b.arenaReady && a.roundNumber == b.roundNumber && a.claimedMask == b.claimedMask &&
+    a.buffs == b.buffs && a.buffTicks == b.buffTicks && a.pickupSequence == b.pickupSequence &&
+    a.lastCollector == b.lastCollector && a.lastPickup == b.lastPickup &&
+    a.announcementTicks == b.announcementTicks;
+}
 
 int expect(bool condition, std::string_view message) {
   if (condition) return 0;
@@ -157,7 +186,7 @@ lg::replay::ReplayDemo validDemo() {
   demo.checkpoints.push_back(checkpoint);
   demo.hashes.push_back({101U, lg::replay::canonicalStateHash(checkpoint)});
   demo.lethalEvents.push_back({101U, 1U, 1U, 0U, lg::Weapon::RocketLauncher, 14U,
-    lg::replay::LethalKind::Direct, 1U});
+    lg::replay::LethalKind::Direct, 1U, true});
   demo.lethalEvents.push_back({101U, 1U, 0U, 1U, lg::Weapon::RocketLauncher, 15U,
     lg::replay::LethalKind::Splash, 2U});
   demo.lethalEvents.push_back({101U, 1U, 1U, 1U, lg::Weapon::RocketLauncher, 16U,
@@ -251,7 +280,8 @@ int main() {
   failures += expect(decoded.hashes.size() == 1U && decoded.hashes[0].value == source.hashes[0].value,
     "state hash should round trip");
   failures += expect(decoded.lethalEvents.size() == 4U &&
-    decoded.lethalEvents[0].sequence == 1U &&
+    decoded.lethalEvents[0].sequence == 1U && decoded.lethalEvents[0].headshot &&
+    !decoded.lethalEvents[1].headshot &&
     decoded.lethalEvents[1].kind == lg::replay::LethalKind::Splash &&
     decoded.lethalEvents[1].projectileSequence == 15U &&
     decoded.lethalEvents[2].kind == lg::replay::LethalKind::Self &&
@@ -531,5 +561,83 @@ int main() {
     trailing.push_back(0U);
     failures += expect(!lg::replay::decodeDemo(trailing, decoded, &error), "trailing partial chunk should fail");
   }
+  {
+    auto demo = validDemo();
+    demo.checkpoints.front().glide = glideFixture();
+    lg::replay::ReplayDemo roundtrip;
+    std::vector<std::uint8_t> encoded;
+    failures += expect(lg::replay::encodeDemo(demo, encoded, &error) &&
+      lg::replay::decodeDemo(encoded, roundtrip, &error) &&
+      sameGlide(demo.checkpoints.front().glide, roundtrip.checkpoints.front().glide),
+      "replay preserves every Glide state field");
+    const std::array<std::uint8_t, 12> marker = {0, 0, 160, 63, 0, 0, 32, 192, 0, 0, 112, 64};
+    const auto found = std::search(encoded.begin(), encoded.end(), marker.begin(), marker.end());
+    failures += expect(found != encoded.end(), "checkpoint contains Glide position payload");
+    if (found != encoded.end()) {
+      const auto start = static_cast<std::size_t>(found - encoded.begin()) - 5U;
+      const auto read32 = [&](std::size_t offset) {
+        return static_cast<std::uint32_t>(encoded[offset]) |
+          (static_cast<std::uint32_t>(encoded[offset + 1]) << 8U) |
+          (static_cast<std::uint32_t>(encoded[offset + 2]) << 16U) |
+          (static_cast<std::uint32_t>(encoded[offset + 3]) << 24U);
+      };
+      std::size_t chunk = 16U + read32(8U);
+      while (chunk + 9U + read32(chunk + 1U) <= start) chunk += 9U + read32(chunk + 1U);
+      for (const auto mutation : std::array<std::pair<std::size_t, std::uint8_t>, 9>{{
+          {0U, 2U}, {41U, 8U}, {42U, 3U}, {45U, 3U}, {44U, 0U},
+          {52U, 2U}, {53U, 4U}, {54U, 251U}, {8U, 127U}}}) {
+        auto corrupt = encoded;
+        corrupt[start + mutation.first] = mutation.second;
+        if (mutation.first == 44U) corrupt[start + 45U] = 0U;
+        const std::vector<std::uint8_t> payload(corrupt.begin() + static_cast<std::ptrdiff_t>(chunk + 9U),
+          corrupt.begin() + static_cast<std::ptrdiff_t>(chunk + 9U + read32(chunk + 1U)));
+        writeLittleEndian(corrupt, chunk + 5U, replayCrc32(payload), 4U);
+        failures += expect(!lg::replay::decodeDemo(corrupt, roundtrip, &error),
+          "invalid Glide checkpoint payload rejects with valid chunk checksum");
+      }
+    }
+    const auto original = demo.checkpoints.front();
+    const auto hash = lg::replay::canonicalStateHash(original);
+    for (unsigned field = 0; field < 20; ++field) {
+      auto changed = original;
+      auto& g = changed.glide;
+      if (field < 9) {
+        auto& p = g.pickupPositions[field / 3];
+        if (field % 3 == 0) p.x += 1.0F;
+        if (field % 3 == 1) p.y += 1.0F;
+        if (field % 3 == 2) p.z += 1.0F;
+      } else switch (field) {
+      case 9: ++g.roundNumber; break;
+      case 10: g.claimedMask = 6U; break;
+      case 11: g.buffs[0] = lg::GlidePowerup::Guard; break;
+      case 12: g.buffs[1] = lg::GlidePowerup::Surge; break;
+      case 13: --g.buffTicks[0]; break;
+      case 14: --g.buffTicks[1]; break;
+      case 15: ++g.pickupSequence; break;
+      case 16: g.lastCollector = 0U; break;
+      case 17: g.lastPickup = lg::GlidePowerup::Surge; break;
+      case 18: --g.announcementTicks; break;
+      case 19: g.arenaReady = false; break;
+      }
+      failures += expect(lg::replay::canonicalStateHash(changed) != hash &&
+        lg::replay::canonicalStateHash(changed) != 0U, "every Glide field affects canonical hash");
+    }
+    for (unsigned invalid = 0; invalid < 8; ++invalid) {
+      auto changed = original;
+      switch (invalid) {
+      case 0: changed.glide.claimedMask = 8U; break;
+      case 1: changed.glide.buffs[0] = lg::GlidePowerup::Repair; break;
+      case 2: changed.glide.buffTicks[0] = 751U; break;
+      case 3: changed.glide.buffTicks[0] = 0U; break;
+      case 4: changed.glide.lastCollector = 2U; break;
+      case 5: changed.glide.lastPickup = static_cast<lg::GlidePowerup>(4U); break;
+      case 6: changed.glide.announcementTicks = 251U; break;
+      case 7: changed.glide.pickupPositions[2].x = std::numeric_limits<float>::quiet_NaN(); break;
+      }
+      failures += expect(!lg::replay::validateReplayCheckpoint(changed) &&
+        lg::replay::canonicalStateHash(changed) == 0U, "invalid Glide checkpoint rejects serialization and hashing");
+    }
+  }
+
   return failures == 0 ? 0 : 1;
 }

@@ -827,7 +827,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     (packet.playerIndex < kDuelPlayerCount ||
      packet.playerIndex == kNoAssignedPlayer) &&
     weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
-    requestedGameMode <= static_cast<std::uint8_t>(GameMode::FreeForAll) &&
+    isValidGameMode(static_cast<GameMode>(requestedGameMode)) &&
     requestedTeam <= static_cast<std::uint8_t>(Team::Blue) &&
     weaponSwitchingMode <= static_cast<std::uint8_t>(WeaponSwitchingMode::Crazy) &&
     botCommand <= static_cast<std::uint8_t>(BotCommandType::Weapon) &&
@@ -1081,6 +1081,34 @@ bool readVec3(Reader& reader, Vec3& value) {
   return reader.readFloat(value.x) &&
     reader.readFloat(value.y) &&
     reader.readFloat(value.z);
+}
+
+bool writeGlide(Writer& writer, const GlideDuelState& state) {
+  if (!validGlideDuelState(state) || !writer.writeBool(state.arenaReady) || !writer.writeU32(state.roundNumber)) return false;
+  for (const auto& position : state.pickupPositions) if (!writeVec3(writer, position)) return false;
+  if (!writer.writeU8(state.claimedMask)) return false;
+  for (const auto buff : state.buffs) if (!writer.writeU8(static_cast<std::uint8_t>(buff))) return false;
+  for (const auto ticks : state.buffTicks) if (!writer.writeU16(ticks)) return false;
+  return writer.writeU32(state.pickupSequence) && writer.writeU8(state.lastCollector) &&
+    writer.writeU8(static_cast<std::uint8_t>(state.lastPickup)) && writer.writeU16(state.announcementTicks);
+}
+
+bool readGlide(Reader& reader, GlideDuelState& state) {
+  if (!reader.readBool(state.arenaReady)) return false;
+  if (!reader.readU32(state.roundNumber)) return false;
+  for (auto& position : state.pickupPositions) if (!readVec3(reader, position)) return false;
+  if (!reader.readU8(state.claimedMask)) return false;
+  for (auto& buff : state.buffs) {
+    std::uint8_t value = 0;
+    if (!reader.readU8(value)) return false;
+    buff = static_cast<GlidePowerup>(value);
+  }
+  for (auto& ticks : state.buffTicks) if (!reader.readU16(ticks)) return false;
+  std::uint8_t pickup = 0;
+  if (!reader.readU32(state.pickupSequence) || !reader.readU8(state.lastCollector) ||
+      !reader.readU8(pickup) || !reader.readU16(state.announcementTicks)) return false;
+  state.lastPickup = static_cast<GlidePowerup>(pickup);
+  return validGlideDuelState(state);
 }
 
 bool writePlayer(Writer& writer, const PlayerState& player) {
@@ -1393,6 +1421,7 @@ bool writeFragEvent(Writer& writer, const FragEvent& event) {
     event.sequence == 0U ||
     event.attackerPlayerIndex >= kDuelPlayerCount ||
     event.targetPlayerIndex >= kDuelPlayerCount ||
+    (event.headshot && event.attackerPlayerIndex == event.targetPlayerIndex) ||
     event.weapon > kLastWeapon
   ) {
     return false;
@@ -1400,7 +1429,8 @@ bool writeFragEvent(Writer& writer, const FragEvent& event) {
   return writer.writeU32(event.sequence) &&
     writer.writeU8(event.attackerPlayerIndex) &&
     writer.writeU8(event.targetPlayerIndex) &&
-    writer.writeU8(static_cast<std::uint8_t>(event.weapon));
+    writer.writeU8(static_cast<std::uint8_t>(event.weapon)) &&
+    writer.writeBool(event.headshot);
 }
 
 bool readFragEvent(Reader& reader, FragEvent& event) {
@@ -1410,7 +1440,8 @@ bool readFragEvent(Reader& reader, FragEvent& event) {
     !reader.readU32(event.sequence) ||
     !reader.readU8(attackerPlayerIndex) ||
     !reader.readU8(event.targetPlayerIndex) ||
-    !reader.readU8(weapon)
+    !reader.readU8(weapon) ||
+    !reader.readBool(event.headshot)
   ) {
     return false;
   }
@@ -1424,7 +1455,8 @@ bool readFragEvent(Reader& reader, FragEvent& event) {
   event.active = true;
   event.attackerPlayerIndex = attackerPlayerIndex;
   event.weapon = static_cast<Weapon>(weapon);
-  return event.targetPlayerIndex < kDuelPlayerCount;
+  return event.targetPlayerIndex < kDuelPlayerCount &&
+    (!event.headshot || event.attackerPlayerIndex != event.targetPlayerIndex);
 }
 
 bool writeLocalHitFeedbackEvent(
@@ -2210,6 +2242,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   if (!writer.writeU8(static_cast<std::uint8_t>(snapshot.gameMode))) {
     return false;
   }
+  if (snapshot.gameMode == GameMode::GlideDuel && !writeGlide(writer, snapshot.glide)) return false;
   for (Team team : snapshot.teams) {
     if (!writer.writeU8(static_cast<std::uint8_t>(team))) {
       return false;
@@ -2305,6 +2338,9 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.movementTuning.airAcceleration) &&
     writer.writeFloat(snapshot.movementTuning.groundFriction) &&
     writer.writeFloat(snapshot.movementTuning.stopSpeed) &&
+    std::isfinite(snapshot.movementTuning.gravity) &&
+    snapshot.movementTuning.gravity >= 0.0F && snapshot.movementTuning.gravity <= 100000.0F &&
+    writer.writeFloat(snapshot.movementTuning.gravity) &&
     writer.writeFloat(snapshot.movementTuning.maxGroundSpeed) &&
     writer.writeFloat(snapshot.movementTuning.dashTargetSpeed) &&
     writer.writeFloat(snapshot.movementTuning.dashMaxSpeed) &&
@@ -2601,6 +2637,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     return false;
   }
   decoded.gameMode = static_cast<GameMode>(gameMode);
+  if (decoded.gameMode == GameMode::GlideDuel && !readGlide(reader, decoded.glide)) return false;
   for (Team& team : decoded.teams) {
     std::uint8_t encodedTeam = 0;
     if (!reader.readU8(encodedTeam)) {
@@ -2736,6 +2773,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.movementTuning.airAcceleration) ||
     !reader.readFloat(decoded.movementTuning.groundFriction) ||
     !reader.readFloat(decoded.movementTuning.stopSpeed) ||
+    !reader.readFloat(decoded.movementTuning.gravity) ||
+    decoded.movementTuning.gravity < 0.0F || decoded.movementTuning.gravity > 100000.0F ||
     !reader.readFloat(decoded.movementTuning.maxGroundSpeed) ||
     !reader.readFloat(decoded.movementTuning.dashTargetSpeed) ||
     !reader.readFloat(decoded.movementTuning.dashMaxSpeed) ||

@@ -206,6 +206,7 @@ template <typename Integer>
 }
 
 [[nodiscard]] std::optional<GameMode> parseGameMode(std::string_view value) {
+  if (value == "glide" || value == "glide_duel") return GameMode::GlideDuel;
   if (value == "duel") return GameMode::Duel;
   if (value == "clan_arena") return GameMode::ClanArena;
   if (value == "mcguffin") return GameMode::McGuffin;
@@ -319,7 +320,7 @@ template <typename Integer>
   if (!stringValue(value.find("game_mode"), mode, "world.game_mode", error)) return false;
   const std::optional<GameMode> parsedMode = parseGameMode(mode);
   if (!parsedMode) {
-    error = "world.game_mode: must be duel, clan_arena, mcguffin, or free_for_all";
+    error = "world.game_mode: must be duel, glide_duel, clan_arena, mcguffin, or free_for_all";
     return false;
   }
   output.gameMode = *parsedMode;
@@ -1453,6 +1454,7 @@ ScenarioParseResult loadScenarioFile(const std::filesystem::path& path) {
 
 std::string_view gameModeName(GameMode mode) {
   switch (mode) {
+  case GameMode::GlideDuel: return "glide_duel";
   case GameMode::Duel: return "duel";
   case GameMode::ClanArena: return "clan_arena";
   case GameMode::McGuffin: return "mcguffin";

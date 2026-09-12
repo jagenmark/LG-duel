@@ -1205,6 +1205,10 @@ int AimTrainerApp::run() const {
         activeControl->stage = TrainerControlOperation::Stage::WaitFrames;
         break;
       case dev::ControlOperation::SendInput:
+        if (!request.playerInputSequence.empty()) {
+          completeControlError("unsupported_in_aim_trainer", "input sequences require the network game client");
+          break;
+        }
         controlCamera.reset();
         activeControl->inputTicksRemaining = request.playerInput.ticks;
         activeControl->stage = TrainerControlOperation::Stage::SendInput;

@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "expected_map": "glide_duel",
+  "expected_phase": "WAITING FOR PLAYERS",
+  "steps": [
+    {
+      "label": "Starting position and HUD"
+    },
+    {
+      "label": "Continuous run, slide, slide jump, coast, and brake",
+      "input": [
+        {
+          "ticks": 30,
+          "right": -1,
+          "yaw": 0,
+          "pitch": 0
+        },
+        {
+          "ticks": 45
+        },
+        {
+          "ticks": 45,
+          "forward": 1,
+          "yaw": 0,
+          "pitch": 0
+        },
+        {
+          "ticks": 40,
+          "forward": 1,
+          "crouch": true
+        },
+        {
+          "ticks": 1,
+          "forward": 1,
+          "crouch": true,
+          "jump": true,
+          "one_tick_edges": [
+            "jump"
+          ]
+        },
+        {
+          "ticks": 65,
+          "forward": 1,
+          "crouch": true
+        },
+        {
+          "ticks": 80
+        }
+      ],
+      "expect": {
+        "min_health": 100,
+        "max_planar_speed": 0.5,
+        "min_displacement": 1
+      }
+    }
+  ]
+}

@@ -732,7 +732,10 @@ def _process_path(pid: int) -> str | None:
         return None
     if platform.system() != "Windows":
         try:
-            return str(Path(f"/proc/{pid}/exe").resolve(strict=True))
+            # Linux keeps the old inode alive after a rebuild unlinks it.
+            # Ownership still requires the recorded process creation time.
+            target = os.readlink(f"/proc/{pid}/exe")
+            return target.removesuffix(" (deleted)")
         except (OSError, RuntimeError):
             return None
     try:
@@ -1098,7 +1101,7 @@ def launch_scenario_session(
             f"control endpoint 127.0.0.1:{control_port} already has a development-control session"
         )
 
-    selection = resolve_vulkan_selection() if renderer == "gpu" else None
+    selection = resolve_client_vulkan_selection() if renderer == "gpu" else None
     output_dir.mkdir(parents=True, exist_ok=True)
     logs = {
         "server_stdout": str(output_dir / "server.stdout.log"),
@@ -1109,7 +1112,9 @@ def launch_scenario_session(
     environment = os.environ.copy()
     environment["LG_DUEL_LIVE_SCENARIO"] = "1"
     if renderer == "gpu":
-        environment.update(gpu_environment(selection or {}))
+        environment["LG_DUEL_RENDER_BACKEND"] = "gpu"
+        if selection is not None:
+            environment.update(gpu_environment(selection))
         environment.pop("VK_ICD_FILENAMES", None)
         environment.pop("VK_ADD_DRIVER_FILES", None)
     else:
@@ -1846,6 +1851,30 @@ def _ensure_client_unlocked(
     verified["client_executable"] = str(client_exe)
     verified["build_directory"] = str(launch_build_dir)
     return verified
+
+
+def attach_client(
+    *, control_port: int = 27961, timeout: float = 5.0,
+    renderer: str = "gpu", allow_fallback: bool = False,
+    aim_trainer: bool = False, expected_control_session: str | None = None,
+) -> dict[str, Any]:
+    """Read-only attachment. Never spawn, stop, repair, or rewrite ownership."""
+    if not 1 <= control_port <= 65535 or timeout <= 0:
+        raise LaunchError("attachment requires a valid port and positive timeout")
+    raw = send_request(
+        "status", port=control_port, timeout=timeout,
+        **({"expected_control_session": expected_control_session}
+           if expected_control_session is not None else {}),
+    )
+    issues = _readiness_issues(raw, aim_trainer=aim_trainer)
+    if issues:
+        raise LaunchError("existing client is not ready: " + "; ".join(issues))
+    if raw.get("benchmark_enabled") is True:
+        raise LaunchError("playtest controls cannot attach to a benchmark session")
+    selection = resolve_vulkan_selection() if renderer == "gpu" and platform.system() != "Linux" else None
+    return verify_control_status(
+        raw, requested_renderer=renderer, selection=selection, allow_fallback=allow_fallback,
+    )
 
 
 def ensure_client(

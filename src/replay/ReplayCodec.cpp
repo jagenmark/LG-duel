@@ -416,6 +416,34 @@ bool readVec3(Reader& reader, Vec3& value) {
   return reader.f32(value.x) && reader.f32(value.y) && reader.f32(value.z);
 }
 
+bool writeGlide(Writer& writer, const GlideDuelState& state) {
+  if (!validGlideDuelState(state) || !writer.boolean(state.arenaReady) || !writer.u32(state.roundNumber)) return false;
+  for (const auto& position : state.pickupPositions) if (!writeVec3(writer, position)) return false;
+  if (!writer.u8(state.claimedMask)) return false;
+  for (const auto buff : state.buffs) if (!writer.u8(static_cast<std::uint8_t>(buff))) return false;
+  for (const auto ticks : state.buffTicks) if (!writer.u16(ticks)) return false;
+  return writer.u32(state.pickupSequence) && writer.u8(state.lastCollector) &&
+    writer.u8(static_cast<std::uint8_t>(state.lastPickup)) && writer.u16(state.announcementTicks);
+}
+
+bool readGlide(Reader& reader, GlideDuelState& state) {
+  if (!reader.boolean(state.arenaReady)) return false;
+  if (!reader.u32(state.roundNumber)) return false;
+  for (auto& position : state.pickupPositions) if (!readVec3(reader, position)) return false;
+  if (!reader.u8(state.claimedMask)) return false;
+  for (auto& buff : state.buffs) {
+    std::uint8_t value = 0;
+    if (!reader.u8(value)) return false;
+    buff = static_cast<GlidePowerup>(value);
+  }
+  for (auto& ticks : state.buffTicks) if (!reader.u16(ticks)) return false;
+  std::uint8_t pickup = 0;
+  if (!reader.u32(state.pickupSequence) || !reader.u8(state.lastCollector) ||
+      !reader.u8(pickup) || !reader.u16(state.announcementTicks)) return false;
+  state.lastPickup = static_cast<GlidePowerup>(pickup);
+  return validGlideDuelState(state);
+}
+
 bool writeCommand(Writer& writer, const UserCommand& command) {
   return validWeapon(command.weapon) &&
     writer.u32(command.sequence) && writer.u32(command.clientTick) &&
@@ -1010,6 +1038,7 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
       !writer.u8(static_cast<std::uint8_t>(match.matchWinningTeam))) return false;
   for (const RoundCombatStats& stats : match.roundCombatStats) if (!writeRoundStats(writer, stats)) return false;
   for (const RoundCombatStats& stats : match.matchCombatStats) if (!writeRoundStats(writer, stats)) return false;
+  if (!writeGlide(writer, checkpoint.glide)) return false;
   for (const bool available : checkpoint.healthPickupAvailable) if (!writer.boolean(available)) return false;
   for (const std::uint32_t ticks : checkpoint.healthPickupCooldownTicks) if (!writer.u32(ticks)) return false;
   for (const IcePool& ice : checkpoint.icePools) {
@@ -1121,6 +1150,7 @@ bool readCheckpoint(
       (match.matchWinner != kNoReplayPlayer && match.matchWinner >= kDuelPlayerCount)) return false;
   for (RoundCombatStats& stats : match.roundCombatStats) if (!readRoundStats(reader, stats)) return false;
   for (RoundCombatStats& stats : match.matchCombatStats) if (!readRoundStats(reader, stats)) return false;
+  if (!readGlide(reader, checkpoint.glide)) return false;
   for (bool& available : checkpoint.healthPickupAvailable) if (!reader.boolean(available)) return false;
   for (std::uint32_t& ticks : checkpoint.healthPickupCooldownTicks) if (!reader.u32(ticks)) return false;
   for (IcePool& ice : checkpoint.icePools) {
@@ -1265,13 +1295,14 @@ bool writeLethal(Writer& writer, const ReplayLethalEvent& event) {
   return event.victim < kDuelPlayerCount && (event.killer < kDuelPlayerCount || event.killer == kNoReplayPlayer) &&
     event.replayGeneration != 0U && event.sequence != 0U && validWeapon(event.weapon) &&
     validLethalKind(event.kind) &&
+    (!event.headshot || (event.kind == LethalKind::Direct && event.killer != event.victim)) &&
     ((event.kind == LethalKind::Self && event.killer == event.victim) ||
       (event.kind == LethalKind::World && event.killer == kNoReplayPlayer) ||
       (event.kind == LethalKind::Direct && event.killer != kNoReplayPlayer) ||
       (event.kind == LethalKind::Splash && event.killer != kNoReplayPlayer)) && writer.u32(event.tick) &&
     writer.u32(event.replayGeneration) && writer.u8(event.victim) && writer.u8(event.killer) &&
     writer.u8(static_cast<std::uint8_t>(event.weapon)) && writer.u32(event.projectileSequence) &&
-    writer.u8(static_cast<std::uint8_t>(event.kind)) && writer.u32(event.sequence);
+    writer.u8(static_cast<std::uint8_t>(event.kind)) && writer.u32(event.sequence) && writer.boolean(event.headshot);
 }
 
 bool readLethal(Reader& reader, ReplayLethalEvent& event) {
@@ -1279,12 +1310,14 @@ bool readLethal(Reader& reader, ReplayLethalEvent& event) {
   std::uint8_t kind = 0;
   if (!reader.u32(event.tick) || !reader.u32(event.replayGeneration) || !reader.u8(event.victim) ||
       !reader.u8(event.killer) || !reader.u8(weapon) || !reader.u32(event.projectileSequence) ||
-      !reader.u8(kind) || !reader.u32(event.sequence)) return false;
+      !reader.u8(kind) || !reader.u32(event.sequence) ||
+      !reader.boolean(event.headshot)) return false;
   event.weapon = static_cast<Weapon>(weapon);
   event.kind = static_cast<LethalKind>(kind);
   return event.victim < kDuelPlayerCount && (event.killer < kDuelPlayerCount || event.killer == kNoReplayPlayer) &&
     event.replayGeneration != 0U && event.sequence != 0U && validWeapon(event.weapon) &&
     validLethalKind(event.kind) &&
+    (!event.headshot || (event.kind == LethalKind::Direct && event.killer != event.victim)) &&
     ((event.kind == LethalKind::Self && event.killer == event.victim) ||
       (event.kind == LethalKind::World && event.killer == kNoReplayPlayer) ||
       (event.kind == LethalKind::Direct && event.killer != kNoReplayPlayer) ||

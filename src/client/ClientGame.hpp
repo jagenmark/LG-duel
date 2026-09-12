@@ -83,6 +83,11 @@ public:
   [[nodiscard]] bool hasPendingMovementTuning() const;
   [[nodiscard]] std::uint32_t lastAcknowledgedCommand() const;
   [[nodiscard]] const PlayerState& predictedPlayer() const;
+  // Apply each authoritative timeline's facing once, without disturbing mouse
+  // aim on ordinary snapshots. The caller owns its presentation cursor.
+  bool applyAuthoritativeViewReset(
+    std::uint64_t& generation, float& yawRadians, float& pitchRadians
+  ) const;
   [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex) const;
   [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex, float alpha) const;
   [[nodiscard]] const PredictionDiagnostics& predictionDiagnostics() const;
@@ -135,6 +140,9 @@ private:
   std::uint32_t pendingMovementTuningCommand_ = 0;
   bool hasPendingMovementTuning_ = false;
   bool hasSnapshot_ = false;
+  std::uint64_t viewResetGeneration_ = 0;
+  float viewResetYawRadians_ = 0.0F;
+  float viewResetPitchRadians_ = 0.0F;
   std::deque<ChatMessage> chatHistory_;
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> projectiles_ = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> projectileSequences_ = {};

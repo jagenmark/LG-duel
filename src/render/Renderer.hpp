@@ -458,6 +458,18 @@ struct HudRenderState {
     std::uint32_t appliedRewindTicks = 0;
   };
 
+  struct GlideDuelPanel {
+    bool active = false;
+    bool showHealth = false;
+    bool overdrive = false;
+    bool readiness = false, leftReady = false, rightReady = false;
+    float roundFraction = -1.0F;
+    std::string leftName, rightName, timer, status, hint, stakes;
+    std::string pickup, buff;
+    RenderColor pickupColor{48, 207, 222, 255};
+    bool outsideZone = false;
+    int leftScore = 0, rightScore = 0, target = 7;
+  } glideDuel;
   std::vector<std::string> topLeftLines;
   std::vector<std::string> topCenterLines;
   std::vector<std::string> topRightLines;
@@ -470,6 +482,9 @@ struct HudRenderState {
     std::string cause;
     std::string prompt = "SPACE/ESC: SKIP";
     float progress = 0.0F;
+    bool headshot = false;
+    float lethalProgress = 1.0F;
+    float remainingSeconds = 0.0F;
   } killcam;
   McGuffinNavigationTarget mcguffinNavigation;
   std::string fpsText;
@@ -484,6 +499,7 @@ struct HudRenderState {
     std::string killedName;
     Weapon weapon = Weapon::LightningGun;
     float alpha = 1.0F;
+    bool headshot = false;
   };
   std::vector<KillFeedLine> killFeedLines;
   Weapon previousWeapon = Weapon::LightningGun;
@@ -610,6 +626,7 @@ struct TransientTracer {
 };
 
 enum class TransientEffectType : std::uint8_t {
+  GlideFootTrail,
   TrainerOrbTarget,
   TrainerWorkerTarget,
   RocketExplosionFlash,
@@ -632,6 +649,8 @@ enum class TransientEffectType : std::uint8_t {
   BulletDecal,
   RocketExplosionShard,
   RocketExplosionSmoke,
+  GlidePickup,
+  GlideZone,
 };
 
 struct TransientEffect {

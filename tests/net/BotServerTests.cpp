@@ -1197,6 +1197,128 @@ int main() {
   }
 
   {
+    // Public Glide objectives must not lose movement priority to visible
+    // combat. This tiny graph separates the pickup and opponent directions.
+    lg::BotNavigationMap route;
+    route.nodeCount = 3;
+    route.nodes[0].position = {0.0F, 0.0F, 0.9F};
+    route.nodes[1].position = {0.0F, 6.0F, 0.9F};
+    route.nodes[2].position = {6.0F, 0.0F, 0.9F};
+    route.links[route.linkCount++] = {0, 1, lg::BotNavLinkKind::Walk};
+    route.links[route.linkCount++] = {0, 2, lg::BotNavLinkKind::Walk};
+    lg::prepareBotNavigationMap(route);
+    auto profile = lg::botDifficultyProfile(lg::BotAttackMode::Hard);
+    profile.reactionMinSeconds = -0.10F;
+    profile.reactionMaxSeconds = -0.10F;
+    profile.trackingErrorRadians = 0.0F;
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = route.nodes[0].position;
+    sense.self.onGround = true;
+    sense.self.glideEnabled = true;
+    sense.self.health = 40;
+    sense.selectedWeapon = lg::Weapon::LightningGun;
+    sense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {true, true, 18.0F, 6.0F, 0.05F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    sense.visibleEnemies[0] = {1U, route.nodes[2].position, 1U, true, false};
+    sense.visibleEnemyCount = 1;
+    sense.objective = {.position = route.nodes[1].position, .active = true,
+      .prioritizeMovement = true};
+    lg::BotBrain brain;
+    profile.maxTurnRadiansPerSecond = 100.0F;
+    profile.turnAccelerationRadiansPerSecond2 = 10000.0F;
+    brain.reset(927U);
+    const auto pickup = brain.tick(sense, profile, route);
+    failures += expect(pickup.goal == lg::BotGoalKind::Objective &&
+      pickup.waypointNode == 1U && pickup.command.rightMove < -0.9F &&
+      pickup.command.attack,
+      "Glide pickup pursuit should move toward the public objective while firing at a visible enemy");
+    sense.standstill = true;
+    const auto standing = brain.tick(sense, profile, route);
+    failures += expect(standing.command.forwardMove == 0.0F &&
+      standing.command.rightMove == 0.0F && !standing.command.crouch &&
+      !standing.command.jump && !standing.command.dash && standing.command.attack,
+      "standstill should suppress Glide objective movement while retaining legal combat");
+    sense.standstill = false;
+    sense.objective.active = false;
+    sense.movementZone = {.center = route.nodes[1].position, .radius = 2.0F, .active = true};
+    const auto circle = brain.tick(sense, profile, route);
+    failures += expect(circle.goal == lg::BotGoalKind::Chase &&
+      circle.waypointNode == 1U && circle.command.rightMove < -0.9F,
+      "Glide pursuit should route inside the public circle even with a visible enemy outside");
+    sense.visibleEnemyCount = 0;
+    const auto hidden = brain.tick(sense, profile, route);
+    failures += expect(!hidden.command.attack,
+      "public Glide objectives must not authorize firing at a hidden opponent");
+  }
+
+  {
+    // A proven straight runway ending in a right-angle turn. Keep perception
+    // out of this fixture so only route geometry and self motion drive crouch.
+    lg::BotNavigationMap route;
+    route.nodeCount = 15;
+    for (std::size_t index = 0; index < route.nodeCount; ++index) {
+      route.nodes[index].position = index <= 10U
+        ? lg::Vec3{static_cast<float>(index) * 2.0F, 0.0F, 0.9F}
+        : lg::Vec3{20.0F, static_cast<float>(index - 10U) * 2.0F, 0.9F};
+      if (index > 0U) route.links[route.linkCount++] = {
+        static_cast<std::uint16_t>(index - 1U), static_cast<std::uint16_t>(index),
+        lg::BotNavLinkKind::Walk
+      };
+    }
+    lg::prepareBotNavigationMap(route);
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = route.nodes[0].position;
+    sense.self.onGround = true;
+    sense.self.glideEnabled = true;
+    sense.objective = {.position = route.nodes[14].position, .active = true};
+    lg::BotBrain brain;
+    brain.reset(0x511DEU);
+    const auto tick = [&]() {
+      return brain.tick(sense, lg::botDifficultyProfile(lg::BotAttackMode::Medium), route);
+    };
+    sense.self.velocity = {8.0F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should start a slide on an aligned proven runway");
+    sense.self.velocity = {6.5F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should retain a slide through small speed fluctuations");
+    sense.self.velocity = {5.9F, 0.0F, 0.0F};
+    failures += expect(!tick().command.crouch,
+      "glide bot should release below the slide speed safety limit");
+    sense.self.velocity = {6.5F, 0.0F, 0.0F};
+    failures += expect(!tick().command.crouch,
+      "glide bot should not immediately restart near its release speed");
+    sense.self.velocity = {8.0F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should restart after speed recovers");
+    sense.self.velocity = {8.0F * 0.97F, 8.0F * std::sqrt(1.0F - 0.97F * 0.97F), 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should retain a slide through small alignment fluctuations");
+    sense.self.velocity = {8.0F * 0.95F, 8.0F * std::sqrt(1.0F - 0.95F * 0.95F), 0.0F};
+    failures += expect(!tick().command.crouch,
+      "glide bot should release immediately when velocity leaves the safe alignment");
+    sense.self.velocity = {8.0F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should resume after realigning");
+    for (std::size_t index = 1; index <= 8U; ++index) {
+      sense.self.position = route.nodes[index].position;
+      const lg::BotMotor motor = tick();
+      if (index == 8U) failures += expect(!motor.command.crouch,
+        "glide bot should release before a corner despite a long route beyond it");
+    }
+    brain.reset(0x511DEU);
+    sense.self.position = route.nodes[0].position;
+    sense.self.velocity = {8.0F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch, "glide bot reset fixture should enter a slide");
+    brain.reset(0x511DEU);
+    sense.self.velocity = {6.5F, 0.0F, 0.0F};
+    failures += expect(!tick().command.crouch,
+      "brain reset should discard previous slide intent");
+  }
+
+  {
     lg::BotNavigationMap longRoute;
     longRoute.nodeCount = 100;
     for (std::size_t index = 0; index < longRoute.nodeCount; ++index) {

@@ -82,14 +82,14 @@ command and the data used with it:
 - slot/body connection changes, human-or-bot marker, name, team, ready state,
   spectator state, phase, rules, map, and configuration changes.
 
-The current v7 `ReplayTickInput` records only present slots. It keeps each
+The current v8 `ReplayTickInput` records only present slots. It keeps each
 present slot’s resolved command, `viewedServerTick`, consumed action edges,
 accepted jump/dash/attack/throw edges, and original attack edge command. An
-absent slot has no replay payload and must have default input state. V7 carries
+absent slot has no replay payload and must have default input state. V8 carries
 dynamic roster, name, team, ready, mode, rule, reset, and configuration changes
 in explicit authority-boundary records.
 
-The replay decoder accepts only format v7. It rejects v1 through v6 before
+The replay decoder accepts only format v8. It rejects v1 through v7 before
 restoring any state and charges native decoded allocations against a fixed
 resident-memory budget before growing replay containers.
 
@@ -188,3 +188,28 @@ receiver assembles a transfer it retains a short completion tombstone, allowing
 a duplicate terminal chunk to recover a lost final ACK without pinning the
 server slot until timeout. The coordinator and client receiver invoke the same
 cleanup path and leave live play intact when they reject data.
+
+Headshot presentation uses the server's fatal-hit flag in `ReplayLethalEvent`.
+Format 8 appends that boolean after the lethal sequence; non-direct and self
+kills cannot carry it. Network protocol 67 carries the same flag on frag events
+for all clients' kill feeds. Earlier replay formats remain unsupported.
+
+The killcam uses a compact killer-POV header, an amber HEADSHOT badge when
+applicable, and a bottom timeline marking the fatal tick with remaining time
+and the existing skip controls. The ordinary health HUD is hidden in killcam.
+Kill feed rows retain weapon icons and add a matching HEADSHOT badge; body kills
+have no headshot marker.
+
+### Glide condition and objective state
+
+Format 9 persists the shared Glide arena-ready flag, round number, three public
+pickup positions, claimed-wave mask, two buff kinds and remaining durations,
+and collection announcement sequence/owner/type/time. All fields participate
+in canonical state hashes. Protocol 67 includes this state in every Glide
+snapshot independently of configuration updates. The 56-byte payload validates
+booleans, enums, masks, timer bounds and finite positions before use.
+
+Simulation revision 4 includes rotating Float/Blast/Rush conditions, timed
+Surge/Guard/Repair pickups and the final closing circle. Base movement tuning
+remains in replay configuration; effective movement derives from round state
+on restore. Matching builds are required; older demos are rejected explicitly.

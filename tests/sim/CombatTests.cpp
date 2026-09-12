@@ -97,6 +97,20 @@ lg::Arena coverArena() {
 
 int main() {
   int failures = 0;
+  {
+    lg::PlayerState crouched = playerAt(4.0F, 0.0F);
+    crouched.crouched = true;
+    crouched.bounds.halfHeight *= lg::kCrouchHeightScale;
+    crouched.position.z = crouched.bounds.halfHeight;
+    float distance = 0.0F;
+    failures += expect(
+      lg::tracePlayerCylinder({0.0F, 0.0F, 1.30F}, {1.0F, 0.0F, 0.0F}, crouched, 10.0F, distance) &&
+      lg::tracePlayerHeadHitbox({0.0F, 0.0F, 1.35F}, {1.0F, 0.0F, 0.0F}, crouched, 10.0F, distance) &&
+      !lg::tracePlayerCylinder({0.0F, 0.0F, 1.46F}, {1.0F, 0.0F, 0.0F}, crouched, 10.0F, distance),
+      "crouch traces should hit the raised visible head and miss above its 1.44-unit top"
+    );
+  }
+
   const lg::Arena arena;
   const lg::LightningGunTuning tuning;
   const lg::FreezeGunTuning freezeTuning;

@@ -13,7 +13,8 @@ rules.
 
 - Fixed 125 Hz server tick
 - UDP networking with client prediction and server correction
-- Duel, Clan Arena, Free For All, and McGuffin modes
+- Duel, Glide Duel, Clan Arena, Free For All, and McGuffin modes
+- [Glide Duel](docs/GLIDE-DUEL.md): responsive slide movement and timed 1v1 rounds with bots
 - Hitscan and projectile weapons with server-side lag correction
 - SDL_GPU rendering with a 2D HUD and menu layer
 - Quake and TrenchBroom text-map import

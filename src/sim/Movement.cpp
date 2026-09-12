@@ -12,14 +12,15 @@
 namespace lg {
 namespace {
 
-constexpr float kCrouchHeightScale = 0.62F;
 constexpr float kCrouchGroundSpeedScale = 0.35F;
 constexpr float kSneakGroundSpeedScale = 0.52F;
 constexpr float kSlideMinimumSpeedScale = 0.55F;
-constexpr float kSlideFrictionScale = 0.08F;
+constexpr float kSlideFrictionScale = 0.06F;
 constexpr float kSlideAccelerationScale = 0.35F;
 constexpr float kSlideJumpSpeedScale = 1.16F;
 constexpr float kAirSteerRadiansPerSecond = 4.5F;
+constexpr float kSlideSteerRadiansPerSecond = 1.8F;
+constexpr float kSlideCounterBrake = 6.0F;
 
 [[nodiscard]] Vec3 horizontal(Vec3 value) {
   return {value.x, value.y, 0.0F};
@@ -599,10 +600,10 @@ void applyClassicAirControl(
   velocity.z = verticalSpeed;
 }
 
-void applyGlideAirControl(
+void steerGlideVelocity(
   Vec3& velocity,
   Vec3 wishDirection,
-  float fixedDt
+  float maxTurn
 ) {
   wishDirection = horizontal(wishDirection);
   if (length(wishDirection) <= 0.0001F) {
@@ -623,7 +624,6 @@ void applyGlideAirControl(
     std::sin(wishYaw - currentYaw),
     std::cos(wishYaw - currentYaw)
   );
-  const float maxTurn = kAirSteerRadiansPerSecond * fixedDt;
   const float steeredYaw = currentYaw +
     std::clamp(yawDelta, -maxTurn, maxTurn);
   planarVelocity = {
@@ -855,16 +855,32 @@ void simulateGroundedOrAirborne(
     } else if (player.sneaking) {
       maxGroundSpeed *= kSneakGroundSpeedScale;
     }
-    accelerate(
-      player.velocity,
-      wishDirection,
-      useAirMovement ? tuning.maxAirSpeed : maxGroundSpeed,
-      useAirMovement ? tuning.airAcceleration : localTuning.groundAcceleration,
-      fixedDt
-    );
+    const bool controlledSlide = slideActive && !useAirMovement && !jumpStarted && !iceContact.active;
+    if (controlledSlide) {
+      // Carve around cover at a bounded rate without manufacturing speed.
+      // Input against the direction of travel is a deliberate slide brake.
+      const Vec3 planar = horizontal(player.velocity);
+      const float speed = length(planar);
+      const Vec3 wish = normalize(horizontal(wishDirection));
+      const float alignment = speed > 0.0001F ? dot(planar / speed, wish) : 0.0F;
+      const float controlStrength = std::min(1.0F, std::hypot(command.forwardMove, command.rightMove));
+      if (alignment < -0.25F) {
+        player.velocity *= std::max(0.0F, 1.0F + alignment * kSlideCounterBrake * controlStrength * fixedDt);
+      } else {
+        steerGlideVelocity(player.velocity, wish, kSlideSteerRadiansPerSecond * controlStrength * fixedDt);
+      }
+    } else {
+      accelerate(
+        player.velocity,
+        wishDirection,
+        useAirMovement ? tuning.maxAirSpeed : maxGroundSpeed,
+        useAirMovement ? tuning.airAcceleration : localTuning.groundAcceleration,
+        fixedDt
+      );
+    }
     if (useAirMovement && tuning.airControlEnabled) {
       if (tuning.glideMovementEnabled) {
-        applyGlideAirControl(player.velocity, wishDirection, fixedDt);
+        steerGlideVelocity(player.velocity, wishDirection, kAirSteerRadiansPerSecond * fixedDt);
       } else {
         applyClassicAirControl(player.velocity, command, wishDirection, fixedDt);
       }
@@ -1007,11 +1023,11 @@ MovementTuning movementTuningWithGlideProfile(MovementTuning tuning) {
     return tuning;
   }
 
-  tuning.groundAcceleration = 7.5F;
+  tuning.groundAcceleration = 18.0F;
   tuning.airAcceleration = 3.0F;
   tuning.airControlEnabled = true;
-  tuning.groundFriction = 1.35F;
-  tuning.stopSpeed = 1.0F;
+  tuning.groundFriction = 8.0F;
+  tuning.stopSpeed = 3.5F;
   tuning.maxGroundSpeed = 10.5F;
   tuning.maxAirSpeed = 10.5F;
   return tuning;

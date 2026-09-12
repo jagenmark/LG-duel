@@ -10,6 +10,7 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <thread>
 #include <utility>
 
@@ -114,6 +115,7 @@ struct DevControlServer::Impl {
   std::deque<std::shared_ptr<SharedRequest>> queue;
   std::shared_ptr<SharedRequest> current;
   std::uint64_t nextToken = 1;
+  std::string sessionId;
 #ifdef _WIN32
   bool winsockStarted = false;
 #endif
@@ -141,7 +143,20 @@ struct DevControlServer::Impl {
       (void)sendAll(client, writeJson(errorResponse("", "invalid_json", json.error)) + "\n");
       return;
     }
-    const ControlRequestParseResult parsed = parseControlRequest(json.value);
+    // Bind automation to this listener lifetime, not merely a reusable port.
+    // Check before queuing: a stale caller must never act on a replacement game.
+    JsonValue payload = json.value;
+    if (const JsonValue* expected = payload.find("expected_control_session"); expected != nullptr) {
+      if (expected->type != JsonValue::Type::String || expected->string != sessionId) {
+        (void)sendAll(client, writeJson(errorResponse(
+          stringMember(payload, "id").value_or(""), "session_changed",
+          "control session changed; attach explicitly before sending more actions"
+        )) + "\n");
+        return;
+      }
+      payload.object.erase("expected_control_session");
+    }
+    const ControlRequestParseResult parsed = parseControlRequest(payload);
     if (!parsed.ok) {
       const std::string id = stringMember(json.value, "id").value_or("");
       (void)sendAll(client, writeJson(errorResponse(id, "invalid_request", parsed.error)) + "\n");
@@ -180,6 +195,10 @@ struct DevControlServer::Impl {
       );
     }
     lock.unlock();
+    if (JsonValue* result = response.find("result");
+        result != nullptr && result->type == JsonValue::Type::Object) {
+      result->object["control_session_id"] = JsonValue::stringValue(sessionId);
+    }
     (void)sendAll(client, writeJson(response) + "\n");
     std::lock_guard queueLock(queueMutex);
     if (current == pending) current.reset();
@@ -275,6 +294,10 @@ bool DevControlServer::start(std::uint16_t port, std::string& error) {
     }
     port = ntohs(bound.sin_port);
   }
+  // Random listener identity is independent of gameplay RNG and replay state.
+  std::random_device random;
+  impl_->sessionId = std::to_string(random()) + "-" + std::to_string(random()) + "-" +
+    std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
   impl_->listener = listener;
   impl_->activePort = port;
   impl_->active.store(true);

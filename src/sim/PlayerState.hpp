@@ -7,6 +7,9 @@
 
 namespace lg {
 
+// A bent-knee combat crouch keeps 80% of standing height.
+inline constexpr float kCrouchHeightScale = 0.80F;
+
 struct CollisionBounds {
   float radius = 0.35F;
   float halfHeight = 0.9F;

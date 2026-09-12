@@ -275,8 +275,19 @@ void ClientGame::receiveSnapshots() {
       // A newly assigned body, respawn, map replacement or teleport starts a
       // fresh prediction timeline. Never compare or replay a spectator's
       // connection slot as though it were a player-body index.
+      // Round respawns also replace living bodies. Countdown can be omitted
+      // (zero duration) or missed between snapshots, so warmup/RoundEnd -> Live
+      // is the same boundary; Countdown -> Live is not another respawn.
+      const bool roundStarted = hasSnapshot_ && (
+        (received.matchPhase == MatchPhase::Countdown &&
+         snapshot_.matchPhase != MatchPhase::Countdown) ||
+        (received.matchPhase == MatchPhase::Live &&
+         snapshot_.matchPhase != MatchPhase::Live &&
+         snapshot_.matchPhase != MatchPhase::Countdown)
+      );
       const bool localTimelineDiscontinuity = !spectator_ && (
-        mapChanged || wasSpectator || previousPlayerIndex != localPlayerIndex_ ||
+        !hasSnapshot_ || roundStarted || mapChanged || wasSpectator ||
+        previousPlayerIndex != localPlayerIndex_ ||
         (hasSnapshot_ && snapshot_.players[localPlayerIndex_].health <= 0 &&
          received.players[localPlayerIndex_].health > 0) ||
         (hasSnapshot_ && length(
@@ -352,6 +363,9 @@ void ClientGame::receiveSnapshots() {
       if (!spectator_) {
         if (localTimelineDiscontinuity) {
           prediction_.initialize(received.players[localPlayerIndex_]);
+          ++viewResetGeneration_;
+          viewResetYawRadians_ = received.players[localPlayerIndex_].viewYawRadians;
+          viewResetPitchRadians_ = received.players[localPlayerIndex_].viewPitchRadians;
         }
         prediction_.reconcile(
           received.players[localPlayerIndex_],
@@ -678,6 +692,18 @@ void ClientGame::advanceInterpolation(
     interpolation_.advance(elapsedSeconds, interpolationDelaySeconds);
   }
   advanceProjectiles(elapsedSeconds);
+}
+
+bool ClientGame::applyAuthoritativeViewReset(
+  std::uint64_t& generation, float& yawRadians, float& pitchRadians
+) const {
+  if (spectator_ || viewResetGeneration_ == 0 || generation == viewResetGeneration_) {
+    return false;
+  }
+  generation = viewResetGeneration_;
+  yawRadians = viewResetYawRadians_;
+  pitchRadians = viewResetPitchRadians_;
+  return true;
 }
 
 bool ClientGame::hasSnapshot() const {
