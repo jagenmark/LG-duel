@@ -15,6 +15,7 @@ namespace {
 
 lg::GlideDuelState glideFixture() {
   lg::GlideDuelState state;
+  state.arenaReady = true;
   state.roundNumber = 17U;
   state.pickupPositions = {{{1.25F, -2.5F, 3.75F}, {4.5F, 5.25F, -6.75F}, {-7.25F, 8.5F, 9.75F}}};
   state.claimedMask = 5U;
@@ -33,7 +34,7 @@ bool sameGlide(const lg::GlideDuelState& a, const lg::GlideDuelState& b) {
         a.pickupPositions[i].y != b.pickupPositions[i].y ||
         a.pickupPositions[i].z != b.pickupPositions[i].z) return false;
   }
-  return a.roundNumber == b.roundNumber && a.claimedMask == b.claimedMask &&
+  return a.arenaReady == b.arenaReady && a.roundNumber == b.roundNumber && a.claimedMask == b.claimedMask &&
     a.buffs == b.buffs && a.buffTicks == b.buffTicks && a.pickupSequence == b.pickupSequence &&
     a.lastCollector == b.lastCollector && a.lastPickup == b.lastPickup &&
     a.announcementTicks == b.announcementTicks;
@@ -2351,13 +2352,13 @@ int main() {
       const auto found = std::search(expanded.begin(), expanded.end(), marker.begin(), marker.end());
       failures += expect(found != expanded.end(), "Glide payload is present in both snapshot forms");
       if (found != expanded.end()) {
-        const auto start = static_cast<std::size_t>(found - expanded.begin()) - 4U;
-        for (const auto mutation : std::array<std::pair<std::size_t, std::uint8_t>, 8>{{
-            {40U, 8U}, {41U, 3U}, {44U, 3U}, {43U, 0U},
-            {51U, 2U}, {52U, 4U}, {53U, 251U}, {7U, 127U}}}) {
+        const auto start = static_cast<std::size_t>(found - expanded.begin()) - 5U;
+        for (const auto mutation : std::array<std::pair<std::size_t, std::uint8_t>, 9>{{
+            {0U, 2U}, {41U, 8U}, {42U, 3U}, {45U, 3U}, {44U, 0U},
+            {52U, 2U}, {53U, 4U}, {54U, 251U}, {8U, 127U}}}) {
           auto corrupt = expanded;
           corrupt[start + mutation.first] = mutation.second;
-          if (mutation.first == 43U) corrupt[start + 44U] = 0U;
+          if (mutation.first == 44U) corrupt[start + 45U] = 0U;
           // Recompress so rejection exercises Glide validation, not the packet size limit.
           failures += expect(compactSnapshotForMutation(corrupt, start + mutation.first) &&
             !lg::decodeServerSnapshot(corrupt, decoded), "invalid Glide wire state must not decode");

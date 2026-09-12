@@ -19,6 +19,7 @@ namespace {
 
 lg::GlideDuelState glideFixture() {
   lg::GlideDuelState state;
+  state.arenaReady = true;
   state.roundNumber = 17U;
   state.pickupPositions = {{{1.25F, -2.5F, 3.75F}, {4.5F, 5.25F, -6.75F}, {-7.25F, 8.5F, 9.75F}}};
   state.claimedMask = 5U;
@@ -37,7 +38,7 @@ bool sameGlide(const lg::GlideDuelState& a, const lg::GlideDuelState& b) {
         a.pickupPositions[i].y != b.pickupPositions[i].y ||
         a.pickupPositions[i].z != b.pickupPositions[i].z) return false;
   }
-  return a.roundNumber == b.roundNumber && a.claimedMask == b.claimedMask &&
+  return a.arenaReady == b.arenaReady && a.roundNumber == b.roundNumber && a.claimedMask == b.claimedMask &&
     a.buffs == b.buffs && a.buffTicks == b.buffTicks && a.pickupSequence == b.pickupSequence &&
     a.lastCollector == b.lastCollector && a.lastPickup == b.lastPickup &&
     a.announcementTicks == b.announcementTicks;
@@ -573,7 +574,7 @@ int main() {
     const auto found = std::search(encoded.begin(), encoded.end(), marker.begin(), marker.end());
     failures += expect(found != encoded.end(), "checkpoint contains Glide position payload");
     if (found != encoded.end()) {
-      const auto start = static_cast<std::size_t>(found - encoded.begin()) - 4U;
+      const auto start = static_cast<std::size_t>(found - encoded.begin()) - 5U;
       const auto read32 = [&](std::size_t offset) {
         return static_cast<std::uint32_t>(encoded[offset]) |
           (static_cast<std::uint32_t>(encoded[offset + 1]) << 8U) |
@@ -582,12 +583,12 @@ int main() {
       };
       std::size_t chunk = 16U + read32(8U);
       while (chunk + 9U + read32(chunk + 1U) <= start) chunk += 9U + read32(chunk + 1U);
-      for (const auto mutation : std::array<std::pair<std::size_t, std::uint8_t>, 8>{{
-          {40U, 8U}, {41U, 3U}, {44U, 3U}, {43U, 0U},
-          {51U, 2U}, {52U, 4U}, {53U, 251U}, {7U, 127U}}}) {
+      for (const auto mutation : std::array<std::pair<std::size_t, std::uint8_t>, 9>{{
+          {0U, 2U}, {41U, 8U}, {42U, 3U}, {45U, 3U}, {44U, 0U},
+          {52U, 2U}, {53U, 4U}, {54U, 251U}, {8U, 127U}}}) {
         auto corrupt = encoded;
         corrupt[start + mutation.first] = mutation.second;
-        if (mutation.first == 43U) corrupt[start + 44U] = 0U;
+        if (mutation.first == 44U) corrupt[start + 45U] = 0U;
         const std::vector<std::uint8_t> payload(corrupt.begin() + static_cast<std::ptrdiff_t>(chunk + 9U),
           corrupt.begin() + static_cast<std::ptrdiff_t>(chunk + 9U + read32(chunk + 1U)));
         writeLittleEndian(corrupt, chunk + 5U, replayCrc32(payload), 4U);
@@ -597,7 +598,7 @@ int main() {
     }
     const auto original = demo.checkpoints.front();
     const auto hash = lg::replay::canonicalStateHash(original);
-    for (unsigned field = 0; field < 19; ++field) {
+    for (unsigned field = 0; field < 20; ++field) {
       auto changed = original;
       auto& g = changed.glide;
       if (field < 9) {
@@ -616,6 +617,7 @@ int main() {
       case 16: g.lastCollector = 0U; break;
       case 17: g.lastPickup = lg::GlidePowerup::Surge; break;
       case 18: --g.announcementTicks; break;
+      case 19: g.arenaReady = false; break;
       }
       failures += expect(lg::replay::canonicalStateHash(changed) != hash &&
         lg::replay::canonicalStateHash(changed) != 0U, "every Glide field affects canonical hash");

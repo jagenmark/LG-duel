@@ -417,7 +417,7 @@ bool readVec3(Reader& reader, Vec3& value) {
 }
 
 bool writeGlide(Writer& writer, const GlideDuelState& state) {
-  if (!validGlideDuelState(state) || !writer.u32(state.roundNumber)) return false;
+  if (!validGlideDuelState(state) || !writer.boolean(state.arenaReady) || !writer.u32(state.roundNumber)) return false;
   for (const auto& position : state.pickupPositions) if (!writeVec3(writer, position)) return false;
   if (!writer.u8(state.claimedMask)) return false;
   for (const auto buff : state.buffs) if (!writer.u8(static_cast<std::uint8_t>(buff))) return false;
@@ -427,6 +427,7 @@ bool writeGlide(Writer& writer, const GlideDuelState& state) {
 }
 
 bool readGlide(Reader& reader, GlideDuelState& state) {
+  if (!reader.boolean(state.arenaReady)) return false;
   if (!reader.u32(state.roundNumber)) return false;
   for (auto& position : state.pickupPositions) if (!readVec3(reader, position)) return false;
   if (!reader.u8(state.claimedMask)) return false;
