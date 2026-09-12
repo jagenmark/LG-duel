@@ -32,9 +32,7 @@ inline void populateGlideDuelHud(
   if (leftPoint || rightPoint) {
     panel.stakes = leftPoint && rightPoint ? "DECIDING ROUND" : "MATCH POINT";
   }
-  const bool result = snapshot.matchPhase == MatchPhase::RoundEnd || snapshot.matchPhase == MatchPhase::MatchEnd;
-  const int round = std::max(1, panel.leftScore + panel.rightScore +
-    (result && snapshot.roundWinner != 255 ? 0 : 1));
+  const auto round = std::max(1U, snapshot.glide.roundNumber);
   const auto seconds = (snapshot.phaseTicksRemaining + 124U) / 125U;
   panel.status = "ROUND " + std::to_string(round);
   switch (snapshot.matchPhase) {
@@ -49,15 +47,44 @@ inline void populateGlideDuelHud(
     break;
   case MatchPhase::Countdown:
     panel.status += "  -  STARTING IN " + std::to_string(seconds);
-    panel.hint = "MOVE READY - WEAPONS LOCKED";
+    panel.hint = std::string(glideConditionName(glideCondition(round))) + " - " +
+      (glideCondition(round) == GlideCondition::Float ? "30% LOWER GRAVITY" :
+       glideCondition(round) == GlideCondition::Blast ? "50% MORE KNOCKBACK" : "40% SHORTER DASH COOLDOWN");
     break;
-  case MatchPhase::Live:
+  case MatchPhase::Live: {
     panel.roundFraction = std::clamp(static_cast<float>(snapshot.phaseTicksRemaining) / kGlideRoundTicks, 0.0F, 1.0F);
     panel.timer = std::to_string(seconds / 60) + ':' + (seconds % 60 < 10 ? "0" : "") + std::to_string(seconds % 60);
     panel.overdrive = snapshot.phaseTicksRemaining <= kGlideOverdriveTicks;
-    panel.status += panel.overdrive ? "  -  OVERDRIVE" : "  -  LIVE";
-    panel.hint = panel.overdrive ? "2X DAMAGE - MOST HEALTH WINS AT TIME" : "MOST HEALTH WINS AT TIME";
+    panel.status += panel.overdrive ? "  -  OVERDRIVE" : "  -  " + std::string(glideConditionName(glideCondition(round)));
+    panel.outsideZone = snapshot.glide.arenaReady && panel.overdrive && panel.showHealth &&
+      glideOutsideZone(snapshot.glide, snapshot.phaseTicksRemaining, snapshot.players[left].position);
+    panel.hint = panel.outsideZone ? "OUTSIDE ZONE - RETURN TO THE RING" :
+      panel.overdrive ? (snapshot.glide.arenaReady ? "2X DAMAGE - STAY INSIDE THE RING" : "2X DAMAGE - MOST HEALTH WINS") : "MOST HEALTH WINS AT TIME";
+    if (const int wave = glidePickupWave(snapshot.glide, snapshot.phaseTicksRemaining, true); wave >= 0) {
+      const auto powerup = glideWavePowerup(round, wave);
+      const auto elapsed = glideElapsedTicks(snapshot.phaseTicksRemaining);
+      const auto spawn = kGlidePickupSpawnTicks[wave];
+      panel.pickup = std::string(glidePowerupName(powerup)) + (elapsed < spawn
+        ? " IN " + std::to_string((spawn - elapsed + 124U) / 125U) + "s"
+        : " LIVE - " + std::string(powerup == GlidePowerup::Surge ? "+35% DAMAGE" :
+          powerup == GlidePowerup::Guard ? "35% DAMAGE RESIST" : "+25 HEALTH"));
+      panel.pickupColor = powerup == GlidePowerup::Surge ? RenderColor{255, 181, 72, 255} :
+        powerup == GlidePowerup::Guard ? RenderColor{106, 185, 255, 255} : RenderColor{104, 239, 155, 255};
+    }
+    if (!snapshot.glide.arenaReady) panel.pickup = "NO SHARED POWER-UP AREA";
+    const auto buffLabel = [&](std::size_t index) {
+      return std::string(glidePowerupName(snapshot.glide.buffs[index])) + " " +
+        std::to_string((snapshot.glide.buffTicks[index] + 124U) / 125U) + "s";
+    };
+    if (panel.showHealth && snapshot.glide.buffTicks[left]) panel.buff = std::string(spectator ? "FOLLOWED: " : "YOU: ") + buffLabel(left);
+    if (snapshot.glide.announcementTicks && snapshot.glide.lastCollector < 2) {
+      panel.pickup = std::string(snapshot.glide.lastCollector == left && panel.showHealth && !spectator ? "YOU TOOK " : "TAKEN: ") +
+        std::string(glidePowerupName(snapshot.glide.lastPickup));
+      panel.pickupColor = snapshot.glide.lastPickup == GlidePowerup::Surge ? RenderColor{255, 181, 72, 255} :
+        snapshot.glide.lastPickup == GlidePowerup::Guard ? RenderColor{106, 185, 255, 255} : RenderColor{104, 239, 155, 255};
+    }
     break;
+  }
   case MatchPhase::RoundEnd:
     panel.status += snapshot.roundWinner == 255 ? "  -  DRAW"
       : snapshot.roundWinner == left ? "  -  ROUND WON" : "  -  ROUND LOST";

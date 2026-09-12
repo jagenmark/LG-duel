@@ -5409,6 +5409,8 @@ void addTransientTracerInstances(
   case TransientEffectType::PlasmaExplosionFlash:
   case TransientEffectType::PlasmaExplosionHalo:
   case TransientEffectType::GrenadeExplosionFlash:
+  case TransientEffectType::GlidePickup:
+  case TransientEffectType::GlideZone:
   case TransientEffectType::GlideFootTrail:
   case TransientEffectType::MachineGunMuzzleLight:
   case TransientEffectType::RocketLauncherMuzzleLight:
@@ -5439,6 +5441,8 @@ void addTransientTracerInstances(
   case TransientEffectType::GrenadeExplosionFlash:
   case TransientEffectType::GrenadeExplosionCore:
     return true;
+  case TransientEffectType::GlidePickup:
+  case TransientEffectType::GlideZone:
   case TransientEffectType::GlideFootTrail:
   case TransientEffectType::MachineGunMuzzleLight:
   case TransientEffectType::RocketLauncherMuzzleLight:
@@ -5472,6 +5476,8 @@ void addTransientTracerInstances(
   case TransientEffectType::PlasmaExplosionCore:
   case TransientEffectType::GrenadeExplosionCore:
     break;
+  case TransientEffectType::GlidePickup:
+  case TransientEffectType::GlideZone:
   case TransientEffectType::GlideFootTrail:
   case TransientEffectType::MachineGunMuzzleLight:
   case TransientEffectType::RocketLauncherMuzzleLight:
@@ -5660,6 +5666,32 @@ void addTransientEffectInstances(
       !std::isfinite(effect.position.y) ||
       !std::isfinite(effect.position.z)
     ) {
+      continue;
+    }
+    // Public objectives are ordinary depth-tested world geometry. Render them
+    // independently of combat-effect fading and its small frustum bounds.
+    if (effect.type == TransientEffectType::GlidePickup || effect.type == TransientEffectType::GlideZone) {
+      const bool zone = effect.type == TransientEffectType::GlideZone;
+      const float radius = zone ? std::clamp(effect.radius, 4.0F, 24.0F) : .85F;
+      const int segments = zone ? 96 : 24;
+      RenderColor color = effect.color;
+      if (!zone && effect.intensity < .5F) color.alpha = 110;
+      for (int i = 0; i < segments; ++i) {
+        if (!zone && effect.intensity < .5F && i % 3 == 0) continue;
+        const float a = kTwoPi * i / segments + (zone ? 0 : effect.rotationRadians);
+        const float b = kTwoPi * (i + 1) / segments + (zone ? 0 : effect.rotationRadians);
+        const Vec3 p = effect.position + Vec3{std::cos(a) * radius, std::sin(a) * radius, 0};
+        const Vec3 q = effect.position + Vec3{std::cos(b) * radius, std::sin(b) * radius, 0};
+        addSegment(scene, p, q, zone ? .1F : .055F, color);
+        if (zone && i % 8 == 0) addSegment(scene, p, p + Vec3{0, 0, 1.3F}, .045F, color);
+      }
+      if (!zone) {
+        const Vec3 center = effect.position + Vec3{0, 0, 1.0F + .15F * std::sin(effect.rotationRadians)};
+        const Vec3 right{std::cos(effect.rotationRadians), std::sin(effect.rotationRadians), 0};
+        const Vec3 forward{-right.y, right.x, 0};
+        addOrientedWireBox(scene, center, {.28F, .28F, .28F}, forward, right, {0, 0, 1}, .045F, color);
+        addSegment(scene, effect.position, center - Vec3{0, 0, .4F}, .025F, color);
+      }
       continue;
     }
     const float t = effectNormalizedAge(effect);

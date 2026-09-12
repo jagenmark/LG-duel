@@ -129,6 +129,32 @@ int main() {
     failures += expect(panelHud.glideDuel.status == "YOU WIN" && panelHud.glideDuel.stakes.empty() &&
       panelHud.glideDuel.hint.find("REMATCH READY CHECK") != std::string::npos,
       "match completion must explain rematch flow");
+    glide.glide.arenaReady = true;
+    glide.glide.roundNumber = 8;
+    glide.matchPhase = lg::MatchPhase::Countdown;
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(panelHud.glideDuel.status.find("ROUND 8") == 0 &&
+      panelHud.glideDuel.hint == "BLAST - 50% MORE KNOCKBACK", "condition and round derive from authority, including draws");
+    glide.matchPhase = lg::MatchPhase::Live;
+    glide.phaseTicksRemaining = lg::kGlideRoundTicks - 5 * 125;
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(panelHud.glideDuel.pickup == "GUARD IN 3s", "pickup preview announces round-rotated type three seconds early");
+    glide.glide.claimedMask = 1;
+    glide.glide.buffs[0] = lg::GlidePowerup::Surge;
+    glide.glide.buffTicks[0] = 126;
+    glide.phaseTicksRemaining = 125;
+    glide.players[0].position = {30, 0, 0};
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(panelHud.glideDuel.pickup.empty() && panelHud.glideDuel.buff == "YOU: SURGE 2s" &&
+      panelHud.glideDuel.outsideZone, "claimed pickups disappear and local buffs and zone danger use authoritative state");
+    lg::populateGlideDuelHud(panelHud, glide, std::nullopt, true);
+    failures += expect(panelHud.glideDuel.buff.empty() && !panelHud.glideDuel.outsideZone,
+      "free observers must not inherit local buff or zone danger");
+    glide.glide.arenaReady = false;
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(!panelHud.glideDuel.outsideZone && panelHud.glideDuel.pickup == "NO SHARED POWER-UP AREA" &&
+      panelHud.glideDuel.hint.find("RING") == std::string::npos,
+      "disconnected arenas must not advertise a nonexistent damaging zone");
     glide.gameMode = lg::GameMode::Duel;
     lg::populateGlideDuelHud(panelHud, glide, 0, false);
     failures += expect(!panelHud.glideDuel.active, "leaving glide must clear its panel");

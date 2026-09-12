@@ -1606,7 +1606,14 @@ void addGlideDuelPanel(DrawList2D& drawList, int width, int height, const HudRen
       {barX + barW / 3, barY + 2 * scale}, {255, 194, 94, 200}, scale);
   }
   label(cx, y + h + 10 * scale, panel.status, accent, 1.2F, 286);
-  label(cx, y + h + 42 * scale, panel.hint, muted, 1.05F);
+  label(cx, y + h + 42 * scale, panel.hint,
+    panel.outsideZone ? RenderColor{255, 111, 90, 255} : muted, 1.05F);
+  if (!panel.pickup.empty()) {
+    addBeveledHudPanel(drawList, x + 52 * scale, y + h + 61 * scale, w - 104 * scale,
+      26 * scale, 6 * scale, {13, 23, 35, 215}, panel.pickupColor);
+    label(cx, y + h + 69 * scale, panel.pickup, panel.pickupColor, 1.2F, 330);
+  }
+  label(cx, y + h + 99 * scale, panel.buff, white, 1.15F, 420);
 }
 
 void addLocalHealthBar(

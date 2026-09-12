@@ -3473,11 +3473,19 @@ int main() {
     panel.rightName = "LONGPLAYERBB";
     panel.status = "ROUND 13  -  LONGPLAYERAA WON";
     panel.stakes = "DECIDING ROUND";
+    panel.pickup = "GUARD LIVE - 35% DAMAGE RESIST";
+    panel.buff = "YOU: SURGE 6s";
+    panel.hint = "OUTSIDE ZONE - RETURN TO THE RING";
+    panel.outsideZone = true;
     for (const int viewport : {308, 640, 1920}) {
       const auto ui = lg::buildScreenUi(viewport, 760, opponent, settings, glideHud, {});
       failures += expect(findText(ui, "READY") && findText(ui, "NOT READY") &&
         findText(ui, "DECIDING ROUND"), "Glide ready and deciding-round cues remain visible");
       const float panelScale = std::min(std::clamp(760.0F / 900.0F, .7F, 1.5F), (viewport - 24.0F) / 460.0F);
+      const auto* pickup = findText(ui, panel.pickup);
+      const auto* buff = findText(ui, panel.buff);
+      failures += expect(pickup && buff && pickup->scale * 8 * panel.pickup.size() <= 330 * panelScale + .01F,
+        "Glide chaos labels remain within the pickup card at narrow widths");
       const auto* name = findText(ui, "LONGPLAYERAA");
       const auto* status = findText(ui, panel.status);
       failures += expect(name && status && name->scale * 8 * 12 <= 124 * panelScale + .01F &&

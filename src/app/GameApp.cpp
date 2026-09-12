@@ -12317,6 +12317,32 @@ int GameApp::run() const {
           : nullptr;
     if (objectiveSnapshotPointer != nullptr) {
       const ServerSnapshot& objectiveSnapshot = *objectiveSnapshotPointer;
+      if (objectiveSnapshot.gameMode == GameMode::GlideDuel && objectiveSnapshot.matchPhase == MatchPhase::Live &&
+          objectiveSnapshot.glide.arenaReady) {
+        const auto& glide = objectiveSnapshot.glide;
+        const auto remaining = objectiveSnapshot.phaseTicksRemaining;
+        if (const int wave = glidePickupWave(glide, remaining, true); wave >= 0) {
+          TransientEffect marker;
+          marker.type = TransientEffectType::GlidePickup;
+          marker.position = glide.pickupPositions[wave] + Vec3{0, 0, .06F};
+          marker.lifetimeSeconds = 1;
+          marker.rotationRadians = glideElapsedTicks(remaining) * .018F;
+          marker.intensity = glideElapsedTicks(remaining) >= kGlidePickupSpawnTicks[wave] ? 1 : .35F;
+          const auto powerup = glideWavePowerup(glide.roundNumber, wave);
+          marker.color = powerup == GlidePowerup::Surge ? RenderColor{255, 181, 72, 255} :
+            powerup == GlidePowerup::Guard ? RenderColor{106, 185, 255, 255} : RenderColor{104, 239, 155, 255};
+          activeTransientEffects.push_back(marker);
+        }
+        if (remaining <= kGlideOverdriveTicks) {
+          TransientEffect zone;
+          zone.type = TransientEffectType::GlideZone;
+          zone.position = glide.pickupPositions[2] + Vec3{0, 0, .08F};
+          zone.radius = glideZoneRadius(remaining);
+          zone.lifetimeSeconds = 1;
+          zone.color = {255, 115, 65, 210};
+          activeTransientEffects.push_back(zone);
+        }
+      }
       if (objectiveSnapshot.gameMode == GameMode::McGuffin) {
         const auto addMarker = [&activeTransientEffects](
           Vec3 position,

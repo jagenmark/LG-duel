@@ -7698,6 +7698,38 @@ int main() {
     "plasma gun fire events should not draw a separate beam line"
   );
 
+  {
+    lg::TransientEffect marker;
+    marker.type = lg::TransientEffectType::GlidePickup;
+    marker.position = player.position + lg::Vec3{3, 0, .05F};
+    marker.lifetimeSeconds = 1;
+    marker.color = {255, 181, 72, 255};
+    const auto objectiveScene = [&](const lg::TransientEffect& effect) {
+      return lg::buildPerspectiveScene(16.0F / 9.0F, arena, player, shotgunRemotePlayers,
+        inactiveBeam, weaponFires, rocketExplosions, rockets, std::span<const lg::TransientTracer>{},
+        std::span<const lg::TransientEffect>(&effect, 1), settings);
+    };
+    const auto preview = objectiveScene(marker);
+    marker.intensity = 1;
+    const auto live = objectiveScene(marker);
+    failures += expect(live.vertices.size() > preview.vertices.size(),
+      "live Glide pickup has a complete ring while preview has visible gaps");
+    marker.type = lg::TransientEffectType::GlideZone;
+    marker.radius = 24;
+    const auto zone = objectiveScene(marker);
+    std::size_t ringVertices = 0;
+    for (const auto& vertex : zone.vertices) {
+      if (vertex.color.red == 255 && vertex.color.green == 181 && vertex.color.blue == 72) {
+        ++ringVertices;
+        const auto delta = vertex.position - marker.position;
+        failures += expect(std::isfinite(delta.x) && std::isfinite(delta.y) &&
+          delta.x * delta.x + delta.y * delta.y <= 24.2F * 24.2F,
+          "Glide zone geometry stays finite and within its authoritative radius");
+      }
+    }
+    failures += expect(ringVertices > 100, "Glide zone remains visible as a large world perimeter");
+  }
+
   const lg::TransientEffect trainerOrb = {
     lg::TransientEffectType::TrainerOrbTarget,
     player.position + lg::Vec3{3.0F, 0.0F, 0.65F},

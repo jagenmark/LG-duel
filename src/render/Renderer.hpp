@@ -465,6 +465,9 @@ struct HudRenderState {
     bool readiness = false, leftReady = false, rightReady = false;
     float roundFraction = -1.0F;
     std::string leftName, rightName, timer, status, hint, stakes;
+    std::string pickup, buff;
+    RenderColor pickupColor{48, 207, 222, 255};
+    bool outsideZone = false;
     int leftScore = 0, rightScore = 0, target = 7;
   } glideDuel;
   std::vector<std::string> topLeftLines;
@@ -646,6 +649,8 @@ enum class TransientEffectType : std::uint8_t {
   BulletDecal,
   RocketExplosionShard,
   RocketExplosionSmoke,
+  GlidePickup,
+  GlideZone,
 };
 
 struct TransientEffect {
