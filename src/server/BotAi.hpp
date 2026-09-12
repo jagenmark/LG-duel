@@ -109,6 +109,16 @@ struct BotObjectiveSense {
   bool active = false;
   bool carrying = false;
   bool hasScoringPosition = false;
+  // Public timed pickups / safety destinations can override chase movement,
+  // while target acquisition, aiming and firing retain normal perception.
+  bool prioritizeMovement = false;
+};
+
+struct BotMovementZoneSense {
+  Vec3 center = {};
+  // Public safe interior, including the server's proactive shrink margin.
+  float radius = 0.0F;
+  bool active = false;
 };
 
 struct BotSenseFrame {
@@ -129,6 +139,7 @@ struct BotSenseFrame {
   std::array<BotHealthResourceSense, 32> healthResources = {};
   std::size_t healthResourceCount = 0;
   BotObjectiveSense objective = {};
+  BotMovementZoneSense movementZone = {};
   std::array<BotWeaponSense, kWeaponCount> weapons = {};
   Weapon selectedWeapon = Weapon::MachineGun;
   bool forceWeapon = false;

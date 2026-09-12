@@ -1197,6 +1197,62 @@ int main() {
   }
 
   {
+    // Public Glide objectives must not lose movement priority to visible
+    // combat. This tiny graph separates the pickup and opponent directions.
+    lg::BotNavigationMap route;
+    route.nodeCount = 3;
+    route.nodes[0].position = {0.0F, 0.0F, 0.9F};
+    route.nodes[1].position = {0.0F, 6.0F, 0.9F};
+    route.nodes[2].position = {6.0F, 0.0F, 0.9F};
+    route.links[route.linkCount++] = {0, 1, lg::BotNavLinkKind::Walk};
+    route.links[route.linkCount++] = {0, 2, lg::BotNavLinkKind::Walk};
+    lg::prepareBotNavigationMap(route);
+    auto profile = lg::botDifficultyProfile(lg::BotAttackMode::Hard);
+    profile.reactionMinSeconds = -0.10F;
+    profile.reactionMaxSeconds = -0.10F;
+    profile.trackingErrorRadians = 0.0F;
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = route.nodes[0].position;
+    sense.self.onGround = true;
+    sense.self.glideEnabled = true;
+    sense.self.health = 40;
+    sense.selectedWeapon = lg::Weapon::LightningGun;
+    sense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {true, true, 18.0F, 6.0F, 0.05F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    sense.visibleEnemies[0] = {1U, route.nodes[2].position, 1U, true, false};
+    sense.visibleEnemyCount = 1;
+    sense.objective = {.position = route.nodes[1].position, .active = true,
+      .prioritizeMovement = true};
+    lg::BotBrain brain;
+    profile.maxTurnRadiansPerSecond = 100.0F;
+    profile.turnAccelerationRadiansPerSecond2 = 10000.0F;
+    brain.reset(927U);
+    const auto pickup = brain.tick(sense, profile, route);
+    failures += expect(pickup.goal == lg::BotGoalKind::Objective &&
+      pickup.waypointNode == 1U && pickup.command.rightMove < -0.9F &&
+      pickup.command.attack,
+      "Glide pickup pursuit should move toward the public objective while firing at a visible enemy");
+    sense.standstill = true;
+    const auto standing = brain.tick(sense, profile, route);
+    failures += expect(standing.command.forwardMove == 0.0F &&
+      standing.command.rightMove == 0.0F && !standing.command.crouch &&
+      !standing.command.jump && !standing.command.dash && standing.command.attack,
+      "standstill should suppress Glide objective movement while retaining legal combat");
+    sense.standstill = false;
+    sense.objective.active = false;
+    sense.movementZone = {.center = route.nodes[1].position, .radius = 2.0F, .active = true};
+    const auto circle = brain.tick(sense, profile, route);
+    failures += expect(circle.goal == lg::BotGoalKind::Chase &&
+      circle.waypointNode == 1U && circle.command.rightMove < -0.9F,
+      "Glide pursuit should route inside the public circle even with a visible enemy outside");
+    sense.visibleEnemyCount = 0;
+    const auto hidden = brain.tick(sense, profile, route);
+    failures += expect(!hidden.command.attack,
+      "public Glide objectives must not authorize firing at a hidden opponent");
+  }
+
+  {
     // A proven straight runway ending in a right-angle turn. Keep perception
     // out of this fixture so only route geometry and self motion drive crouch.
     lg::BotNavigationMap route;

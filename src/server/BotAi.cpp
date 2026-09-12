@@ -2607,16 +2607,23 @@ BotMotor BotBrain::tick(
   Vec3 movementGoal = sense.self.position;
   const bool carrierDelivery = sense.objective.carrying &&
     sense.objective.hasScoringPosition;
-  if (carrierDelivery && (!hasCarrierObjectiveDestination_ ||
-      distance3d(carrierObjectiveDestination_, sense.objective.scoringPosition) > 0.01F)) {
-    // A new carrier base supersedes any chase or patrol route immediately.
+  const bool priorityObjective = sense.objective.active && sense.objective.prioritizeMovement;
+  const bool priorityMovement = carrierDelivery || priorityObjective;
+  const Vec3 priorityDestination = carrierDelivery
+    ? sense.objective.scoringPosition : sense.objective.position;
+  if (priorityMovement && (!hasCarrierObjectiveDestination_ ||
+      distance3d(carrierObjectiveDestination_, priorityDestination) > 0.01F)) {
+    // A new priority destination supersedes chase or patrol immediately.
     // Do not wait for that route's lower-rate replan timer before moving home.
     pathCount_ = 0;
     pathCursor_ = 0;
     replanSeconds_ = 0.0F;
-    carrierObjectiveDestination_ = sense.objective.scoringPosition;
+    carrierObjectiveDestination_ = priorityDestination;
     hasCarrierObjectiveDestination_ = true;
-  } else if (!carrierDelivery) {
+  } else if (!priorityMovement && hasCarrierObjectiveDestination_) {
+    pathCount_ = 0;
+    pathCursor_ = 0;
+    replanSeconds_ = 0.0F;
     hasCarrierObjectiveDestination_ = false;
   }
 
@@ -2635,13 +2642,13 @@ BotMotor BotBrain::tick(
     resourceMemory_[healthResourceIndex_].value > 0 &&
     navigation.healthAnchorNodes[healthResourceIndex_] < navigation.nodeCount;
   if (healthResourceIndex_ < resourceMemory_.size() &&
-      (carrierDelivery ||
+      (priorityMovement ||
        sense.self.health >= kHealthRecoveryThreshold ||
        sense.self.health >= sense.self.maxHealth ||
        !committedHealthResourceValid)) {
     clearHealthRecoveryPlan();
   }
-  if (!carrierDelivery &&
+  if (!priorityMovement &&
       sense.self.health < kHealthRecoveryThreshold &&
       sense.self.health < sense.self.maxHealth &&
       replanSeconds_ <= dt &&
@@ -2658,10 +2665,10 @@ BotMotor BotBrain::tick(
     output.healthRouteCost = healthRouteCost_;
   }
 
-  // Delivery comes before combat and recovery movement. A carrier can still
-  // aim and fire after reacting, but it must not abandon its legal base goal.
-  if (carrierDelivery) {
-    movementGoal = sense.objective.scoringPosition;
+  // Delivery and public timed objectives precede combat/recovery movement.
+  // Aiming and firing still use the normal perception and reaction gates.
+  if (priorityMovement) {
+    movementGoal = priorityDestination;
     output.goal = BotGoalKind::Objective;
   } else if (healthResourceIndex_ < resourceMemory_.size()) {
     const std::size_t healthAnchor =
@@ -2820,6 +2827,25 @@ BotMotor BotBrain::tick(
   // over the edge.
   replanSeconds_ -= dt;
   if (output.goal != BotGoalKind::Safe && replanSeconds_ <= 0.0F) {
+    if (sense.movementZone.active && std::isfinite(sense.movementZone.radius) &&
+        sense.movementZone.radius > 0.0F) {
+      // Pick only a legal graph destination inside the public safe interior.
+      // This also bounds visible-target spacing and stale-memory pursuit;
+      // it never reveals an opponent hidden outside the circle.
+      float bestDistance = std::numeric_limits<float>::infinity();
+      std::size_t safeNode = navigation.nodeCount;
+      for (std::size_t index = 0; index < navigation.nodeCount; ++index) {
+        const Vec3 position = navigation.nodes[index].position;
+        if (horizontalDistance(position, sense.movementZone.center) > sense.movementZone.radius) continue;
+        const float distance = distance3d(position, movementGoal);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          safeNode = index;
+        }
+      }
+      if (safeNode < navigation.nodeCount) movementGoal = navigation.nodes[safeNode].position;
+      else movementGoal = sense.self.position;
+    }
     const bool pathFound = planPath(navigation, sense.self.position, movementGoal);
     if (!pathFound) {
       // Never fall through to direct input when A* cannot bridge components.
