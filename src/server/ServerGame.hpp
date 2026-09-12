@@ -309,6 +309,11 @@ private:
     float fixedDt
   ) const;
   void rebuildBotNavigation();
+  [[nodiscard]] MovementTuning effectiveMovementTuning() const;
+  void beginGlideRound();
+  void updateGlidePickups();
+  void updateGlideZone();
+  void populateGlideBotObjective(BotSenseFrame& sense) const;
   [[nodiscard]] replay::ReplayTickInput captureResolvedReplayInput() const;
   [[nodiscard]] replay::ReplayMetadata replayMetadata() const;
   [[nodiscard]] replay::ReplayAuthorityBoundary captureReplayAuthorityBoundary() const;
