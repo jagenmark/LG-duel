@@ -1002,3 +1002,12 @@ lg_duel_set_warnings(lg_duel_glide_server_tests)
 add_test(NAME lg_duel_glide_server_tests COMMAND lg_duel_glide_server_tests)
 
 set_tests_properties(lg_duel_glide_server_tests PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+
+add_executable(lg_duel_glide_chaos_tests net/GlideChaosTests.cpp)
+target_link_libraries(lg_duel_glide_chaos_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_glide_chaos_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_glide_chaos_tests)
+lg_duel_set_windows_stack(lg_duel_glide_server_tests)
+lg_duel_set_windows_stack(lg_duel_glide_chaos_tests)
+add_test(NAME lg_duel_glide_chaos_tests COMMAND lg_duel_glide_chaos_tests)
+set_tests_properties(lg_duel_glide_chaos_tests PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})

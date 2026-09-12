@@ -3194,10 +3194,6 @@ void ServerGame::setRuntimeGameplayTuning(
 ) {
   const std::uint64_t previousHash = replayGameplayConfigHash();
   MovementTuning normalizedMovementTuning = movementTuning;
-  if (snapshot_.gameMode == GameMode::GlideDuel) {
-    normalizedMovementTuning.glideMovementEnabled = true;
-    normalizedMovementTuning.flightEnabled = false;
-  }
   normalizedMovementTuning.maxAirSpeed = normalizedMovementTuning.maxGroundSpeed;
   const CollisionBounds previousNavigationBounds =
     botNavigationBounds(playerSizeScaleXY_, playerSizeScaleZ_);
@@ -3730,12 +3726,12 @@ void ServerGame::beginCountdown() {
     snapshot_.matchCombatStats = {};
     snapshot_.overtime = false;
   }
-  if (snapshot_.gameMode == GameMode::GlideDuel) beginGlideRound();
   snapshot_.matchPhase = MatchPhase::Countdown;
   snapshot_.phaseTicksRemaining = snapshot_.matchRules.countdownTicks;
   snapshot_.roundWinner = 255;
   snapshot_.roundWinningTeam = Team::None;
   respawnRound();
+  if (snapshot_.gameMode == GameMode::GlideDuel) beginGlideRound();
   if (snapshot_.phaseTicksRemaining == 0) {
     snapshot_.matchPhase = MatchPhase::Live;
     if (snapshot_.gameMode == GameMode::GlideDuel) snapshot_.phaseTicksRemaining = kGlideRoundTicks;
@@ -4913,8 +4909,12 @@ void ServerGame::updateKillVolumes() {
 }
 
 MovementTuning ServerGame::effectiveMovementTuning() const {
-  return snapshot_.gameMode == GameMode::GlideDuel && snapshot_.glide.roundNumber > 0
-    ? glideRoundMovement(movementTuning_, snapshot_.glide.roundNumber) : movementTuning_;
+  if (snapshot_.gameMode != GameMode::GlideDuel) return movementTuning_;
+  if (snapshot_.glide.roundNumber > 0) return glideRoundMovement(movementTuning_, snapshot_.glide.roundNumber);
+  auto tuning = movementTuning_;
+  tuning.glideMovementEnabled = true;
+  tuning.flightEnabled = false;
+  return tuning;
 }
 
 void ServerGame::beginGlideRound() {
@@ -4932,7 +4932,6 @@ void ServerGame::beginGlideRound() {
   const auto reachable = [&](Vec3 spawn) {
     Reach seen = {};
     if (botNavigation_.nodeCount == 0) return seen;
-    spawn.z += halfHeight;
     std::size_t nearest = 0;
     float distance = std::numeric_limits<float>::max();
     for (std::size_t i = 0; i < botNavigation_.nodeCount; ++i) {
@@ -4944,16 +4943,17 @@ void ServerGame::beginGlideRound() {
     queue[tail++] = static_cast<std::uint16_t>(nearest); seen[nearest] = true;
     while (head < tail) {
       const auto node = queue[head++];
-      for (std::size_t link = 0; link < botNavigation_.linkCount; ++link) {
+      for (auto link = botNavigation_.outgoingLinkHead[node]; link != UINT16_MAX;
+           link = botNavigation_.outgoingLinkNext[link]) {
         const auto& edge = botNavigation_.links[link];
-        if (edge.from != node || seen[edge.to]) continue;
+        if (seen[edge.to]) continue;
         seen[edge.to] = true; queue[tail++] = edge.to;
       }
     }
     return seen;
   };
-  const Vec3 first = arena_.spawnPositions[0];
-  const Vec3 second = arena_.spawnPositions[arena_.spawnCount > 1 ? 1 : 0];
+  const Vec3 first = snapshot_.players[0].position;
+  const Vec3 second = snapshot_.players[1].position;
   const auto reachFirst = reachable(first), reachSecond = reachable(second);
   const Vec3 center = (first + second) * 0.5F;
   Vec3 across = normalize(Vec3{-(second.y - first.y), second.x - first.x, 0});
@@ -4961,7 +4961,6 @@ void ServerGame::beginGlideRound() {
   for (std::size_t wave = 0; wave < 3; ++wave) {
     const float side = ((wave + round) % 2U) == 0 ? -1.0F : 1.0F;
     Vec3 target = center + across * (side * 5.0F);
-    target.z += halfHeight;
     float best = std::numeric_limits<float>::max();
     Vec3 position = first;
     for (std::size_t i = 0; i < botNavigation_.nodeCount; ++i) {
@@ -4973,8 +4972,12 @@ void ServerGame::beginGlideRound() {
         position.z -= halfHeight;
       }
     }
+    // Disconnected arenas retain the ordinary duel clock, but cannot expose
+    // an unreachable reward or a lethal zone favoring one spawn.
+    if (best == std::numeric_limits<float>::max()) return;
     snapshot_.glide.pickupPositions[wave] = position;
   }
+  snapshot_.glide.arenaReady = true;
 }
 
 void ServerGame::updateGlidePickups() {
@@ -5018,7 +5021,7 @@ void ServerGame::updateGlidePickups() {
 
 void ServerGame::updateGlideZone() {
   if (snapshot_.gameMode != GameMode::GlideDuel || snapshot_.matchPhase != MatchPhase::Live ||
-      snapshot_.phaseTicksRemaining > kGlideOverdriveTicks) return;
+      !snapshot_.glide.arenaReady || snapshot_.phaseTicksRemaining > kGlideOverdriveTicks) return;
   const auto elapsed = glideElapsedTicks(snapshot_.phaseTicksRemaining);
   if (elapsed * 8U / 125U == (elapsed + 1U) * 8U / 125U) return;
   for (std::size_t i = 0; i < 2; ++i) {
@@ -5646,7 +5649,7 @@ void ServerGame::populateGlideBotObjective(BotSenseFrame& sense) const {
   if (snapshot_.gameMode != GameMode::GlideDuel) return;
   sense.objective = {};
   sense.movementZone = {};
-  if (snapshot_.matchPhase != MatchPhase::Live) return;
+  if (snapshot_.matchPhase != MatchPhase::Live || !snapshot_.glide.arenaReady) return;
   const auto& glide = snapshot_.glide;
   if (snapshot_.phaseTicksRemaining <= kGlideOverdriveTicks) {
     sense.movementZone.active = true;
@@ -5697,7 +5700,7 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
   sense.self.maxHealth = healthAmount_;
   sense.self.onGround = self.onGround;
   sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
-  sense.self.glideEnabled = movementTuning_.glideMovementEnabled;
+  sense.self.glideEnabled = snapshot_.movementTuning.glideMovementEnabled;
   sense.selectedWeapon = selectedWeapons_[playerIndex];
   sense.forceWeapon = !botWeaponAuto_;
   sense.forcedWeapon = botWeapon_;
@@ -5872,7 +5875,7 @@ void ServerGame::updateBotCommands(float fixedDt) {
     sense.self.maxHealth = healthAmount_;
     sense.self.onGround = self.onGround;
     sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
-    sense.self.glideEnabled = movementTuning_.glideMovementEnabled;
+    sense.self.glideEnabled = snapshot_.movementTuning.glideMovementEnabled;
     sense.selectedWeapon = selectedWeapons_[playerIndex];
     sense.forceWeapon = !botWeaponAuto_;
     sense.forcedWeapon = botWeapon_;
@@ -6237,11 +6240,6 @@ bool ServerGame::applyScenarioSetup(
   // Scenario setup writes the server's source of truth, then updates each
   // snapshot mirror. It never sends a packet or changes protocol state.
   snapshot_.gameMode = setup.match.gameMode;
-  if (snapshot_.gameMode == GameMode::GlideDuel) {
-    movementTuning_.glideMovementEnabled = true;
-    movementTuning_.flightEnabled = false;
-    rebuildBotNavigation();
-  }
   snapshot_.connectedPlayers = {};
   snapshot_.teams = {};
   snapshot_.readyPlayers = {};
@@ -6255,7 +6253,6 @@ bool ServerGame::applyScenarioSetup(
   }
   resetMatch();
 
-  if (snapshot_.gameMode == GameMode::GlideDuel) beginGlideRound();
   snapshot_.serverTick = setup.serverTick;
   snapshot_.matchPhase = setup.match.phase;
   snapshot_.phaseTicksRemaining = setup.match.phaseTicksRemaining;
@@ -6428,6 +6425,7 @@ bool ServerGame::applyScenarioSetup(
   }
 
   updateParticipatingPlayers();
+  if (snapshot_.gameMode == GameMode::GlideDuel && !warmupPhase()) beginGlideRound();
   history_.clear();
   recordHistory();
   return true;
@@ -6946,13 +6944,12 @@ void ServerGame::receiveCommands() {
       if (!isValidGameMode(packet.requestedGameMode)) continue;
       snapshot_.gameMode = packet.requestedGameMode;
       if (snapshot_.gameMode == GameMode::GlideDuel) {
-        movementTuning_.glideMovementEnabled = true;
-        movementTuning_.flightEnabled = false;
         setBotWeaponAuto();
         rebuildBotNavigation();
       }
       snapshot_.teams = {};
       resetMatch();
+      rebuildBotNavigation();
       updateClanArenaBotTeams();
       refreshWarmupRosterState();
     }
