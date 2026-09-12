@@ -8,11 +8,12 @@
 namespace lg {
 
 inline constexpr std::string_view kGameModeConsoleUsage =
-  "gamemode <duel|ca|mcguffin|ffa>";
+  "gamemode <duel|glide|ca|mcguffin|ffa>";
 
 [[nodiscard]] constexpr std::optional<GameMode> gameModeForConsoleToken(
   std::string_view value
 ) {
+  if (value == "glide" || value == "glideduel") return GameMode::GlideDuel;
   if (value == "duel") return GameMode::Duel;
   if (value == "ca" || value == "clanarena" || value == "clan_arena") {
     return GameMode::ClanArena;

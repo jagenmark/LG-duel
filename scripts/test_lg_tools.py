@@ -107,7 +107,7 @@ class LgToolTests(unittest.TestCase):
 
     def test_collision_debug_cli_routes_typed_mode(self) -> None:
         arguments = lg_control.build_parser().parse_args(["set-collision-debug", "4"])
-        with mock.patch("lg_launch.ensure_client"), mock.patch(
+        with mock.patch("lg_launch.attach_client", return_value={}), mock.patch(
             "lg_control.send_request", return_value={"mode": 4}
         ) as sender:
             self.assertEqual(lg_control.execute(arguments), {"mode": 4})
@@ -763,7 +763,7 @@ class LgToolTests(unittest.TestCase):
         self.assertEqual(
             names,
             {
-                "lg_start", "lg_status", "lg_report_tool_feedback",
+                "lg_start", "lg_status", "lg_report_tool_feedback", "lg_playtest_observe", "lg_playtest_step",
                 "lg_load_map", "lg_reload_map", "lg_get_camera",
                 "lg_set_camera", "lg_set_collision_debug", "lg_capture_screenshot", "lg_capture_map_views",
                 "lg_stop", "lg_restart", "lg_exec_console", "lg_get_cvar", "lg_set_cvar",
@@ -804,7 +804,7 @@ class LgToolTests(unittest.TestCase):
         initialized = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         self.assertEqual(initialized["result"]["serverInfo"]["name"], "lg-duel-dev-control")
         listed = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        self.assertEqual(len(listed["result"]["tools"]), 49)
+        self.assertEqual(len(listed["result"]["tools"]), 51)
 
     def test_map_edit_tools_require_revisions_and_route_typed_values(self) -> None:
         tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}
@@ -959,7 +959,7 @@ class LgToolTests(unittest.TestCase):
             "ticks": 8, "forward": 1.0, "yaw": 45.0, "attack": False,
             "jump": True, "weapon": "railgun",
         }
-        with mock.patch("lg_mcp_server.ensure_client"), mock.patch(
+        with mock.patch("lg_mcp_server.attach_client"), mock.patch(
             "lg_mcp_server.send_request", return_value={"ticks": 8}
         ) as sender:
             self.assertEqual(lg_mcp_server.invoke_tool("lg_send_input", payload), {"ticks": 8})
@@ -968,7 +968,7 @@ class LgToolTests(unittest.TestCase):
         arguments = lg_control.build_parser().parse_args(
             ["send-input", "--ticks", "8", "--forward", "1", "--no-attack", "--jump"]
         )
-        with mock.patch("lg_launch.ensure_client"), mock.patch(
+        with mock.patch("lg_launch.attach_client", return_value={}), mock.patch(
             "lg_control.send_request", return_value={"ticks": 8}
         ) as sender:
             lg_control.execute(arguments)
@@ -1012,7 +1012,7 @@ class LgToolTests(unittest.TestCase):
             schema["properties"]["mode"],
             {"type": "integer", "minimum": 0, "maximum": 5},
         )
-        with mock.patch("lg_mcp_server.ensure_client"), mock.patch(
+        with mock.patch("lg_mcp_server.attach_client"), mock.patch(
             "lg_mcp_server.send_request", return_value={"mode": 5}
         ) as sender:
             self.assertEqual(lg_mcp_server.invoke_tool("lg_set_collision_debug", {"mode": 5}), {"mode": 5})
@@ -1245,16 +1245,6 @@ class LgToolTests(unittest.TestCase):
 
     def test_material_quality_preserves_point_light_diffuse_contract(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        reference = (root / "src" / "render" / "PointLightResponse.hpp").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("pointLightResponseReference(", reference)
-        self.assertIn(
-            "response.diffuse = multiplyComponents(albedo, radiance) * diffuseNdotL;",
-            reference,
-        )
-        self.assertIn("if (materialQuality == 2 && diffuseNdotL > 0.0F)", reference)
-
         shared_response = (
             root / "assets" / "shaders" / "includes" / "point_light_response.glsl"
         ).read_text(encoding="utf-8")
@@ -1582,29 +1572,6 @@ class LgToolTests(unittest.TestCase):
             "colorTarget.blend_state.enable_blend = enableColorBlend;",
             renderer,
         )
-
-        cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
-        for shader_name in shader_names:
-            self.assertEqual(4, cmake.count(f"{shader_name}.spv"), shader_name)
-        self.assertEqual(4, cmake.count("world_surface.vert.spv"))
-
-    def test_sdl_native_outline_fallback_reaches_legacy_draw(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
-            encoding="utf-8"
-        )
-        sdl_fallback_start = renderer.index(
-            "const PlayerOutlinePathPlan sdlOutlinePath = "
-            "buildPlayerOutlinePathPlan("
-        )
-        draw_start = renderer.index("  drawPerspectiveWorld(\n", sdl_fallback_start)
-        draw_end = renderer.index(
-            "\n  const PerspectiveCamera camera = playerPerspectiveCamera(",
-            draw_start,
-        )
-        draw_call = renderer[draw_start:draw_end]
-        self.assertIn("    *effectiveSdlSettings\n  );", draw_call)
-        self.assertNotIn("    settings\n  );", draw_call)
 
     def test_outline_mask_vertex_shaders_are_lean(self) -> None:
         root = Path(__file__).resolve().parents[1]

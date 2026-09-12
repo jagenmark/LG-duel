@@ -23,11 +23,11 @@ traces, player bounds, or network prediction.
 | Setting | Trial | Prior value |
 |---|---:|---:|
 | `g_glide_movement` | `1` | `0` |
-| `g_accel` | `7.5` | `10` |
+| `g_accel` | `18` | `10` |
 | `g_airaccel` | `3` | `1` |
 | `g_aircontrol` | `1` | `0` |
-| `g_friction` | `1.35` | `6` |
-| `g_stopspeed` | `1` | `2.5` |
+| `g_friction` | `8` | `6` |
+| `g_stopspeed` | `3.5` | `2.5` |
 | `g_maxspeed` | `10.5` | `8` |
 | `cl_fov` | `90` | `90` |
 | `cl_camera_position_response` | `0.7` | `0` |
@@ -48,3 +48,12 @@ active. The bank stays active because it rotates around the center aim ray.
 For a visual check, use `r_show_weapons 1`. Record a full, uncropped game
 window at 60 fps, then perform a slide, slide jump, air turn, crouched landing,
 and second slide jump without a cut.
+
+## Responsive revision and Glide Duel
+
+Standing acceleration is now 18, friction 8, and stop speed 3.5. Releasing
+movement brakes sharply and direction changes respond promptly. Deliberate
+crouch slides use 6% of standing friction (0.48), retaining the slide/jump loop.
+Classic movement remains available with `g_glide_movement 0` outside Glide Duel.
+
+See [Glide Duel](GLIDE-DUEL.md) for the playable mode and solo setup.

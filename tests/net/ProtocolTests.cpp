@@ -875,6 +875,7 @@ int main() {
       frag.attackerPlayerIndex = 0;
       frag.targetPlayerIndex = static_cast<std::uint8_t>(slot);
       frag.weapon = lg::Weapon::RocketLauncher;
+      frag.headshot = slot != 0 && slot % 2 == 1;
     }
     source.fragActiveMask = 0xFFFFU;
 
@@ -890,7 +891,8 @@ int main() {
     for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
       keptNewest = keptNewest && decoded.fragEvents[slot].active &&
         decoded.fragEvents[slot].sequence == slot + 17U &&
-        decoded.fragEvents[slot].attackerPlayerIndex == 0;
+        decoded.fragEvents[slot].attackerPlayerIndex == 0 &&
+        decoded.fragEvents[slot].headshot == (slot != 0 && slot % 2 == 1);
     }
     failures += expect(
       keptNewest,

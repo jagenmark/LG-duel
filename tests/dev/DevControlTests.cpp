@@ -1,5 +1,6 @@
 #include "dev/DevControlProtocol.hpp"
 #include "dev/DevControlServer.hpp"
+#include "dev/DevInputTimeline.hpp"
 #include "dev/DevJson.hpp"
 #include "dev/PngWriter.hpp"
 
@@ -89,6 +90,21 @@ int main() {
     parseRequest(R"({"operation":"capture_screenshot","name":"central-overview"})").ok,
     "safe capture filenames should be accepted"
   );
+  const auto inputTickCapture = parseRequest(
+    R"({"operation":"arm_phase_capture","name":"crouch-side","phase":"input_tick","at_input_tick":60})"
+  );
+  failures += expect(inputTickCapture.ok && inputTickCapture.request.captureInputTick == 60,
+    "input-tick capture accepts a bounded held-input frame");
+  for (const char* invalid : {
+      R"({"operation":"arm_phase_capture","name":"pose","phase":"input_tick"})",
+      R"({"operation":"arm_phase_capture","name":"pose","phase":"input_tick","at_input_tick":0})",
+      R"({"operation":"arm_phase_capture","name":"pose","phase":"input_tick","at_input_tick":1250})",
+      R"({"operation":"arm_phase_capture","name":"pose","phase":"input_tick","at_input_tick":1.5})",
+      R"({"operation":"arm_phase_capture","name":"pose","phase":"input_tick","at_input_tick":true})",
+      R"({"operation":"arm_phase_capture","name":"pose","phase":"local_surface_impact","at_input_tick":3})"
+    }) {
+    failures += expect(!parseRequest(invalid).ok, "invalid input-tick capture is rejected before arming");
+  }
   const auto armedPhaseCapture = parseRequest(
     R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"local_rocket_launcher_muzzle","hide_hud":true,"hide_overlays":true})"
   );
@@ -299,6 +315,31 @@ int main() {
     parseRequest(R"({"operation":"run_benchmark","run_group":"group-01","run_id":"run-01","scenario_hash":"0123456789abcdef","scenario":{"schema_version":1,"expected_benchmark_version":1,"name":"static","map":"eyetoeye","resolution":[1280,720],"warmup_frames":1,"measured_frames":1,"camera_start":{"position":[0,0,2],"yaw":0,"pitch":0}}})").ok,
     "typed benchmark control requests should parse"
   );
+
+  const auto sequence = parseRequest(
+    R"({"operation":"send_input_sequence","segments":[{"ticks":2,"forward":1,"crouch":true},{"ticks":3,"forward":1,"crouch":true,"one_tick_edges":["jump"]}]})"
+  );
+  failures += expect(sequence.ok && sequence.request.playerInputSequence.size() == 2,
+    "consecutive input segments should parse as one bounded action");
+  if (sequence.ok) {
+    lg::dev::InputTimeline timeline;
+    timeline.reset(sequence.request);
+    for (int tick = 0; tick < 5; ++tick) {
+      failures += expect(timeline.remainingTicks() > 0 && timeline.current().crouch,
+        "held crouch must not receive a neutral release between segments");
+      failures += expect(timeline.current().jumpOneTick == (tick >= 2),
+        "the slide-jump segment starts at the requested boundary");
+      timeline.consumeTick();
+    }
+    failures += expect(timeline.remainingTicks() == 0 && timeline.totalTicks() == 5,
+      "release occurs only after all sequence ticks");
+  }
+  failures += expect(
+    !parseRequest(R"({"operation":"send_input_sequence","segments":[]})").ok &&
+    !parseRequest(R"({"operation":"send_input_sequence","segments":[{"ticks":1000},{"ticks":251}]})").ok &&
+    !parseRequest(R"({"operation":"send_input_sequence","segments":[{"ticks":5,"yaw":0}]})").ok &&
+    !parseRequest(R"({"operation":"send_input_sequence","segments":[{"operation":"exec_console","command":"quit"}]})").ok,
+    "invalid or unbounded sequences must be rejected before any input executes");
 
   lg::dev::DevControlServer disabledServer;
   failures += expect(

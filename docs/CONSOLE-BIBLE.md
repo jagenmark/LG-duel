@@ -119,14 +119,14 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_camera_position_response` | float | `0.7` | `0..1.5` | None | Archive | Scale for glide slide, jump, and landing camera position response. `g_glide_movement 0` disables it. |
 | `cl_camera_roll` | float | `2.5` | `0..8` degrees | None | Archive | Maximum glide camera bank from sideways travel. It changes only the rendered camera, not aim or hit checks. `g_glide_movement 0` disables it. |
 | `cl_camera_fov_boost` | float | `3.5` | `0..12` degrees | None | Archive | Adds a field-of-view gain during glide movement. Zoom, Sniper Rifle ADS, and `g_glide_movement 0` disable it. |
-| `r_player_model` | int | `1` | `0..1` | None | Archive | Remote player body renderer. `0` uses legacy boxes and `1` uses the Quaternius Worker GLB default. The Duelist asset stays archived and is not a runtime option. |
+| `r_player_model` | int | `1` | `0..2` | None | Archive | Remote player body renderer. `0` uses legacy boxes, `1` uses the Pip/Fuse GLB default, and `2` uses the Ratch GLB (`assets/models/ratch/ratch.glb`) with its local material manifest and textures. |
 | `r_weapon_switch_animation` | bool | `1` | bool | None | Archive | Enables the deterministic 0.16-second first-person drop/hidden-swap/raise presentation and the inverse third-person arm lift. It never changes weapon authority or fire timing. |
 | `r_viewmodel_hands` | bool | `0` | bool | None | Archive | Enables the experimental first-person hand preview in the ViewModel pass. It is off by default and opt-in. |
 | `r_dev_camera_draw_connected_body` | bool | `0` | bool | None | Session | Draws the connected player through the third-person Worker path only while the development camera is active. This supports fixed-camera switch checks and never changes normal camera ownership. |
 | `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
-| `cl_health_style` | int | `0` | `0..5` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra, `2` crosshair-nära HP/ammo, `3` segmenterad bild, `4` fylld bild, `5` konturerad bild. |
-| `cl_health_offset_x` | float | `0` | `-2000..2000` | Ingen | Arkiv | Horisontell skärmoffset i pixlar för hela bildbaserade HP-gruppen, stil `3..5`. |
-| `cl_health_offset_y` | float | `0` | `-2000..2000` | Ingen | Arkiv | Vertikal skärmoffset i pixlar för hela bildbaserade HP-gruppen, stil `3..5`. |
+| `cl_health_style` | int | `0` | `0..5` | Ingen | Arkiv | HP-HUD: `0` kompakt cyan HP-bar nere till vänster i alla spellägen, `1` centrerad HP-siffra, `2` crosshair-nära HP/ammo, `3` segmenterad bild, `4` fylld bild, `5` konturerad bild. |
+| `cl_health_offset_x` | float | `0` | `-16384..16384` | Ingen | Arkiv | Horisontell pixeloffset för hela HP-gruppen i alla spellägen och stilar. Positivt flyttar åt höger. |
+| `cl_health_offset_y` | float | `0` | `-16384..16384` | Ingen | Arkiv | Vertikal pixeloffset för hela HP-gruppen i alla spellägen och stilar. Positivt flyttar nedåt. |
 | `cl_speed_size` | float | `1.5` | `0.5..6` | Ingen | Arkiv | Textskala för speed-indikatorn under crosshair. |
 | `cl_showfps` | bool | `0` | bool | Ingen | Arkiv | Visar FPS, genomsnittlig frame time och renderer-backend i fönstertiteln. |
 | `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed under crosshair som `<värde> ups`. Intern hastighet multipliceras med `40`, så `8 = 320 ups`. |
@@ -172,11 +172,11 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | Cvar | Typ | Projektdefault | Giltigt | Q3/QL-default eller ekvivalent | Funktion |
 |---|---:|---:|---|---|---|
 | `g_glide_movement` | bool | `0` | bool | None | Enables the glide profile, crouch slide, slide jump, free air turn, and matching first-person effects. `0` keeps the prior movement path. |
-| `g_accel` | float | `10` | `0..1000` | `pm_accelerate 10` | Markacceleration mot `g_maxspeed`. The glide profile uses `7.5`. |
+| `g_accel` | float | `10` | `0..1000` | `pm_accelerate 10` | Markacceleration mot `g_maxspeed`. The glide profile uses `18`. |
 | `g_airaccel` | float | `1` | `0..1000` | `pm_airaccelerate 1` | Acceleration i luften. The glide profile uses `3`. |
 | `g_aircontrol` | bool | `0` | bool | Q3/QL: `0`, QW-style: `1` | Vaxlar extra air control. The glide profile turns on its free air turn. |
-| `g_friction` | float | `6` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. The glide profile uses `1.35`. |
-| `g_stopspeed` | float | `2.5` | `0..100` | `pm_stopspeed 100`, motsvarar `2.5` internt | Minsta kontrollhastighet i friktionsberäkningen. The glide profile uses `1`. |
+| `g_friction` | float | `6` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. The glide profile uses `8`. |
+| `g_stopspeed` | float | `2.5` | `0..100` | `pm_stopspeed 100`, motsvarar `2.5` internt | Minsta kontrollhastighet i friktionsberäkningen. The glide profile uses `3.5`. |
 | `g_maxspeed` | float | `8` | `0.1..100` | `g_speed 320`, motsvarar `8` internt | Sustained mark- och air-speed cap. The glide profile uses `10.5` (`420 UPS`). |
 | `g_dash_targetspeed` | float | `11.5` | `0..100` | `460 UPS`, internal `11.5` | Dash target speed along the locked input direction. |
 | `g_dash_maxspeed` | float | `12.5` | `0..100` | `500 UPS`, internal `12.5` | Cap for speed created by dash. Existing speed above this cap is preserved. |
@@ -528,7 +528,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `player <name>` | string, `1..20` bytes/tecken i nuvarande ASCII-användning | Sätter, arkiverar och replikerar spelarnamn via `cl_player_name`. Flera ord tillåts. Returnerar `name = ...`. |
 | `ready` | inga argument | Togglar ready under väntfasen. Defaultbindning `F3`. |
 | `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. Alla spelare får använda kommandot. |
-| `gamemode <mode>` | `duel`, `ca`, `clanarena`, `mcg`, `mcguffin`, or `ffa` | Selects the mode during warmup. Free For All has a fixed ten-minute limit and ends at 100 points; enemy kills give `+1`, while self-kills give `-1`. McGuffin requires a compatible active map. |
+| `gamemode <mode>` | `duel`, `glide`, `ca`, `clanarena`, `mcg`, `mcguffin`, or `ffa` | Selects the mode during warmup. Glide Duel is first to seven with 45-second rounds and double damage in the final 15 seconds; see [Glide Duel](GLIDE-DUEL.md). Free For All has a fixed ten-minute limit and ends at 100 points; enemy kills give `+1`, while self-kills give `-1`. McGuffin requires a compatible active map. |
 | `team <team>` | `red`, `blue`, `none`, `unassigned`, `spectator`, or `spec` | Selects a team during warmup. `spectator` releases the authoritative player body while retaining the connection; during warmup a spectator can claim a free body with `team red`, `team blue`, or `team none`. Clan Arena and McGuffin players must choose Red or Blue before `ready`. |
 | `bot_weapon [mg\|sg\|gl\|rl\|lg\|sr\|pg\|fg\|re\|1..9]` | Optional weapon token | Shows or changes the server-authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). `rg` remains an alias for `sr`. Normal weapon-switch and pullout rules still apply. |
 | `connect <host> [port]` | host string; port `1..65535` | Ansluter till server. |

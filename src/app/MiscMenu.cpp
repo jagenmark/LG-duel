@@ -81,7 +81,7 @@ std::vector<MiscMenuItem> miscMenuItems(const ConsoleSystem &console,
       "Off", "All", "Visible solids", "Player clip", "Weapon clip", "Triggers",
   };
   constexpr std::array<const char *, 6> healthStyles = {
-      "Classic bar",
+      "Compact cyan bar",
       "Centered number",
       "Crosshair",
       "Segmented art",

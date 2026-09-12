@@ -37,9 +37,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_camera_roll", "Maximum camera bank in degrees from sideways travel.", 2.5F, archivedClient, 0.0F, 8.0F});
   console.registerCvar({"cl_camera_fov_boost", "Field-of-view gain at full movement speed.", 3.5F, archivedClient, 0.0F, 12.0F});
   console.registerCvar({"cl_health_size", "Health HUD scale.", 2.0F, archivedClient, 0.5F, 20.0F});
-  console.registerCvar({"cl_health_style", "Health HUD style: 0 bottom-left bar, 1 centered number, 2 crosshair number and ammo, 3 segmented art bar, 4 filled art bar, 5 outlined art bar.", 0, archivedClient, 0.0F, 5.0F});
-  console.registerCvar({"cl_health_offset_x", "Art health HUD group horizontal screen offset.", 0.0F, archivedClient, -2000.0F, 2000.0F});
-  console.registerCvar({"cl_health_offset_y", "Art health HUD group vertical screen offset.", 0.0F, archivedClient, -2000.0F, 2000.0F});
+  console.registerCvar({"cl_health_style", "Health HUD style in every mode: 0 compact cyan bottom-left bar, 1 centered number, 2 crosshair number and ammo, 3 segmented art bar, 4 filled art bar, 5 outlined art bar.", 0, archivedClient, 0.0F, 5.0F});
+  console.registerCvar({"cl_health_offset_x", "Health HUD group horizontal pixel offset in every mode and style. Positive moves right.", 0.0F, archivedClient, -16384.0F, 16384.0F});
+  console.registerCvar({"cl_health_offset_y", "Health HUD group vertical pixel offset in every mode and style. Positive moves down.", 0.0F, archivedClient, -16384.0F, 16384.0F});
   console.registerCvar({"cl_speed_size", "Crosshair speed text scale.", 1.5F, archivedClient, 0.5F, 6.0F});
   console.registerCvar({"cl_weapon_bar_size", "Left weapon/ammo HUD scale.", 1.75F, archivedClient, 0.5F, 4.0F});
   console.registerCvar({"r_ui_font", "UI TTF/OTF font file. Looks in assets/fonts, assets/font, or accepts an absolute local path.", std::string{"bahnschrift.ttf"}, archivedClient, {}, {}});
@@ -210,7 +210,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 Quaternius Worker GLB (default).", 1, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 Pip/Fuse (default), 2 Ratch.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_enemy_outline", "Draw enemy screen-space outline.", true, archivedClient, {}, {}});
   console.registerCvar({"r_player_outline_mode", "Player outlines: 0 off, 1 compatibility style, 2 native-resolution screen-space (default).", 2, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_player_outline_style", "Compatibility outline style: 0 legacy geometry fallback, 1 half-resolution screen-space mask.", 0, archivedClient, 0.0F, 1.0F});

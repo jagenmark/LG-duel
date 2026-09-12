@@ -32,6 +32,7 @@ struct BotSelfSense {
   int maxHealth = 100;
   bool onGround = false;
   bool dashReady = false;
+  bool glideEnabled = false;
 };
 
 struct BotObservedEnemy {
@@ -452,6 +453,7 @@ private:
   std::uint32_t aimRandomState_ = 0xA11CE55DU;
   bool hasCarrierObjectiveDestination_ = false;
   bool targetWasVisible_ = false;
+  bool slideRequested_ = false;
   bool initialized_ = false;
 };
 

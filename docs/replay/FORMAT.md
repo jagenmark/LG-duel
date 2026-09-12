@@ -2,12 +2,12 @@
 
 ## Versioning contract
 
-`.lgdemo` is the saved-demo container. Format version 7 is the only
-accepted format in `lg::replay`. Versions 1 through 6 are historical only and the
-decoder rejects them. The v7 wire contract is fixed by `ReplayCodec`:
+`.lgdemo` is the saved-demo container. Format version 8 is the only
+accepted format in `lg::replay`. Versions 1 through 7 are historical only and the
+decoder rejects them. The v8 wire contract is fixed by `ReplayCodec`:
 
 - magic bytes: `LGDM`;
-- format version: `7` (`kReplayFormatVersion`);
+- format version: `8` (`kReplayFormatVersion`);
 - fixed tick rate: `125` (`kReplayTickRate`);
 - byte order: little endian for every fixed-width value;
 - saved-file cap: 512 MiB; decoded native resident cap: 512 MiB; chunk cap:
@@ -27,11 +27,11 @@ projectile-explosion, and grenade-bounce stream. A restored server can emit the
 next record in the same slot and sequence order, including across sequence wrap.
 
 An old file need not play on a newer build. The current reader does not decode
-versions 1 through 6. It fails before restoring any state and says why.
+versions 1 through 7. It fails before restoring any state and says why.
 
 ## Preamble and metadata
 
-The 16-byte preamble contains these fields in v7 order:
+The 16-byte preamble contains these fields in v8 order:
 
 1. `LGDM` magic;
 2. 16-bit format version;
@@ -47,7 +47,7 @@ configuration revision, the complete `ReplayGameplayConfig`, and fixed-slot
 player metadata. Player metadata holds slot, occupied marker, bot marker, team,
 and bounded name.
 
-Strings and metadata lists carry a length and a stated maximum. V7 stores every
+Strings and metadata lists carry a length and a stated maximum. V8 stores every
 authoritative balance/runtime configuration field with explicit fixed-width
 encoding. The canonical config hash covers those encoded fields. Playback
 applies the payload to its replay-only server and rejects a hash mismatch.
@@ -57,9 +57,9 @@ revisions before replacing the destination replay.
 
 ## Chunks
 
-After metadata, the file contains length-delimited chunks. Each v7 chunk holds a
+After metadata, the file contains length-delimited chunks. Each v8 chunk holds a
 one-byte type, a 32-bit payload length, a 32-bit CRC-32, and the payload. It has
-no v7 chunk flags, compression, expansion length, index, or completion record.
+no v8 chunk flags, compression, expansion length, index, or completion record.
 The five chunk types are:
 
 - `TickInputs`, one resolved input frame at a tick;
@@ -71,7 +71,7 @@ The five chunk types are:
 
 ### Sparse tick inputs
 
-A v7 `TickInputs` payload starts with its 32-bit tick and a 16-bit present-slot
+A v8 `TickInputs` payload starts with its 32-bit tick and a 16-bit present-slot
 mask. It then encodes a `ReplaySlotInput` only for each set bit, in ascending
 slot order. A clear bit has no input payload; decoding leaves that slot at its
 default state with `present == false`.
@@ -88,7 +88,7 @@ boundary in one demo.
 
 The writer emits records by type. Tick inputs, checkpoints, hashes, and lethal
 events each keep their own valid tick order. A checkpoint’s tick and every input
-tick must not precede the initial tick. V7 does not compress records.
+tick must not precede the initial tick. V8 does not compress records.
 
 ## Strict reader rules
 
@@ -139,8 +139,8 @@ file helper; `ServerGame::tick` and render do not call it.
 ## Remote transfer envelope
 
 The remote killcam does not define a second replay file format. It transfers
-the bytes of a validated v7 `ReplayDemo` through the normal network packet
-framing. The envelope uses protocol version 63 and
+the bytes of a validated v8 `ReplayDemo` through the normal network packet
+framing. The envelope uses protocol version 66 and
 `PacketType::ReplayTransfer`, with a typed subtype for `Begin`, `Chunk`, `Ack`,
 or `Cancel`.
 
@@ -192,9 +192,24 @@ does not continue with an unverified state.
 
 ## Required format coverage
 
-`lg_duel_replay_codec_tests` covers v7 round trips, full custom configuration,
+`lg_duel_replay_codec_tests` covers v8 round trips, full custom configuration,
 authority boundaries, lethal provenance/sequence, truncation with no partial
 apply, checksum corruption, wrong magic, non-finite command data, invalid
 projectile owner, missing lag history, out-of-range spawn cursor, out-of-order
 tick input, and trailing data. Version, sparse absent-slot, length, count, and
 enum validation remain part of the strict reader contract.
+
+Headshot presentation uses the server's fatal-hit flag in `ReplayLethalEvent`.
+Format 8 appends that boolean after the lethal sequence; non-direct and self
+kills cannot carry it. Network protocol 66 carries the same flag on frag events
+for all clients' kill feeds. Earlier replay formats remain unsupported.
+
+The killcam uses a compact killer-POV header, an amber HEADSHOT badge when
+applicable, and a bottom timeline marking the fatal tick with remaining time
+and the existing skip controls. The ordinary health HUD is hidden in killcam.
+Kill feed rows retain weapon icons and add a matching HEADSHOT badge; body kills
+have no headshot marker.
+
+Replay simulation revision 3 includes bounded ground-slide carving and
+proportional counter-braking. Earlier simulation revisions are incompatible
+even when the container uses format 8.

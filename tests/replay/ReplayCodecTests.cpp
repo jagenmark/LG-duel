@@ -157,7 +157,7 @@ lg::replay::ReplayDemo validDemo() {
   demo.checkpoints.push_back(checkpoint);
   demo.hashes.push_back({101U, lg::replay::canonicalStateHash(checkpoint)});
   demo.lethalEvents.push_back({101U, 1U, 1U, 0U, lg::Weapon::RocketLauncher, 14U,
-    lg::replay::LethalKind::Direct, 1U});
+    lg::replay::LethalKind::Direct, 1U, true});
   demo.lethalEvents.push_back({101U, 1U, 0U, 1U, lg::Weapon::RocketLauncher, 15U,
     lg::replay::LethalKind::Splash, 2U});
   demo.lethalEvents.push_back({101U, 1U, 1U, 1U, lg::Weapon::RocketLauncher, 16U,
@@ -251,7 +251,8 @@ int main() {
   failures += expect(decoded.hashes.size() == 1U && decoded.hashes[0].value == source.hashes[0].value,
     "state hash should round trip");
   failures += expect(decoded.lethalEvents.size() == 4U &&
-    decoded.lethalEvents[0].sequence == 1U &&
+    decoded.lethalEvents[0].sequence == 1U && decoded.lethalEvents[0].headshot &&
+    !decoded.lethalEvents[1].headshot &&
     decoded.lethalEvents[1].kind == lg::replay::LethalKind::Splash &&
     decoded.lethalEvents[1].projectileSequence == 15U &&
     decoded.lethalEvents[2].kind == lg::replay::LethalKind::Self &&

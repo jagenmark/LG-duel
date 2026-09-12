@@ -698,7 +698,7 @@ void ServerGame::tick(float fixedDt) {
     if (cooldown > 0) {
       --cooldown;
       if (cooldown == 0) {
-        snapshot_.healthPickupAvailable[index] = true;
+        snapshot_.healthPickupAvailable[index] = snapshot_.gameMode != GameMode::GlideDuel;
       }
     }
   }
@@ -1513,6 +1513,17 @@ void ServerGame::tick(float fixedDt) {
     }
   }
 
+  if (tickStartedLive && snapshot_.gameMode == GameMode::GlideDuel &&
+      snapshot_.matchPhase == MatchPhase::Live) {
+    if (snapshot_.phaseTicksRemaining > 0) --snapshot_.phaseTicksRemaining;
+    if (snapshot_.phaseTicksRemaining == 0) {
+      const int first = snapshot_.players[0].health;
+      const int second = snapshot_.players[1].health;
+      if (first == second) beginRoundDraw();
+      else beginRoundEnd(first > second ? 0U : 1U);
+    }
+  }
+
   if (tickStartedLive) {
     ++snapshot_.liveTicksElapsed;
     // McGuffin rounds end through score control and the final-hold rule. A
@@ -1527,7 +1538,7 @@ void ServerGame::tick(float fixedDt) {
         static_cast<std::uint32_t>(snapshot_.matchRules.timeLimitMinutes) *
         60U * 125U;
       if (snapshot_.liveTicksElapsed >= limitTicks) {
-        if (snapshot_.gameMode == GameMode::Duel) {
+        if (isDuelGameMode(snapshot_.gameMode)) {
           const auto leader = uniqueScoreLeader(snapshot_.scores, occupiedPlayers());
           if (leader.has_value()) {
             beginMatchEnd(*leader);
@@ -1822,7 +1833,7 @@ replay::ReplayMetadata ServerGame::replayMetadata() const {
   metadata.mapContentHash = snapshot_.map.contentHash;
   metadata.gameMode = snapshot_.gameMode;
   metadata.matchRules = matchRules_;
-  metadata.visibility = snapshot_.gameMode == GameMode::Duel
+  metadata.visibility = isDuelGameMode(snapshot_.gameMode)
     ? replay::ReplayVisibility::DuelOnly
     : replay::ReplayVisibility::DeveloperFull;
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
@@ -1853,7 +1864,8 @@ void ServerGame::recordReplayLethal(
   std::size_t targetIndex,
   Weapon weapon,
   replay::LethalKind kind,
-  std::uint32_t projectileSequence
+  std::uint32_t projectileSequence,
+  bool headshot
 ) {
   if (targetIndex >= kDuelPlayerCount) return;
   replay::ReplayLethalEvent event;
@@ -1868,6 +1880,8 @@ void ServerGame::recordReplayLethal(
   event.kind = attackerIndex == targetIndex
     ? replay::LethalKind::Self
     : attackerIndex < kDuelPlayerCount ? kind : replay::LethalKind::World;
+  event.headshot = headshot && event.kind == replay::LethalKind::Direct &&
+    event.killer != event.victim;
   event.sequence = ++replayLethalSequence_;
   if (event.sequence == 0U) event.sequence = ++replayLethalSequence_;
   if (replayRecorder_ != nullptr && replayRecorder_->active()) {
@@ -2763,7 +2777,7 @@ void ServerGame::setConnectedPlayers(
   }
 
   const bool abortActiveMatch = !warmupPhase() &&
-    (snapshot_.gameMode == GameMode::Duel ||
+    (isDuelGameMode(snapshot_.gameMode) ||
      snapshot_.gameMode == GameMode::ClanArena);
   if (abortActiveMatch) {
     // Roster cleanup below changes replay authority at the current tick.
@@ -3176,6 +3190,10 @@ void ServerGame::setRuntimeGameplayTuning(
 ) {
   const std::uint64_t previousHash = replayGameplayConfigHash();
   MovementTuning normalizedMovementTuning = movementTuning;
+  if (snapshot_.gameMode == GameMode::GlideDuel) {
+    normalizedMovementTuning.glideMovementEnabled = true;
+    normalizedMovementTuning.flightEnabled = false;
+  }
   normalizedMovementTuning.maxAirSpeed = normalizedMovementTuning.maxGroundSpeed;
   const CollisionBounds previousNavigationBounds =
     botNavigationBounds(playerSizeScaleXY_, playerSizeScaleZ_);
@@ -3365,7 +3383,7 @@ BotRosterChange ServerGame::addBots(std::optional<std::size_t> count) {
   std::size_t added = 0;
   for (
     std::size_t playerIndex = 0;
-    playerIndex < kDuelPlayerCount && added < requested;
+    playerIndex < (snapshot_.gameMode == GameMode::GlideDuel ? 2U : kDuelPlayerCount) && added < requested;
     ++playerIndex
   ) {
     if (isOccupiedSlot(playerIndex)) {
@@ -3596,6 +3614,7 @@ bool ServerGame::isHumanPlayer(std::size_t playerIndex) const {
 }
 
 bool ServerGame::isOccupiedSlot(std::size_t playerIndex) const {
+  if (snapshot_.gameMode == GameMode::GlideDuel && playerIndex >= 2U) return false;
   return isHumanPlayer(playerIndex) || isBotSlot(playerIndex);
 }
 
@@ -3608,7 +3627,7 @@ std::array<bool, kDuelPlayerCount> ServerGame::occupiedPlayers() const {
 }
 
 const MatchRules& ServerGame::matchRules() const {
-  return matchRules_;
+  return snapshot_.gameMode == GameMode::GlideDuel ? snapshot_.matchRules : matchRules_;
 }
 
 void ServerGame::updateMatchState() {
@@ -3655,6 +3674,9 @@ void ServerGame::updateMatchState() {
     if (snapshot_.phaseTicksRemaining == 0) {
       snapshot_.matchPhase = MatchPhase::Live;
       snapshot_.roundWinner = 255;
+      if (snapshot_.gameMode == GameMode::GlideDuel) {
+        snapshot_.phaseTicksRemaining = kGlideRoundTicks;
+      }
     }
     break;
   case MatchPhase::RoundEnd:
@@ -3699,7 +3721,7 @@ void ServerGame::beginCountdown() {
     snapshot_.overtime = false;
   }
   snapshot_.matchPhase = MatchPhase::Countdown;
-  snapshot_.phaseTicksRemaining = matchRules_.countdownTicks;
+  snapshot_.phaseTicksRemaining = snapshot_.matchRules.countdownTicks;
   snapshot_.roundWinner = 255;
   snapshot_.roundWinningTeam = Team::None;
   respawnRound();
@@ -3711,7 +3733,7 @@ void ServerGame::beginCountdown() {
 void ServerGame::beginRoundDraw() {
   snapshot_.roundWinner = 255;
   snapshot_.roundWinningTeam = Team::None;
-  snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
+  snapshot_.phaseTicksRemaining = snapshot_.matchRules.roundEndTicks;
   snapshot_.matchPhase = MatchPhase::RoundEnd;
 }
 
@@ -3724,7 +3746,7 @@ void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
   }
   awardDuelRound(snapshot_.scores, winnerIndex);
   snapshot_.roundWinner = static_cast<std::uint8_t>(winnerIndex);
-  snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
+  snapshot_.phaseTicksRemaining = snapshot_.matchRules.roundEndTicks;
   snapshot_.matchPhase = MatchPhase::RoundEnd;
   bool overtimeWinner = false;
   if (snapshot_.overtime) {
@@ -3732,7 +3754,7 @@ void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
     overtimeWinner = leader.has_value() && *leader == winnerIndex;
   }
   if (
-    hasWonDuel(snapshot_.scores, winnerIndex, matchRules_.roundLimit) ||
+    hasWonDuel(snapshot_.scores, winnerIndex, snapshot_.matchRules.roundLimit) ||
     overtimeWinner
   ) {
     beginMatchEnd(winnerIndex);
@@ -3748,7 +3770,7 @@ void ServerGame::beginRoundEnd(Team winnerTeam) {
   }
   awardClanArenaRound(snapshot_.teamScores, winnerTeam);
   snapshot_.roundWinningTeam = winnerTeam;
-  snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
+  snapshot_.phaseTicksRemaining = snapshot_.matchRules.roundEndTicks;
   snapshot_.matchPhase = MatchPhase::RoundEnd;
   bool overtimeWinner = false;
   if (snapshot_.overtime) {
@@ -3756,7 +3778,7 @@ void ServerGame::beginRoundEnd(Team winnerTeam) {
     overtimeWinner = leader.has_value() && *leader == winnerTeam;
   }
   if (
-    hasWonClanArena(snapshot_.teamScores, winnerTeam, matchRules_.roundLimit) ||
+    hasWonClanArena(snapshot_.teamScores, winnerTeam, snapshot_.matchRules.roundLimit) ||
     overtimeWinner
   ) {
     beginMatchEnd(winnerTeam);
@@ -3794,7 +3816,7 @@ bool ServerGame::enoughPlayersConnected() const {
     occupied.end(),
     true
   ));
-  if (occupiedCount < matchRules_.playerLimit) {
+  if (occupiedCount < snapshot_.matchRules.playerLimit) {
     return false;
   }
   if (!isTeamGameMode(snapshot_.gameMode)) {
@@ -4105,6 +4127,11 @@ void ServerGame::applyDamageAndKnockback(
   if (!damageAllowed(attackerIndex, targetIndex)) {
     damageApplied = 0;
   }
+  if (snapshot_.gameMode == GameMode::GlideDuel &&
+      snapshot_.matchPhase == MatchPhase::Live &&
+      snapshot_.phaseTicksRemaining <= kGlideOverdriveTicks) {
+    damageApplied = std::min(damageApplied, target.health) * 2;
+  }
   // Clamp before recording feedback and statistics so every downstream system
   // observes actual health removed rather than the weapon's nominal damage.
   damageApplied = std::clamp(damageApplied, 0, target.health);
@@ -4188,7 +4215,7 @@ void ServerGame::applyDamageAndKnockback(
     attackerIndex != targetIndex &&
     attacker.health > 0 &&
     damageApplied > 0 &&
-    vampirism_ > 0.0F
+    vampirism_ > 0.0F && snapshot_.gameMode != GameMode::GlideDuel
   ) {
     // Preserve fractional healing between hits so low damage and fractional
     // vampirism remain deterministic instead of losing value to per-hit rounding.
@@ -4231,7 +4258,8 @@ void ServerGame::applyDamageAndKnockback(
       targetIndex,
       weapon,
       context.lethalKind,
-      context.projectileSequence
+      context.projectileSequence,
+      headshot
     );
     FragEvent frag;
     frag.active = true;
@@ -4240,6 +4268,8 @@ void ServerGame::applyDamageAndKnockback(
     frag.attackerPlayerIndex = static_cast<std::uint8_t>(attackerIndex);
     frag.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
     frag.weapon = weapon;
+    frag.headshot = headshot && context.lethalKind == replay::LethalKind::Direct &&
+      attackerIndex != targetIndex;
     appendCombatEvent(
       snapshot_.fragEvents,
       snapshot_.fragActiveMask,
@@ -4291,7 +4321,7 @@ void ServerGame::handlePlayerDeath(
       snapshot_.lightningGuns[targetIndex] = {};
       snapshot_.weaponFires[targetIndex] = {};
     }
-    if (snapshot_.gameMode == GameMode::Duel) {
+    if (isDuelGameMode(snapshot_.gameMode)) {
       std::optional<std::size_t> winner;
       std::size_t aliveCount = 0;
       for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
@@ -4817,7 +4847,7 @@ void ServerGame::resetHealthPickups() {
   healthPickupCooldownTicks_ = {};
   snapshot_.healthPickupAvailable = {};
   for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
-    snapshot_.healthPickupAvailable[index] = true;
+    snapshot_.healthPickupAvailable[index] = snapshot_.gameMode != GameMode::GlideDuel;
   }
 }
 
@@ -4866,6 +4896,7 @@ void ServerGame::updateKillVolumes() {
 }
 
 void ServerGame::updateHealthPickups() {
+  if (snapshot_.gameMode == GameMode::GlideDuel) return;
   for (std::size_t pickupIndex = 0; pickupIndex < arena_.healthPickupCount; ++pickupIndex) {
     if (!snapshot_.healthPickupAvailable[pickupIndex]) {
       continue;
@@ -5490,6 +5521,7 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
   sense.self.maxHealth = healthAmount_;
   sense.self.onGround = self.onGround;
   sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
+  sense.self.glideEnabled = movementTuning_.glideMovementEnabled;
   sense.selectedWeapon = selectedWeapons_[playerIndex];
   sense.forceWeapon = !botWeaponAuto_;
   sense.forcedWeapon = botWeapon_;
@@ -5581,6 +5613,7 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
     observed.nearbySplashSurface = traceWorld(arena_, targetPoint, towardTarget, 2.0F).hit;
   }
   for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
+    if (snapshot_.gameMode == GameMode::GlideDuel) break;
     const ArenaHealthPickup& pickup = arena_.healthPickups[index];
     // Availability is an authoritative dynamic fact. Do not put it into the
     // filtered frame until the pickup itself is in sight. The brain may keep
@@ -5662,6 +5695,7 @@ void ServerGame::updateBotCommands(float fixedDt) {
     sense.self.maxHealth = healthAmount_;
     sense.self.onGround = self.onGround;
     sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
+    sense.self.glideEnabled = movementTuning_.glideMovementEnabled;
     sense.selectedWeapon = selectedWeapons_[playerIndex];
     sense.forceWeapon = !botWeaponAuto_;
     sense.forcedWeapon = botWeapon_;
@@ -6025,6 +6059,11 @@ bool ServerGame::applyScenarioSetup(
   // Scenario setup writes the server's source of truth, then updates each
   // snapshot mirror. It never sends a packet or changes protocol state.
   snapshot_.gameMode = setup.match.gameMode;
+  if (snapshot_.gameMode == GameMode::GlideDuel) {
+    movementTuning_.glideMovementEnabled = true;
+    movementTuning_.flightEnabled = false;
+    rebuildBotNavigation();
+  }
   snapshot_.connectedPlayers = {};
   snapshot_.teams = {};
   snapshot_.readyPlayers = {};
@@ -6725,7 +6764,14 @@ void ServerGame::receiveCommands() {
           "spawn, one Red base, one Blue base, and team spawns.\n";
         continue;
       }
+      if (!isValidGameMode(packet.requestedGameMode)) continue;
       snapshot_.gameMode = packet.requestedGameMode;
+      if (snapshot_.gameMode == GameMode::GlideDuel) {
+        movementTuning_.glideMovementEnabled = true;
+        movementTuning_.flightEnabled = false;
+        setBotWeaponAuto();
+        rebuildBotNavigation();
+      }
       snapshot_.teams = {};
       resetMatch();
       updateClanArenaBotTeams();

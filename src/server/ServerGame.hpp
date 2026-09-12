@@ -326,7 +326,8 @@ private:
     std::size_t targetIndex,
     Weapon weapon,
     replay::LethalKind kind = replay::LethalKind::Direct,
-    std::uint32_t projectileSequence = 0
+    std::uint32_t projectileSequence = 0,
+    bool headshot = false
   );
   void bumpReplayConfigurationRevision();
   void applyReplayInput(const replay::ReplayTickInput& input);

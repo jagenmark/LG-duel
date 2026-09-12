@@ -114,6 +114,78 @@ int main() {
   const lg::Arena arena;
   const lg::MovementTuning tuning;
 
+  for (const lg::MatchPhase before : {
+      lg::MatchPhase::WaitingForReady, lg::MatchPhase::RoundEnd}) {
+    for (const lg::MatchPhase after : {
+        lg::MatchPhase::Countdown, lg::MatchPhase::Live}) {
+      lg::LoopbackTransport transport;
+      lg::ClientGame client(transport, 0);
+      lg::ServerSnapshot snapshot;
+      snapshot.gameMode = lg::GameMode::GlideDuel;
+      snapshot.matchPhase = before;
+      snapshot.players[0] = groundedPlayer();
+      snapshot.players[0].position.x = -14.0F;
+      queueSnapshot(transport, snapshot);
+      client.receiveSnapshots();
+      std::uint64_t viewGeneration = 0;
+      float viewYaw = 0.0F;
+      float viewPitch = 0.0F;
+      (void)client.applyAuthoritativeViewReset(viewGeneration, viewYaw, viewPitch);
+
+      lg::UserCommand pending;
+      pending.sequence = 1;
+      pending.forwardMove = 1.0F;
+      client.sendCommand(pending, false);
+      failures += expect(client.predictionDiagnostics().pendingCommandCount == 1,
+        "round reset regression must begin with a living body and pending input");
+
+      snapshot.serverTick = 1;
+      snapshot.matchPhase = after;
+      snapshot.players[0].position.x = 14.0F;
+      snapshot.players[0].viewYawRadians = kPi;
+      snapshot.players[0].viewPitchRadians = 0.15F;
+      queueSnapshot(transport, snapshot);
+      client.receiveSnapshots();
+      failures += expect(client.predictionDiagnostics().pendingCommandCount == 0 &&
+          nearlyEqual(client.predictedPlayer().position.x, 14.0F) &&
+          nearlyEqual(client.predictedPlayer().viewYawRadians, kPi),
+        "alive round respawn under 32 units should discard pre-round prediction, including skipped countdown");
+
+      // Multiple snapshots may arrive before presentation consumes the reset.
+      // Its source must remain the spawn facing, not the latest predicted aim.
+      pending.sequence = 2;
+      pending.forwardMove = 0.0F;
+      pending.viewYawRadians = 0.7F;
+      client.sendCommand(pending, false);
+      snapshot.serverTick = 2;
+      snapshot.players[0].viewYawRadians = 0.8F;
+      queueSnapshot(transport, snapshot);
+      client.receiveSnapshots();
+      failures += expect(
+        client.applyAuthoritativeViewReset(viewGeneration, viewYaw, viewPitch) &&
+          nearlyEqual(viewYaw, kPi) && nearlyEqual(viewPitch, 0.15F),
+        "presentation should consume the authoritative spawn angles once even after newer snapshots");
+      pending.sequence = 3;
+      pending.viewYawRadians = viewYaw;
+      pending.viewPitchRadians = viewPitch;
+      client.sendCommand(pending, false);
+      failures += expect(nearlyEqual(client.predictedPlayer().viewYawRadians, kPi),
+        "the first command constructed from the view reset should face into the arena");
+
+      viewYaw = 1.2F; // Mouse input after acquiring the new life.
+      viewPitch = -0.2F;
+      snapshot.serverTick = 3;
+      snapshot.matchPhase = lg::MatchPhase::Live;
+      queueSnapshot(transport, snapshot);
+      client.receiveSnapshots();
+      failures += expect(
+        !client.applyAuthoritativeViewReset(viewGeneration, viewYaw, viewPitch) &&
+          nearlyEqual(viewYaw, 1.2F) && nearlyEqual(viewPitch, -0.2F) &&
+          client.predictionDiagnostics().pendingCommandCount == 2,
+        "ordinary snapshots and Countdown to Live must preserve mouse aim and new-life commands");
+    }
+  }
+
   {
     lg::LoopbackTransport transport;
     lg::ClientGame client(transport, 0);

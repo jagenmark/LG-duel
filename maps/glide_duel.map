@@ -1,0 +1,344 @@
+// Glide Duel: mirrored short flanks, chamfered cover, central sightline blocker, raised side decks.
+// Cover and pillar use 24-unit corner cuts to ease high-speed carving; decks and spawns stay mirrored.
+{
+"classname" "worldspawn"
+"lg_bounds_min" "-752 -552 -40"
+"lg_bounds_max" "752 552 400"
+"lg_sky" "aurora"
+"lg_ambient_intensity" "0.55"
+"lg_ambient_color" "0.9 0.95 1"
+{
+( -752 -552 -40 ) ( -752 -551 -40 ) ( -752 -552 -39 ) Overkill/Overkill_Sandstone_Floor-128x128 0 0 0 1 1
+( -752 -552 -40 ) ( -752 -552 -39 ) ( -751 -552 -40 ) Overkill/Overkill_Sandstone_Floor-128x128 0 0 0 1 1
+( -752 -552 -40 ) ( -751 -552 -40 ) ( -752 -551 -40 ) Overkill/Overkill_Sandstone_Floor-128x128 0 0 0 1 1
+( 752 552 0 ) ( 752 552 1 ) ( 752 553 0 ) Overkill/Overkill_Sandstone_Floor-128x128 0 0 0 1 1
+( 752 552 0 ) ( 753 552 0 ) ( 752 552 1 ) Overkill/Overkill_Sandstone_Floor-128x128 0 0 0 1 1
+( 752 552 0 ) ( 752 553 0 ) ( 753 552 0 ) Overkill/Overkill_Sandstone_Floor-128x128 0 0 0 1 1
+}
+{
+( -752 -552 0 ) ( -752 -551 0 ) ( -752 -552 1 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -752 -552 0 ) ( -752 -552 1 ) ( -751 -552 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -752 -552 0 ) ( -751 -552 0 ) ( -752 -551 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -720 552 240 ) ( -720 552 241 ) ( -720 553 240 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -720 552 240 ) ( -719 552 240 ) ( -720 552 241 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -720 552 240 ) ( -720 553 240 ) ( -719 552 240 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+{
+( 720 -552 0 ) ( 720 -551 0 ) ( 720 -552 1 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 720 -552 0 ) ( 720 -552 1 ) ( 721 -552 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 720 -552 0 ) ( 721 -552 0 ) ( 720 -551 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 752 552 240 ) ( 752 552 241 ) ( 752 553 240 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 752 552 240 ) ( 753 552 240 ) ( 752 552 241 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 752 552 240 ) ( 752 553 240 ) ( 753 552 240 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+{
+( -720 -552 0 ) ( -720 -551 0 ) ( -720 -552 1 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -720 -552 0 ) ( -720 -552 1 ) ( -719 -552 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -720 -552 0 ) ( -719 -552 0 ) ( -720 -551 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 720 -520 240 ) ( 720 -520 241 ) ( 720 -519 240 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 720 -520 240 ) ( 721 -520 240 ) ( 720 -520 241 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 720 -520 240 ) ( 720 -519 240 ) ( 721 -520 240 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+{
+( -720 520 0 ) ( -720 521 0 ) ( -720 520 1 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -720 520 0 ) ( -720 520 1 ) ( -719 520 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -720 520 0 ) ( -719 520 0 ) ( -720 521 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 720 552 240 ) ( 720 552 241 ) ( 720 553 240 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 720 552 240 ) ( 721 552 240 ) ( 720 552 241 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 720 552 240 ) ( 720 553 240 ) ( 721 552 240 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+{
+( -32 -112 0 ) ( -32 -112 160 ) ( 32 -112 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 32 -112 0 ) ( 32 -112 160 ) ( 56 -88 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 56 -88 0 ) ( 56 -88 160 ) ( 56 88 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 56 88 0 ) ( 56 88 160 ) ( 32 112 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 32 112 0 ) ( 32 112 160 ) ( -32 112 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -32 112 0 ) ( -32 112 160 ) ( -56 88 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -56 88 0 ) ( -56 88 160 ) ( -56 -88 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -56 -88 0 ) ( -56 -88 160 ) ( -32 -112 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -32 -112 0 ) ( 32 -112 0 ) ( 56 -88 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 56 -88 160 ) ( 32 -112 160 ) ( -32 -112 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+{
+( -40 -120 160 ) ( -40 -120 176 ) ( 40 -120 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 40 -120 160 ) ( 40 -120 176 ) ( 64 -96 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 64 -96 160 ) ( 64 -96 176 ) ( 64 96 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 64 96 160 ) ( 64 96 176 ) ( 40 120 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 40 120 160 ) ( 40 120 176 ) ( -40 120 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -40 120 160 ) ( -40 120 176 ) ( -64 96 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -64 96 160 ) ( -64 96 176 ) ( -64 -96 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -64 -96 160 ) ( -64 -96 176 ) ( -40 -120 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -40 -120 160 ) ( 40 -120 160 ) ( 64 -96 160 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 64 -96 176 ) ( 40 -120 176 ) ( -40 -120 176 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+{
+( -324 -278 0 ) ( -324 -278 88 ) ( -276 -278 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -276 -278 0 ) ( -276 -278 88 ) ( -252 -254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -252 -254 0 ) ( -252 -254 88 ) ( -252 -206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -252 -206 0 ) ( -252 -206 88 ) ( -276 -182 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -276 -182 0 ) ( -276 -182 88 ) ( -324 -182 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -324 -182 0 ) ( -324 -182 88 ) ( -348 -206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -348 -206 0 ) ( -348 -206 88 ) ( -348 -254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -348 -254 0 ) ( -348 -254 88 ) ( -324 -278 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -324 -278 0 ) ( -276 -278 0 ) ( -252 -254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -252 -254 88 ) ( -276 -278 88 ) ( -324 -278 88 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+{
+( -324 182 0 ) ( -324 182 88 ) ( -276 182 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -276 182 0 ) ( -276 182 88 ) ( -252 206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -252 206 0 ) ( -252 206 88 ) ( -252 254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -252 254 0 ) ( -252 254 88 ) ( -276 278 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -276 278 0 ) ( -276 278 88 ) ( -324 278 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -324 278 0 ) ( -324 278 88 ) ( -348 254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -348 254 0 ) ( -348 254 88 ) ( -348 206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -348 206 0 ) ( -348 206 88 ) ( -324 182 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -324 182 0 ) ( -276 182 0 ) ( -252 206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -252 206 88 ) ( -276 182 88 ) ( -324 182 88 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+{
+( 276 -278 0 ) ( 276 -278 88 ) ( 324 -278 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 324 -278 0 ) ( 324 -278 88 ) ( 348 -254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 348 -254 0 ) ( 348 -254 88 ) ( 348 -206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 348 -206 0 ) ( 348 -206 88 ) ( 324 -182 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 324 -182 0 ) ( 324 -182 88 ) ( 276 -182 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 276 -182 0 ) ( 276 -182 88 ) ( 252 -206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 252 -206 0 ) ( 252 -206 88 ) ( 252 -254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 252 -254 0 ) ( 252 -254 88 ) ( 276 -278 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 276 -278 0 ) ( 324 -278 0 ) ( 348 -254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 348 -254 88 ) ( 324 -278 88 ) ( 276 -278 88 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+{
+( 276 182 0 ) ( 276 182 88 ) ( 324 182 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 324 182 0 ) ( 324 182 88 ) ( 348 206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 348 206 0 ) ( 348 206 88 ) ( 348 254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 348 254 0 ) ( 348 254 88 ) ( 324 278 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 324 278 0 ) ( 324 278 88 ) ( 276 278 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 276 278 0 ) ( 276 278 88 ) ( 252 254 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 252 254 0 ) ( 252 254 88 ) ( 252 206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 252 206 0 ) ( 252 206 88 ) ( 276 182 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 276 182 0 ) ( 324 182 0 ) ( 348 206 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 348 206 88 ) ( 324 182 88 ) ( 276 182 88 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+{
+( -176 -520 0 ) ( -176 -519 0 ) ( -176 -520 1 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -176 -520 0 ) ( -176 -520 1 ) ( -175 -520 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -176 -520 0 ) ( -175 -520 0 ) ( -176 -519 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 176 -352 48 ) ( 176 -352 49 ) ( 176 -351 48 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 176 -352 48 ) ( 177 -352 48 ) ( 176 -352 49 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 176 -352 48 ) ( 176 -351 48 ) ( 177 -352 48 ) Overkill/Overkill_Sandstone_Floor-128x128 0 0 0 1 1
+}
+{
+( -208 -520 0 ) ( -208 -519 0 ) ( -208 -520 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 -520 0 ) ( -208 -520 1 ) ( -207 -520 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 -520 0 ) ( -207 -520 0 ) ( -208 -519 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 -352 36 ) ( -176 -352 37 ) ( -176 -351 36 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 -352 36 ) ( -175 -352 36 ) ( -176 -352 37 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 -352 36 ) ( -176 -351 36 ) ( -175 -352 36 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -240 -520 0 ) ( -240 -519 0 ) ( -240 -520 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 -520 0 ) ( -240 -520 1 ) ( -239 -520 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 -520 0 ) ( -239 -520 0 ) ( -240 -519 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 -352 24 ) ( -208 -352 25 ) ( -208 -351 24 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 -352 24 ) ( -207 -352 24 ) ( -208 -352 25 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 -352 24 ) ( -208 -351 24 ) ( -207 -352 24 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -272 -520 0 ) ( -272 -519 0 ) ( -272 -520 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -272 -520 0 ) ( -272 -520 1 ) ( -271 -520 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -272 -520 0 ) ( -271 -520 0 ) ( -272 -519 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 -352 12 ) ( -240 -352 13 ) ( -240 -351 12 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 -352 12 ) ( -239 -352 12 ) ( -240 -352 13 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 -352 12 ) ( -240 -351 12 ) ( -239 -352 12 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( 176 -520 0 ) ( 176 -519 0 ) ( 176 -520 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 -520 0 ) ( 176 -520 1 ) ( 177 -520 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 -520 0 ) ( 177 -520 0 ) ( 176 -519 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 -352 36 ) ( 208 -352 37 ) ( 208 -351 36 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 -352 36 ) ( 209 -352 36 ) ( 208 -352 37 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 -352 36 ) ( 208 -351 36 ) ( 209 -352 36 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( 208 -520 0 ) ( 208 -519 0 ) ( 208 -520 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 -520 0 ) ( 208 -520 1 ) ( 209 -520 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 -520 0 ) ( 209 -520 0 ) ( 208 -519 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 -352 24 ) ( 240 -352 25 ) ( 240 -351 24 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 -352 24 ) ( 241 -352 24 ) ( 240 -352 25 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 -352 24 ) ( 240 -351 24 ) ( 241 -352 24 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( 240 -520 0 ) ( 240 -519 0 ) ( 240 -520 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 -520 0 ) ( 240 -520 1 ) ( 241 -520 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 -520 0 ) ( 241 -520 0 ) ( 240 -519 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 272 -352 12 ) ( 272 -352 13 ) ( 272 -351 12 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 272 -352 12 ) ( 273 -352 12 ) ( 272 -352 13 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 272 -352 12 ) ( 272 -351 12 ) ( 273 -352 12 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -176 -320 0 ) ( -176 -319 0 ) ( -176 -320 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 -320 0 ) ( -176 -320 1 ) ( -175 -320 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 -320 0 ) ( -175 -320 0 ) ( -176 -319 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 -288 16 ) ( 176 -288 17 ) ( 176 -287 16 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 -288 16 ) ( 177 -288 16 ) ( 176 -288 17 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 -288 16 ) ( 176 -287 16 ) ( 177 -288 16 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -176 -352 0 ) ( -176 -351 0 ) ( -176 -352 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 -352 0 ) ( -176 -352 1 ) ( -175 -352 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 -352 0 ) ( -175 -352 0 ) ( -176 -351 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 -320 32 ) ( 176 -320 33 ) ( 176 -319 32 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 -320 32 ) ( 177 -320 32 ) ( 176 -320 33 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 -320 32 ) ( 176 -319 32 ) ( 177 -320 32 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -176 352 0 ) ( -176 353 0 ) ( -176 352 1 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -176 352 0 ) ( -176 352 1 ) ( -175 352 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -176 352 0 ) ( -175 352 0 ) ( -176 353 0 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 176 520 48 ) ( 176 520 49 ) ( 176 521 48 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 176 520 48 ) ( 177 520 48 ) ( 176 520 49 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 176 520 48 ) ( 176 521 48 ) ( 177 520 48 ) Overkill/Overkill_Sandstone_Floor-128x128 0 0 0 1 1
+}
+{
+( -208 352 0 ) ( -208 353 0 ) ( -208 352 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 352 0 ) ( -208 352 1 ) ( -207 352 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 352 0 ) ( -207 352 0 ) ( -208 353 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 520 36 ) ( -176 520 37 ) ( -176 521 36 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 520 36 ) ( -175 520 36 ) ( -176 520 37 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 520 36 ) ( -176 521 36 ) ( -175 520 36 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -240 352 0 ) ( -240 353 0 ) ( -240 352 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 352 0 ) ( -240 352 1 ) ( -239 352 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 352 0 ) ( -239 352 0 ) ( -240 353 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 520 24 ) ( -208 520 25 ) ( -208 521 24 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 520 24 ) ( -207 520 24 ) ( -208 520 25 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -208 520 24 ) ( -208 521 24 ) ( -207 520 24 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -272 352 0 ) ( -272 353 0 ) ( -272 352 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -272 352 0 ) ( -272 352 1 ) ( -271 352 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -272 352 0 ) ( -271 352 0 ) ( -272 353 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 520 12 ) ( -240 520 13 ) ( -240 521 12 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 520 12 ) ( -239 520 12 ) ( -240 520 13 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -240 520 12 ) ( -240 521 12 ) ( -239 520 12 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( 176 352 0 ) ( 176 353 0 ) ( 176 352 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 352 0 ) ( 176 352 1 ) ( 177 352 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 352 0 ) ( 177 352 0 ) ( 176 353 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 520 36 ) ( 208 520 37 ) ( 208 521 36 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 520 36 ) ( 209 520 36 ) ( 208 520 37 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 520 36 ) ( 208 521 36 ) ( 209 520 36 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( 208 352 0 ) ( 208 353 0 ) ( 208 352 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 352 0 ) ( 208 352 1 ) ( 209 352 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 208 352 0 ) ( 209 352 0 ) ( 208 353 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 520 24 ) ( 240 520 25 ) ( 240 521 24 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 520 24 ) ( 241 520 24 ) ( 240 520 25 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 520 24 ) ( 240 521 24 ) ( 241 520 24 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( 240 352 0 ) ( 240 353 0 ) ( 240 352 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 352 0 ) ( 240 352 1 ) ( 241 352 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 240 352 0 ) ( 241 352 0 ) ( 240 353 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 272 520 12 ) ( 272 520 13 ) ( 272 521 12 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 272 520 12 ) ( 273 520 12 ) ( 272 520 13 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 272 520 12 ) ( 272 521 12 ) ( 273 520 12 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -176 288 0 ) ( -176 289 0 ) ( -176 288 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 288 0 ) ( -176 288 1 ) ( -175 288 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 288 0 ) ( -175 288 0 ) ( -176 289 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 320 16 ) ( 176 320 17 ) ( 176 321 16 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 320 16 ) ( 177 320 16 ) ( 176 320 17 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 320 16 ) ( 176 321 16 ) ( 177 320 16 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -176 320 0 ) ( -176 321 0 ) ( -176 320 1 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 320 0 ) ( -176 320 1 ) ( -175 320 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -176 320 0 ) ( -175 320 0 ) ( -176 321 0 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 352 32 ) ( 176 352 33 ) ( 176 353 32 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 352 32 ) ( 177 352 32 ) ( 176 352 33 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 176 352 32 ) ( 176 353 32 ) ( 177 352 32 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -656 -384 0 ) ( -656 -383 0 ) ( -656 -384 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -656 -384 0 ) ( -656 -384 1 ) ( -655 -384 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -656 -384 0 ) ( -655 -384 0 ) ( -656 -383 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -208 -368 1 ) ( -208 -368 2 ) ( -208 -367 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -208 -368 1 ) ( -207 -368 1 ) ( -208 -368 2 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -208 -368 1 ) ( -208 -367 1 ) ( -207 -368 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( 208 -384 0 ) ( 208 -383 0 ) ( 208 -384 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 208 -384 0 ) ( 208 -384 1 ) ( 209 -384 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 208 -384 0 ) ( 209 -384 0 ) ( 208 -383 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 656 -368 1 ) ( 656 -368 2 ) ( 656 -367 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 656 -368 1 ) ( 657 -368 1 ) ( 656 -368 2 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 656 -368 1 ) ( 656 -367 1 ) ( 657 -368 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -656 368 0 ) ( -656 369 0 ) ( -656 368 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -656 368 0 ) ( -656 368 1 ) ( -655 368 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -656 368 0 ) ( -655 368 0 ) ( -656 369 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -208 384 1 ) ( -208 384 2 ) ( -208 385 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -208 384 1 ) ( -207 384 1 ) ( -208 384 2 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -208 384 1 ) ( -208 385 1 ) ( -207 384 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( 208 368 0 ) ( 208 369 0 ) ( 208 368 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 208 368 0 ) ( 208 368 1 ) ( 209 368 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 208 368 0 ) ( 209 368 0 ) ( 208 369 0 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 656 384 1 ) ( 656 384 2 ) ( 656 385 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 656 384 1 ) ( 657 384 1 ) ( 656 384 2 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 656 384 1 ) ( 656 385 1 ) ( 657 384 1 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+{
+( -720 -520 220 ) ( -720 -519 220 ) ( -720 -520 221 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -720 -520 220 ) ( -720 -520 221 ) ( -719 -520 220 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -720 -520 220 ) ( -719 -520 220 ) ( -720 -519 220 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 720 -512 236 ) ( 720 -512 237 ) ( 720 -511 236 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 720 -512 236 ) ( 721 -512 236 ) ( 720 -512 237 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 720 -512 236 ) ( 720 -511 236 ) ( 721 -512 236 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+{
+( -720 512 220 ) ( -720 513 220 ) ( -720 512 221 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -720 512 220 ) ( -720 512 221 ) ( -719 512 220 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -720 512 220 ) ( -719 512 220 ) ( -720 513 220 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 720 520 236 ) ( 720 520 237 ) ( 720 521 236 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 720 520 236 ) ( 721 520 236 ) ( 720 520 237 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 720 520 236 ) ( 720 521 236 ) ( 721 520 236 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "lg_spawn"
+"origin" "-560 0 0"
+"angle" "0"
+}
+{
+"classname" "lg_spawn"
+"origin" "560 0 0"
+"angle" "180"
+}
+{
+"classname" "light"
+"origin" "-440 0 200"
+"light" "400"
+"radius" "800"
+"_color" "1 0.86 0.64"
+}
+{
+"classname" "light"
+"origin" "440 0 200"
+"light" "400"
+"radius" "800"
+"_color" "1 0.86 0.64"
+}
+{
+"classname" "light_sun"
+"direction" "0.3 0.4 -1"
+"intensity" "0.8"
+"_color" "0.85 0.92 1"
+}

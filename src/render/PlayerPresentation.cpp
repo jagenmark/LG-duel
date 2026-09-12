@@ -77,9 +77,22 @@ std::string_view clipName(
       }
       return "RUN";
     case PlayerLocomotionState::Stopping: return "STOP_FORWARD";
-    case PlayerLocomotionState::Sneak: return "SNEAK";
+    case PlayerLocomotionState::Sneak:
+      switch (direction) {
+        case PlayerMoveDirection::Backward: return "SNEAK_BACK";
+        case PlayerMoveDirection::Left: return "SNEAK_LEFT";
+        case PlayerMoveDirection::Right: return "SNEAK_RIGHT";
+        default: return "SNEAK";
+      }
     case PlayerLocomotionState::Ducking: return "DUCKING";
-    case PlayerLocomotionState::CrouchWalk: return "CROUCH_WALK";
+    case PlayerLocomotionState::CrouchWalk:
+      switch (direction) {
+        case PlayerMoveDirection::Backward: return "CROUCH_BACK";
+        case PlayerMoveDirection::Left: return "CROUCH_LEFT";
+        case PlayerMoveDirection::Right: return "CROUCH_RIGHT";
+        default: return "CROUCH_WALK";
+      }
+    case PlayerLocomotionState::Slide: return "GLIDE_SLIDE";
     case PlayerLocomotionState::Takeoff:
     case PlayerLocomotionState::Rise: return "JUMP";
     case PlayerLocomotionState::Fall: return "FALL";
@@ -112,6 +125,7 @@ float clipTime(
       return std::clamp(stateTime / duration, 0.0F, 1.0F) * kStartStopClipSeconds;
     }
     case PlayerLocomotionState::Ducking: return kDuckingPoseSeconds;
+    case PlayerLocomotionState::Slide: return 0.0F;
     case PlayerLocomotionState::Takeoff: {
       const float duration = positiveOr(config.takeoffSeconds, 0.10F);
       return std::clamp(stateTime / duration, 0.0F, 1.0F) * (kJumpClipSeconds * 0.45F);
@@ -309,7 +323,7 @@ PlayerPresentationFrame updatePlayerPresentation(
       desired = PlayerLocomotionState::Landing;
       desiredLandingHeavy = heavyLanding;
     } else if (player.crouched) {
-      desired = moving
+      desired = config.glideSlideActive ? PlayerLocomotionState::Slide : moving
         ? PlayerLocomotionState::CrouchWalk
         : PlayerLocomotionState::Ducking;
     } else if (player.sneaking && moving) {
@@ -344,7 +358,9 @@ PlayerPresentationFrame updatePlayerPresentation(
     }
   }
 
-  if (desired == PlayerLocomotionState::Run) {
+  if (desired == PlayerLocomotionState::Run ||
+      desired == PlayerLocomotionState::CrouchWalk ||
+      desired == PlayerLocomotionState::Sneak) {
     desiredDirection = presentation.moveDirection;
   }
 
@@ -363,7 +379,12 @@ PlayerPresentationFrame updatePlayerPresentation(
   const float referenceSpeed = positiveOr(config.referenceRunSpeed, 8.0F);
   const float maximumRate = std::max(0.0F, finiteOr(config.maximumPlaybackRate, 2.0F));
   if (moving && grounded && dt > 0.0F) {
-    const float playbackRate = std::clamp(safeHorizontalSpeed / referenceSpeed, 0.0F, maximumRate);
+    // The crouch clip has short planted steps: advance a cycle for every
+    // 0.64 world units traveled, instead of using the full sprint stride.
+    const float strideSpeed = presentation.currentState == PlayerLocomotionState::CrouchWalk
+      ? 0.64F : presentation.currentState == PlayerLocomotionState::Sneak
+        ? 1.0F : referenceSpeed * 0.6F;
+    const float playbackRate = std::clamp(safeHorizontalSpeed / strideSpeed, 0.0F, maximumRate);
     const float cycle = isLooping(presentation.currentState)
       ? cycleDuration(presentation.currentState)
       : kRunCycleSeconds;
@@ -406,6 +427,8 @@ PlayerPresentationFrame updatePlayerPresentation(
   const float previousWeight = blending ? 1.0F - currentWeight : 0.0F;
 
   PlayerPresentationFrame frame;
+  frame.standingHalfHeight = positiveOr(config.standingHalfHeight,
+    player.bounds.halfHeight / (player.crouched ? kCrouchHeightScale : 1.0F));
   if (previousWeight > 0.0F) {
     frame.poseLayers[frame.poseLayerCount++] = {
       clipName(

@@ -1197,6 +1197,72 @@ int main() {
   }
 
   {
+    // A proven straight runway ending in a right-angle turn. Keep perception
+    // out of this fixture so only route geometry and self motion drive crouch.
+    lg::BotNavigationMap route;
+    route.nodeCount = 15;
+    for (std::size_t index = 0; index < route.nodeCount; ++index) {
+      route.nodes[index].position = index <= 10U
+        ? lg::Vec3{static_cast<float>(index) * 2.0F, 0.0F, 0.9F}
+        : lg::Vec3{20.0F, static_cast<float>(index - 10U) * 2.0F, 0.9F};
+      if (index > 0U) route.links[route.linkCount++] = {
+        static_cast<std::uint16_t>(index - 1U), static_cast<std::uint16_t>(index),
+        lg::BotNavLinkKind::Walk
+      };
+    }
+    lg::prepareBotNavigationMap(route);
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = route.nodes[0].position;
+    sense.self.onGround = true;
+    sense.self.glideEnabled = true;
+    sense.objective = {.position = route.nodes[14].position, .active = true};
+    lg::BotBrain brain;
+    brain.reset(0x511DEU);
+    const auto tick = [&]() {
+      return brain.tick(sense, lg::botDifficultyProfile(lg::BotAttackMode::Medium), route);
+    };
+    sense.self.velocity = {8.0F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should start a slide on an aligned proven runway");
+    sense.self.velocity = {6.5F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should retain a slide through small speed fluctuations");
+    sense.self.velocity = {5.9F, 0.0F, 0.0F};
+    failures += expect(!tick().command.crouch,
+      "glide bot should release below the slide speed safety limit");
+    sense.self.velocity = {6.5F, 0.0F, 0.0F};
+    failures += expect(!tick().command.crouch,
+      "glide bot should not immediately restart near its release speed");
+    sense.self.velocity = {8.0F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should restart after speed recovers");
+    sense.self.velocity = {8.0F * 0.97F, 8.0F * std::sqrt(1.0F - 0.97F * 0.97F), 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should retain a slide through small alignment fluctuations");
+    sense.self.velocity = {8.0F * 0.95F, 8.0F * std::sqrt(1.0F - 0.95F * 0.95F), 0.0F};
+    failures += expect(!tick().command.crouch,
+      "glide bot should release immediately when velocity leaves the safe alignment");
+    sense.self.velocity = {8.0F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch,
+      "glide bot should resume after realigning");
+    for (std::size_t index = 1; index <= 8U; ++index) {
+      sense.self.position = route.nodes[index].position;
+      const lg::BotMotor motor = tick();
+      if (index == 8U) failures += expect(!motor.command.crouch,
+        "glide bot should release before a corner despite a long route beyond it");
+    }
+    brain.reset(0x511DEU);
+    sense.self.position = route.nodes[0].position;
+    sense.self.velocity = {8.0F, 0.0F, 0.0F};
+    failures += expect(tick().command.crouch, "glide bot reset fixture should enter a slide");
+    brain.reset(0x511DEU);
+    sense.self.velocity = {6.5F, 0.0F, 0.0F};
+    failures += expect(!tick().command.crouch,
+      "brain reset should discard previous slide intent");
+  }
+
+  {
     lg::BotNavigationMap longRoute;
     longRoute.nodeCount = 100;
     for (std::size_t index = 0; index < longRoute.nodeCount; ++index) {

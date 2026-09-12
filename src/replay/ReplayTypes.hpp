@@ -15,8 +15,8 @@ namespace lg::replay {
 // bots ordinary recorded actors and keeps their private planning state out of
 // both hashes and checkpoints.
 inline constexpr std::uint16_t kReplayFormatVersionV1 = 1;
-inline constexpr std::uint16_t kReplayFormatVersion = 7;
-inline constexpr std::uint32_t kReplaySimulationRevision = 2U;
+inline constexpr std::uint16_t kReplayFormatVersion = 9;
+inline constexpr std::uint32_t kReplaySimulationRevision = 4U;
 inline constexpr std::uint32_t kReplayProtocolRevision = kProtocolVersion;
 // Update this when a v7 build changes in a way that is not covered by the
 // replay simulation revision. It prevents a demo from silently crossing an
@@ -238,6 +238,7 @@ struct ReplayCheckpoint {
   std::array<ReplayCheckpointPlayer, kDuelPlayerCount> players = {};
   std::array<ReplayProjectile, kMaxRocketProjectiles> projectiles = {};
   ReplayMatchState match = {};
+  GlideDuelState glide = {};
   std::array<bool, Arena::kHealthPickupCount> healthPickupAvailable = {};
   std::array<std::uint32_t, Arena::kHealthPickupCount> healthPickupCooldownTicks = {};
   IcePoolArray icePools = {};
@@ -290,9 +291,9 @@ struct ReplayLethalEvent {
   Weapon weapon = Weapon::LightningGun;
   std::uint32_t projectileSequence = 0;
   LethalKind kind = LethalKind::Direct;
-  // Stable within one replay generation. Kept last for source compatibility
-  // with the pre-v5 aggregate layout.
+  // Stable within one replay generation.
   std::uint32_t sequence = 0;
+  bool headshot = false;
 };
 
 struct ReplayAuthorityBoundary {

@@ -6,6 +6,7 @@
 #include "app/ConsoleInput.hpp"
 #include "app/DeathCamera.hpp"
 #include "app/GameModeConsole.hpp"
+#include "app/GlideDuelHud.hpp"
 #include "app/GraphicsProfiles.hpp"
 #include "app/HudPresentation.hpp"
 #include "app/MiscMenu.hpp"
@@ -21,6 +22,7 @@
 #include "console/ConsoleConfig.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "dev/DevControlServer.hpp"
+#include "dev/DevInputTimeline.hpp"
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
 #include "net/NetCodec.hpp"
@@ -32,6 +34,7 @@
 #include "render/CombatEffects.hpp"
 #include "render/ConsoleLayout.hpp"
 #include "render/GltfSkinnedModel.hpp"
+#include "render/GlideTrail.hpp"
 #include "render/ImpactMaterials.hpp"
 #include "render/OptionMenuLayout.hpp"
 #include "render/Renderer.hpp"
@@ -1471,6 +1474,7 @@ struct PresentationViewState {
   float yawRadians = 0.0F;
   float pitchRadians = 0.0F;
   bool initialized = false;
+  std::uint64_t resetGeneration = 0;
 };
 
 #if LG_DUEL_HAS_SDL3
@@ -2404,6 +2408,7 @@ struct KillFeedState {
     std::string killedName;
     Weapon weapon = Weapon::LightningGun;
     float ageSeconds = 0.0F;
+    bool headshot = false;
   };
 
   std::vector<Entry> entries;
@@ -2465,6 +2470,7 @@ void consumeKillFeedEvents(
           : snapshot.playerNames[frag.targetPlayerIndex],
         frag.weapon,
         0.0F,
+        frag.headshot,
       });
       if (state.entries.size() > kMaxKillFeedEntries) {
         state.entries.erase(state.entries.begin());
@@ -2491,6 +2497,7 @@ std::vector<HudRenderState::KillFeedLine> killFeedPresentation(
       entry.killedName,
       entry.weapon,
       alpha,
+      entry.headshot,
     });
   }
   return lines;
@@ -4392,7 +4399,7 @@ std::string chatClipboardText(SDL_Window *window,
   if (hasSelection(state.selection)) {
     return selectedText(state.input, state.selection);
   }
-  return state.input;
+  return consoleInputClipboardText(state.input);
 }
 
 void pasteClipboardTextIntoChat(ClientChatState &state) {
@@ -4585,6 +4592,8 @@ void installDefaultBindings(InputBindings& bindings) {
 
 std::string gameModeName(GameMode gameMode) {
   switch (gameMode) {
+  case GameMode::GlideDuel:
+    return "GLIDE DUEL";
   case GameMode::Duel:
     return "DUEL";
   case GameMode::ClanArena:
@@ -4686,7 +4695,7 @@ HudRenderState buildHudFromSnapshot(
     hud.centerLines.clear();
     hud.topLeftLines.push_back(
       "PLAYERS " + std::to_string(occupiedCount) + '/' +
-      std::to_string(kDuelPlayerCount)
+      std::to_string(snapshot.gameMode == GameMode::GlideDuel ? 2U : kDuelPlayerCount)
     );
     if (snapshot.spectatorCount > 0) {
       hud.topLeftLines.push_back(
@@ -4699,6 +4708,7 @@ HudRenderState buildHudFromSnapshot(
     }
     hud.centerLines.push_back(matchPhaseName(snapshot.matchPhase));
     hud.centerOffsetY = matchPhaseMessageOffsetY(snapshot.matchPhase);
+    if (readyForPlay) populateGlideDuelHud(hud, snapshot, subjectPlayerIndex, spectator);
     return hud;
   }
 
@@ -4731,7 +4741,7 @@ HudRenderState buildHudFromSnapshot(
   );
   hud.topLeftLines.push_back(
     "PLAYERS " + std::to_string(occupiedCount) + '/' +
-    std::to_string(kDuelPlayerCount)
+    std::to_string(snapshot.gameMode == GameMode::GlideDuel ? 2U : kDuelPlayerCount)
   );
   if (snapshot.spectatorCount > 0) {
     hud.topLeftLines.push_back(
@@ -4824,7 +4834,8 @@ HudRenderState buildHudFromSnapshot(
   case MatchPhase::WaitingForPlayers:
     hud.centerLines.push_back(
       std::to_string(occupiedCount) + '/' +
-      std::to_string(kDuelPlayerCount) + " PLAYER SLOTS OCCUPIED"
+      std::to_string(snapshot.gameMode == GameMode::GlideDuel ? 2U : kDuelPlayerCount) +
+      " PLAYER SLOTS OCCUPIED"
     );
     break;
   case MatchPhase::WaitingForReady:
@@ -4848,9 +4859,11 @@ HudRenderState buildHudFromSnapshot(
   }
   case MatchPhase::RoundEnd:
     hud.centerLines.push_back(
-      localPlayerWonResult(snapshot, localPlayerIndex, false)
-        ? "ROUND WON"
-        : "ROUND LOST"
+      snapshot.gameMode == GameMode::GlideDuel && snapshot.roundWinner == 255
+        ? "DRAW - REPLAY ROUND"
+        : localPlayerWonResult(snapshot, localPlayerIndex, false)
+          ? "ROUND WON"
+          : "ROUND LOST"
     );
     hud.centerLines.push_back(
       roundStatsLine("YOU", snapshot.roundCombatStats[localPlayerIndex])
@@ -4880,6 +4893,7 @@ HudRenderState buildHudFromSnapshot(
     hud.centerLines.clear();
     break;
   }
+  populateGlideDuelHud(hud, snapshot, subjectPlayerIndex, spectator);
   return hud;
 }
 
@@ -5151,7 +5165,7 @@ int GameApp::run() const {
     std::string targetMap;
     std::uint32_t previousMapRevision = 0;
     std::uint64_t requiredRenderedFrame = 0;
-    std::uint32_t inputTicksRemaining = 0;
+    dev::InputTimeline inputTimeline;
     std::uint32_t inputReleaseSequence = 0;
     bool inputReleaseSent = false;
     std::size_t viewpointIndex = 0;
@@ -5192,6 +5206,9 @@ int GameApp::run() const {
     std::optional<dev::JsonValue> result;
     std::string error;
     std::chrono::steady_clock::time_point deadline = {};
+    std::uint32_t requestedInputTick = 0;
+    std::uint32_t consumedInputTicks = 0;
+    bool inputStarted = false;
   };
   std::optional<ArmedPhaseCapture> armedPhaseCapture;
   std::array<std::uint64_t, kNetworkTelemetryHistorySamples>
@@ -6743,6 +6760,7 @@ int GameApp::run() const {
   CombatEffects combatEffects;
   LocalTracerAimHistory localTracerAimHistory;
   std::vector<TransientTracer> activeTransientTracers;
+  GlideTrail glideTrail;
   std::vector<TransientEffect> activeTransientEffects;
   activeTransientTracers.reserve(TransientTracerPool::kCapacity);
   activeTransientEffects.reserve(
@@ -7510,8 +7528,21 @@ int GameApp::run() const {
           completeControlError("not_playing", "player input requires an active player snapshot");
           break;
         }
-        developmentCameraEnabled = false;
-        active.inputTicksRemaining = request.playerInput.ticks;
+        active.inputTimeline.reset(request);
+        if (armedPhaseCapture.has_value() && armedPhaseCapture->phase == "input_tick" &&
+            !armedPhaseCapture->result.has_value() && armedPhaseCapture->error.empty()) {
+          if (armedPhaseCapture->inputStarted ||
+              armedPhaseCapture->requestedInputTick >= active.inputTimeline.totalTicks()) {
+            armedPhaseCapture->error = "capture tick must precede the final input tick of one bounded request";
+            completeControlError("capture_input_range", armedPhaseCapture->error);
+            break;
+          }
+          // Keep a fixed external camera while ordinary commands drive the body.
+          // The capture is bound to this request; a later input cannot satisfy it.
+          armedPhaseCapture->inputStarted = true;
+        } else {
+          developmentCameraEnabled = false;
+        }
         active.stage = ActiveControlOperation::Stage::PlayerInput;
         active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
         break;
@@ -7611,6 +7642,9 @@ int GameApp::run() const {
           std::nullopt,
           {},
           Clock::now() + std::chrono::seconds(30),
+          request.captureInputTick,
+          0,
+          false,
         };
         dev::JsonValue result = dev::JsonValue::objectValue();
         result.object["name"] =
@@ -9031,6 +9065,13 @@ int GameApp::run() const {
       // not carry view initialization or mouse state across that authority
       // reset.
       presentationView = {};
+      // Reattaching after a replay starts from the current predicted aim, not
+      // this body's historical spawn angle. Acknowledge earlier resets here;
+      // later round/life boundaries still apply their authority exactly once.
+      (void)currentPresentationGame->applyAuthoritativeViewReset(
+        presentationView.resetGeneration,
+        presentationView.yawRadians, presentationView.pitchRadians
+      );
       playerPresentationStates = {};
       lastRemoteHealth = {};
       hasLastRemoteHealth = {};
@@ -9051,6 +9092,20 @@ int GameApp::run() const {
     if (enteredPresentationView) {
       presentationView.initialized = false;
     }
+    const auto applyAuthoritativePresentationView = [&]() {
+      ClientGame* game = session.game();
+      if (usePresentationView && game != nullptr && game == presentationViewGame &&
+          game->applyAuthoritativeViewReset(
+            presentationView.resetGeneration,
+            presentationView.yawRadians, presentationView.pitchRadians)) {
+        presentationView.initialized = true;
+        input.mouseDeltaX = 0.0F;
+        input.mouseDeltaY = 0.0F;
+        pendingLateViewModelMouseDeltaX = 0.0F;
+        pendingLateViewModelMouseDeltaY = 0.0F;
+      }
+    };
+    applyAuthoritativePresentationView();
     if (
       usePresentationView &&
       !presentationView.initialized &&
@@ -9247,10 +9302,10 @@ int GameApp::run() const {
         // for this tick. The server still checks movement, fire rate, hits, and
         // damage.
         controlInputCommand = true;
-        requestedControlInput = &activeControlOperation->queued.request.playerInput;
-        controlInputRelease = activeControlOperation->inputTicksRemaining == 0U;
+        requestedControlInput = &activeControlOperation->inputTimeline.current();
+        controlInputRelease = activeControlOperation->inputTimeline.remainingTicks() == 0U;
         const bool firstControlInputTick =
-          activeControlOperation->inputTicksRemaining ==
+          activeControlOperation->inputTimeline.remainingTicks() ==
           requestedControlInput->ticks;
         tickInput = {};
         if (!controlInputRelease) {
@@ -9323,7 +9378,7 @@ int GameApp::run() const {
                   requestedControlInput->zoom &&
                   (
                     !requestedControlInput->zoomOneTick ||
-                    activeControlOperation->inputTicksRemaining ==
+                    activeControlOperation->inputTimeline.remainingTicks() ==
                       requestedControlInput->ticks
                   )
                 : zoomPressCount > 0
@@ -9341,7 +9396,7 @@ int GameApp::run() const {
                   requestedControlInput->zoom &&
                   (
                     !requestedControlInput->zoomOneTick ||
-                    activeControlOperation->inputTicksRemaining ==
+                    activeControlOperation->inputTimeline.remainingTicks() ==
                       requestedControlInput->ticks
                   )
                 : zoomPressCount > 0
@@ -9351,7 +9406,7 @@ int GameApp::run() const {
         command.rightMove = requestedControlInput->right;
         command.upMove = requestedControlInput->up;
         const bool firstControlInputTick =
-          activeControlOperation->inputTicksRemaining ==
+          activeControlOperation->inputTimeline.remainingTicks() ==
           requestedControlInput->ticks;
         command.jump =
           requestedControlInput->jump &&
@@ -9416,11 +9471,21 @@ int GameApp::run() const {
       if (controlInputCommand && activeControlOperation.has_value()) {
         ActiveControlOperation& control = *activeControlOperation;
         if (controlInputRelease) {
+          if (armedPhaseCapture.has_value() && armedPhaseCapture->phase == "input_tick" &&
+              armedPhaseCapture->inputStarted && !armedPhaseCapture->result.has_value() &&
+              armedPhaseCapture->error.empty()) {
+            armedPhaseCapture->error = "input ended before a held-input frame could be rendered";
+          }
           control.inputReleaseSequence = command.sequence;
           control.inputReleaseSent = true;
           control.stage = ActiveControlOperation::Stage::WaitingForInputAck;
-        } else if (control.inputTicksRemaining > 0U) {
-          --control.inputTicksRemaining;
+        } else {
+          control.inputTimeline.consumeTick();
+          if (armedPhaseCapture.has_value() && armedPhaseCapture->phase == "input_tick" &&
+              armedPhaseCapture->inputStarted && !armedPhaseCapture->result.has_value() &&
+              armedPhaseCapture->error.empty()) {
+            ++armedPhaseCapture->consumedInputTicks;
+          }
         }
       }
       if (!sentPlayerName.empty()) {
@@ -9437,6 +9502,9 @@ int GameApp::run() const {
       requestSpectatorPending = false;
       movementTuningRequestPending = false;
       session.update();
+      // A respawn snapshot can arrive between catch-up ticks. Consume its
+      // facing before the next command and this frame's camera are built.
+      applyAuthoritativePresentationView();
       receiveClientKillcamTransfers();
       updateClientKillcam(0.0);
       if (ClientGame* updatedGame = session.game();
@@ -9582,7 +9650,9 @@ int GameApp::run() const {
         });
         dev::JsonValue result = dev::JsonValue::objectValue();
         result.object["ticks"] =
-          dev::JsonValue::numberValue(active.queued.request.playerInput.ticks);
+          dev::JsonValue::numberValue(active.inputTimeline.totalTicks());
+        result.object["segments"] =
+          dev::JsonValue::numberValue(static_cast<double>(active.inputTimeline.segmentCount()));
         result.object["release_sequence"] =
           dev::JsonValue::numberValue(active.inputReleaseSequence);
         result.object["acknowledged_sequence"] =
@@ -10737,6 +10807,14 @@ int GameApp::run() const {
           continue;
         }
         PlayerPresentationConfig presentationConfig;
+        presentationConfig.glideSlideActive = isGlideSlideActive(
+          renderRemotePlayers[playerIndex].player, renderSnapshot.movementTuning
+        );
+        // The interpolated capsule changes height while the stance bit switches
+        // endpoints. Use the authoritative standing size to avoid scaling the
+        // skeleton down/up at that midpoint.
+        presentationConfig.standingHalfHeight = renderSnapshot.players[playerIndex].bounds.halfHeight /
+          (renderSnapshot.players[playerIndex].crouched ? kCrouchHeightScale : 1.0F);
         presentationConfig.leanScale = teammate
           ? console.getFloat("r_teammate_lean_scale")
           : console.getFloat("r_enemy_lean_scale");
@@ -10881,6 +10959,14 @@ int GameApp::run() const {
           ? RemoteBodyFade{}
           : remoteBodyFadeAtAge(0.0F);
         PlayerPresentationConfig presentationConfig;
+        presentationConfig.glideSlideActive = isGlideSlideActive(
+          renderRemotePlayers[playerIndex].player, renderSnapshot.movementTuning
+        );
+        // The interpolated capsule changes height while the stance bit switches
+        // endpoints. Use the authoritative standing size to avoid scaling the
+        // skeleton down/up at that midpoint.
+        presentationConfig.standingHalfHeight = renderSnapshot.players[playerIndex].bounds.halfHeight /
+          (renderSnapshot.players[playerIndex].crouched ? kCrouchHeightScale : 1.0F);
         presentationConfig.leanScale = teammate
           ? console.getFloat("r_teammate_lean_scale")
           : console.getFloat("r_enemy_lean_scale");
@@ -11569,6 +11655,15 @@ int GameApp::run() const {
       hud.killcam.weapon = killcamHud.weapon;
       hud.killcam.cause = killcamHud.cause;
       hud.killcam.progress = killcamHud.progress;
+      hud.killcam.headshot = killcamHud.headshot;
+      hud.killcam.lethalProgress = killcamHud.lethalProgress;
+      hud.killcam.remainingSeconds = killcamHud.remainingSeconds;
+      // The replay header owns match messaging while watching the killer.
+      hud.topLeftLines.clear();
+      hud.topCenterLines.clear();
+      hud.topRightLines.clear();
+      hud.centerLines.clear();
+      hud.countdownText.clear();
     }
     hud.netGraph.mode = console.getInt("cl_netgraph");
     hud.netGraph.scale = console.getFloat("cl_netgraph_scale");
@@ -11849,9 +11944,7 @@ int GameApp::run() const {
         );
         if (console.getInt("r_player_model") > 0) {
           std::string loadedAnimations = "gltf clips:";
-          const GltfSkinnedModel& activeModel = console.getInt("r_player_model") == 2
-            ? workerPlayerModel()
-            : duelistMaleModel();
+          const GltfSkinnedModel& activeModel = workerPlayerModel();
           for (const std::string& name : activeModel.animationNames()) {
             loadedAnimations += " " + name;
           }
@@ -12204,6 +12297,18 @@ int GameApp::run() const {
     );
     transientTracerStore.fillActiveEffects(activeTransientEffects);
     combatEffects.appendActive(activeTransientEffects);
+    glideTrail.update(elapsed.count(), currentMapRevision(), replayPresentationActive);
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      const auto& remote = renderRemotePlayers[index];
+      const PlayerState* trailPlayer = remote.visible ? &remote.player : nullptr;
+      if (index == renderLocalPlayerIndex && !developmentCameraEnabled) {
+        trailPlayer = &renderPlayer;
+      }
+      glideTrail.observe(index, trailPlayer, replayPresentationActive
+        ? replayRuntime->snapshot().movementTuning : currentMovementTuning);
+    }
+    glideTrail.appendActive(activeTransientEffects);
+
     const ServerSnapshot* objectiveSnapshotPointer =
       replayPresentationActive
         ? &replayRuntime->snapshot()
@@ -12319,8 +12424,17 @@ int GameApp::run() const {
         switchPhaseReady =
           capturedSwitch->normalizedTime + 0.0001F >= *requestedSwitchTime;
       }
+      const bool inputTickReady = armedPhaseCapture->phase == "input_tick" &&
+        armedPhaseCapture->inputStarted &&
+        armedPhaseCapture->consumedInputTicks >= armedPhaseCapture->requestedInputTick &&
+        activeControlOperation.has_value() &&
+        activeControlOperation->stage == ActiveControlOperation::Stage::PlayerInput;
       if (
-        switchPhaseReady ||
+        inputTickReady || switchPhaseReady ||
+        (armedPhaseCapture->phase == "killcam" && hud.killcam.active) ||
+        (armedPhaseCapture->phase == "headshot_killcam" && hud.killcam.active && hud.killcam.headshot) ||
+        (armedPhaseCapture->phase == "headshot_feed" && std::any_of(hud.killFeedLines.begin(), hud.killFeedLines.end(),
+          [](const auto& entry) { return entry.headshot; })) ||
         (
           armedPhaseCapture->phase == "local_rocket_launcher_muzzle" &&
           localFire.fired &&
@@ -12380,6 +12494,47 @@ int GameApp::run() const {
             dev::JsonValue::numberValue(
               capturedSwitch->upperBodyPitchRadians
             );
+        }
+        if (inputTickReady) {
+          captureFrameState = dev::JsonValue::objectValue();
+          captureFrameState.object["requested_input_tick"] =
+            dev::JsonValue::numberValue(armedPhaseCapture->requestedInputTick);
+          captureFrameState.object["captured_input_tick"] =
+            dev::JsonValue::numberValue(armedPhaseCapture->consumedInputTicks);
+          captureFrameState.object["development_camera"] =
+            dev::JsonValue::booleanValue(developmentCameraEnabled);
+          captureFrameState.object["collision_debug_mode"] =
+            dev::JsonValue::numberValue(currentRenderSettings.showCollision);
+          captureFrameState.object["body_visible"] = dev::JsonValue::booleanValue(
+            renderRemotePlayers[renderLocalPlayerIndex].visible &&
+            console.getBool("r_draw_remote_players"));
+          captureFrameState.object["rendered_player"] =
+            controlPlayerStateJson(renderRemotePlayers[renderLocalPlayerIndex].player);
+          const PlayerPresentationFrame& bodyPresentation =
+            renderRemotePlayers[renderLocalPlayerIndex].presentation;
+          dev::JsonValue layers = dev::JsonValue::arrayValue();
+          for (std::size_t layerIndex = 0; layerIndex < bodyPresentation.poseLayerCount; ++layerIndex) {
+            const PlayerPoseLayer& layer = bodyPresentation.poseLayers[layerIndex];
+            dev::JsonValue item = dev::JsonValue::objectValue();
+            item.object["clip"] = dev::JsonValue::stringValue(std::string(layer.animationName));
+            item.object["time_seconds"] = dev::JsonValue::numberValue(layer.timeSeconds);
+            item.object["weight"] = dev::JsonValue::numberValue(layer.weight);
+            layers.array.push_back(std::move(item));
+          }
+          captureFrameState.object["pose_layers"] = std::move(layers);
+          captureFrameState.object["locomotion_state"] = dev::JsonValue::numberValue(
+            static_cast<int>(bodyPresentation.diagnostics.currentState));
+          captureFrameState.object["state_time_seconds"] =
+            dev::JsonValue::numberValue(bodyPresentation.diagnostics.stateTimeSeconds);
+          captureFrameState.object["stride_phase"] =
+            dev::JsonValue::numberValue(bodyPresentation.diagnostics.stridePhase);
+          const ClientGame* captureInputGame = session.game();
+          if (captureInputGame != nullptr && captureInputGame->hasSnapshot()) {
+            captureFrameState.object["predicted_local_player"] =
+              controlPlayerStateJson(captureInputGame->predictedPlayer());
+            captureFrameState.object["authoritative_local_player"] =
+              controlPlayerStateJson(captureInputGame->snapshot().players[renderLocalPlayerIndex]);
+          }
         }
         captureHideHud = armedPhaseCapture->hideHud;
         captureHideOverlays = armedPhaseCapture->hideOverlays;
@@ -12477,6 +12632,11 @@ int GameApp::run() const {
               effect.type == TransientEffectType::BulletDecal;
           }
       ));
+      captureFrameState.object["killcam_active"] = dev::JsonValue::booleanValue(hud.killcam.active);
+      captureFrameState.object["killcam_headshot"] = dev::JsonValue::booleanValue(hud.killcam.headshot);
+      captureFrameState.object["killcam_cause"] = dev::JsonValue::stringValue(hud.killcam.cause);
+      captureFrameState.object["headshot_feed_count"] = dev::JsonValue::numberValue(std::count_if(
+        hud.killFeedLines.begin(), hud.killFeedLines.end(), [](const auto& entry) { return entry.headshot; }));
       captureFrameState.object["local_surface_contact_effect_count"] =
         dev::JsonValue::numberValue(localSurfaceContactEffectCount);
 

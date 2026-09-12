@@ -217,7 +217,7 @@ def _safe_live_fields(scenario: Any) -> dict[str, Any]:
 
 
 def validate_live_scenario(path: Path, build_dir: Path, timeout: float) -> dict[str, Any]:
-    executable = build_dir / "lg_duel_scenarios.exe"
+    executable = lg_launch._executable_path(build_dir, "lg_duel_scenarios")
     if not executable.is_file():
         raise LiveScenarioStageError("validate", f"C++ scenario runner is missing: {executable}")
     try:

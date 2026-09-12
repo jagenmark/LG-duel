@@ -54,6 +54,9 @@ struct ClientKillcamHud {
   std::string weapon;
   std::string cause;
   float progress = 0.0F;
+  bool headshot = false;
+  float lethalProgress = 1.0F;
+  float remainingSeconds = 0.0F;
 };
 
 class ClientKillcamCoordinator {

@@ -827,7 +827,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     (packet.playerIndex < kDuelPlayerCount ||
      packet.playerIndex == kNoAssignedPlayer) &&
     weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
-    requestedGameMode <= static_cast<std::uint8_t>(GameMode::FreeForAll) &&
+    isValidGameMode(static_cast<GameMode>(requestedGameMode)) &&
     requestedTeam <= static_cast<std::uint8_t>(Team::Blue) &&
     weaponSwitchingMode <= static_cast<std::uint8_t>(WeaponSwitchingMode::Crazy) &&
     botCommand <= static_cast<std::uint8_t>(BotCommandType::Weapon) &&
@@ -1393,6 +1393,7 @@ bool writeFragEvent(Writer& writer, const FragEvent& event) {
     event.sequence == 0U ||
     event.attackerPlayerIndex >= kDuelPlayerCount ||
     event.targetPlayerIndex >= kDuelPlayerCount ||
+    (event.headshot && event.attackerPlayerIndex == event.targetPlayerIndex) ||
     event.weapon > kLastWeapon
   ) {
     return false;
@@ -1400,7 +1401,8 @@ bool writeFragEvent(Writer& writer, const FragEvent& event) {
   return writer.writeU32(event.sequence) &&
     writer.writeU8(event.attackerPlayerIndex) &&
     writer.writeU8(event.targetPlayerIndex) &&
-    writer.writeU8(static_cast<std::uint8_t>(event.weapon));
+    writer.writeU8(static_cast<std::uint8_t>(event.weapon)) &&
+    writer.writeBool(event.headshot);
 }
 
 bool readFragEvent(Reader& reader, FragEvent& event) {
@@ -1410,7 +1412,8 @@ bool readFragEvent(Reader& reader, FragEvent& event) {
     !reader.readU32(event.sequence) ||
     !reader.readU8(attackerPlayerIndex) ||
     !reader.readU8(event.targetPlayerIndex) ||
-    !reader.readU8(weapon)
+    !reader.readU8(weapon) ||
+    !reader.readBool(event.headshot)
   ) {
     return false;
   }
@@ -1424,7 +1427,8 @@ bool readFragEvent(Reader& reader, FragEvent& event) {
   event.active = true;
   event.attackerPlayerIndex = attackerPlayerIndex;
   event.weapon = static_cast<Weapon>(weapon);
-  return event.targetPlayerIndex < kDuelPlayerCount;
+  return event.targetPlayerIndex < kDuelPlayerCount &&
+    (!event.headshot || event.attackerPlayerIndex != event.targetPlayerIndex);
 }
 
 bool writeLocalHitFeedbackEvent(

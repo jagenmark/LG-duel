@@ -1381,7 +1381,7 @@ int main() {
     bool foundScoreboardTitle = false;
     bool foundSpeed = false;
     bool foundLegacySpeedText = false;
-    bool foundYellowHealthFill = false;
+    bool foundCyanHealthFill = false;
     const lg::Text2D* topCenterScore = nullptr;
     std::array<bool, 9> foundWeaponValues = {};
     std::array<bool, 9> foundWeaponImages = {};
@@ -1406,8 +1406,8 @@ int main() {
       if (const auto* text = std::get_if<lg::Text2D>(&command)) {
         foundHealthLabel =
           foundHealthLabel || text->text == "ENEMY HP 50";
-        foundLocalHpLabel = foundLocalHpLabel || text->text == "HP";
-        foundLocalHpValue = foundLocalHpValue || text->text == "50 / 100";
+        foundLocalHpLabel = foundLocalHpLabel || text->text == "+";
+        foundLocalHpValue = foundLocalHpValue || text->text == "50";
         foundLegacyHealthText =
           foundLegacyHealthText || text->text == "HEALTH 100";
         foundScoreboardTitle =
@@ -1446,14 +1446,14 @@ int main() {
           }
         }
         if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
-          foundYellowHealthFill =
-            foundYellowHealthFill ||
-            (quad->color.red == 228 && quad->color.green == 206 &&
-             quad->color.blue == 42);
+          foundCyanHealthFill =
+            foundCyanHealthFill ||
+            (quad->color.red == 41 && quad->color.green == 197 &&
+             quad->color.blue == 212);
           foundBottomLeftHealthFill =
             foundBottomLeftHealthFill ||
-            (quad->color.red == 228 && quad->color.green == 206 &&
-             quad->color.blue == 42 && quad->points[0].x < 80.0F &&
+            (quad->color.red == 41 && quad->color.green == 197 &&
+             quad->color.blue == 212 && quad->points[0].x < 110.0F &&
              quad->points[0].y > 650.0F);
         }
         if (commandTouchesWeaponHud(command)) {
@@ -1468,8 +1468,8 @@ int main() {
     );
     failures += expect(
       foundLocalHpLabel && foundLocalHpValue && !foundLegacyHealthText &&
-        foundYellowHealthFill && foundBottomLeftHealthFill,
-      "health style 0 should render as a bottom-left scaled HP bar with ratio-driven fill color"
+        foundCyanHealthFill && foundBottomLeftHealthFill,
+      "health style 0 should render the shared compact cyan bottom-left health display"
     );
     failures += expect(
       fpsText != nullptr &&
@@ -1552,6 +1552,37 @@ int main() {
         foundSelectedWeapon,
         "selected weapon indicator should mark every weapon slot"
       );
+    }
+  }
+
+  {
+    for (int style = 0; style <= 6; ++style) {
+      lg::RenderSettings baseSettings = settings;
+      baseSettings.healthStyle = style == 6 ? 0 : style;
+      baseSettings.healthGroupOffsetX = baseSettings.healthGroupOffsetY = 0;
+      lg::HudRenderState testHud = hud;
+      testHud.glideDuel.active = style == 6;
+      testHud.glideDuel.showHealth = true;
+      const auto base = lg::buildScreenUi(1280, 720, opponent, baseSettings, testHud, console);
+      auto movedSettings = baseSettings;
+      movedSettings.healthGroupOffsetX = 123;
+      movedSettings.healthGroupOffsetY = -67;
+      const auto moved = lg::buildScreenUi(1280, 720, opponent, movedSettings, testHud, console);
+      const auto* a = findText(base, "50");
+      const auto* b = findText(moved, "50");
+      failures += expect(a && b && std::abs(b->position.x - a->position.x - 123) < .01F &&
+        std::abs(b->position.y - a->position.y + 67) < .01F,
+        "shared health offsets must move every selectable health layout in any mode");
+      for (std::size_t n = 0; n < std::min(base.overlayCommands.size(), moved.overlayCommands.size()); ++n) {
+        const auto* oldImage = std::get_if<lg::Image2D>(&base.overlayCommands[n]);
+        const auto* newImage = std::get_if<lg::Image2D>(&moved.overlayCommands[n]);
+        if (oldImage && newImage && oldImage->image < lg::HudImage::HealthSegmented)
+          failures += expect(oldImage->destination.x == newImage->destination.x &&
+            oldImage->destination.y == newImage->destination.y,
+            "moving health must preserve weapon icon positions");
+      }
+      if (style == 6) failures += expect(a && a->position.x < 80 && a->position.y > 650,
+        "Glide Duel health defaults near the bottom-left corner");
     }
   }
 
@@ -3435,6 +3466,27 @@ int main() {
   }
 
   {
+    lg::HudRenderState glideHud;
+    auto& panel = glideHud.glideDuel;
+    panel.active = panel.readiness = panel.leftReady = true;
+    panel.leftName = "LONGPLAYERAA";
+    panel.rightName = "LONGPLAYERBB";
+    panel.status = "ROUND 13  -  LONGPLAYERAA WON";
+    panel.stakes = "DECIDING ROUND";
+    for (const int viewport : {308, 640, 1920}) {
+      const auto ui = lg::buildScreenUi(viewport, 760, opponent, settings, glideHud, {});
+      failures += expect(findText(ui, "READY") && findText(ui, "NOT READY") &&
+        findText(ui, "DECIDING ROUND"), "Glide ready and deciding-round cues remain visible");
+      const float panelScale = std::min(std::clamp(760.0F / 900.0F, .7F, 1.5F), (viewport - 24.0F) / 460.0F);
+      const auto* name = findText(ui, "LONGPLAYERAA");
+      const auto* status = findText(ui, panel.status);
+      failures += expect(name && status && name->scale * 8 * 12 <= 124 * panelScale + .01F &&
+        status->scale * 8 * panel.status.size() <= 286 * panelScale + .01F,
+        "Glide names and result labels must fit their panel columns at narrow widths");
+    }
+  }
+
+  {
     lg::HudRenderState killcamHud;
     killcamHud.killcam.active = true;
     killcamHud.killcam.killer = "RANGER";
@@ -3451,15 +3503,36 @@ int main() {
     );
     failures += expect(
       findText(ui, "KILLCAM") != nullptr &&
-        findText(ui, "KILLED BY RANGER - RAILGUN") != nullptr &&
-        findText(ui, "DIRECT") != nullptr &&
+        findText(ui, "RANGER") != nullptr &&
+        findText(ui, "RAILGUN - DIRECT") != nullptr &&
+        findText(ui, "KILLER POV") != nullptr &&
         findText(ui, "SPACE/ESC: SKIP") != nullptr,
       "killcam HUD should show label, killer, weapon, cause, and skip prompt"
     );
     failures += expect(
-      hasFilledQuadColor(ui, {235, 90, 70, 255}),
+      hasFilledQuadColor(ui, {235, 129, 119, 255}),
       "killcam HUD should show replay progress"
     );
+    killcamHud.killcam.headshot = true;
+    killcamHud.killFeedLines.push_back({"RANGER", "VICTIM", lg::Weapon::Railgun, 1.0F, true});
+    const auto headshotUi = lg::buildScreenUi(1280, 720, opponent, settings, killcamHud, {});
+    failures += expect(countText(headshotUi, "HEADSHOT") == 2 &&
+      findText(headshotUi, "RAILGUN - FINAL HIT") && findText(headshotUi, "VICTIM"),
+      "both killcam and kill feed must show a distinct headshot badge");
+    lg::HudRenderState narrowFeed;
+    narrowFeed.topCenterLines = {"DUEL", "SCORE 0 / 10"};
+    narrowFeed.killFeedLines.push_back({"LONG KILLER NAME", "LONG VICTIM NAME", lg::Weapon::Railgun, 1.0F, true});
+    const auto narrowFeedUi = lg::buildScreenUi(308, 760, opponent, settings, narrowFeed, {});
+    const auto* narrowBadge = findText(narrowFeedUi, "HEADSHOT");
+    failures += expect(narrowBadge && narrowBadge->position.y >= 56.0F &&
+      narrowBadge->position.x + 33.0F <= 298.0F,
+      "narrow kill feed must fit its headshot badge below the score");
+    killcamHud.killcam.headshot = false;
+    killcamHud.killFeedLines[0].headshot = false;
+    const auto bodyUi = lg::buildScreenUi(1280, 720, opponent, settings, killcamHud, {});
+    failures += expect(countText(bodyUi, "HEADSHOT") == 0,
+      "body kills must never inherit a previous headshot badge");
+
   }
 
   return failures == 0 ? 0 : 1;

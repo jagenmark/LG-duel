@@ -994,3 +994,11 @@ get_property(lg_duel_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(target IN LISTS lg_duel_test_targets)
   lg_duel_set_windows_stack(${target})
 endforeach()
+
+add_executable(lg_duel_glide_server_tests net/GlideDuelServerTests.cpp)
+target_link_libraries(lg_duel_glide_server_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_glide_server_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_glide_server_tests)
+add_test(NAME lg_duel_glide_server_tests COMMAND lg_duel_glide_server_tests)
+
+set_tests_properties(lg_duel_glide_server_tests PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})

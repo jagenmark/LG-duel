@@ -1527,75 +1527,113 @@ void addMcGuffinNavigation(
 }
 
 
-void addLocalHealthBar(
-  DrawList2D& drawList,
-  int width,
-  int height,
-  const PlayerState& localPlayer,
-  const HudRenderState& hud,
-  const RenderSettings& settings,
-  float bottomY
+void addBeveledHudPanel(
+  DrawList2D& drawList, float x, float y, float w, float h, float cut,
+  RenderColor fill, RenderColor border
 ) {
-  (void)height;
-  const float scale = std::clamp(settings.healthTextScale, 0.5F, 20.0F);
-  const float labelScale = std::max(0.75F, scale * 0.72F);
-  const std::string value =
-    std::to_string(std::max(0, localPlayer.health)) + " / " +
-    std::to_string(std::max(1, hud.healthAmount));
-  const float valueWidth = textWidth(value, labelScale);
-  const float barWidth = std::min(
-    static_cast<float>(width) - 24.0F,
-    std::max(60.0F * scale, valueWidth + 8.0F * scale)
-  );
-  const float barHeight = 13.0F * scale;
-  const float border = std::max(1.0F, std::round(1.0F * scale));
-  const float padding = std::max(2.0F, std::round(2.0F * scale));
-  const float labelHeight = kGlyphSize * labelScale;
-  const float labelGap = std::max(4.0F, 3.0F * scale);
-  const float totalHeight = labelHeight + labelGap + barHeight + border * 2.0F;
-  const float x = std::min(
-    24.0F * scale,
-    std::max(12.0F, static_cast<float>(width) - barWidth - 12.0F)
-  );
-  const float y = bottomY - totalHeight;
-  const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
-  const float healthRatio =
-    std::clamp(static_cast<float>(localPlayer.health) / maxHealth, 0.0F, 1.0F);
-  addText(drawList, x, y, "HP", {240, 246, 252, 255}, labelScale);
-  addText(
-    drawList,
-    x + barWidth - valueWidth,
-    y,
-    value,
-    {240, 246, 252, 255},
-    labelScale
-  );
-  const float barY = y + labelHeight + labelGap + border;
-  addRect(
-    drawList,
-    x - border,
-    barY - border,
-    barWidth + border * 2.0F,
-    barHeight + border * 2.0F,
-    {5, 16, 9, 210}
-  );
-  addOutline(
-    drawList,
-    x - border,
-    barY - border,
-    barWidth + border * 2.0F,
-    barHeight + border * 2.0F,
-    {69, 226, 42, 255}
-  );
-  addRect(drawList, x, barY, barWidth, barHeight, {7, 10, 8, 210});
-  addRect(
-    drawList,
-    x + padding,
-    barY + padding,
-    std::max(0.0F, (barWidth - padding * 2.0F) * healthRatio),
-    std::max(0.0F, barHeight - padding * 2.0F),
-    localHealthFillColor(healthRatio)
-  );
+  addRect(drawList, x + cut, y, w - cut * 2, h, fill);
+  drawList.overlayCommands.emplace_back(FilledQuad2D{{{{x + cut, y}, {x + cut, y + h},
+    {x, y + h - cut}, {x, y + cut}}}, fill});
+  drawList.overlayCommands.emplace_back(FilledQuad2D{{{{x + w - cut, y}, {x + w, y + cut},
+    {x + w, y + h - cut}, {x + w - cut, y + h}}}, fill});
+  const std::array<ScreenPoint, 8> points{{{x + cut, y}, {x + w - cut, y},
+    {x + w, y + cut}, {x + w, y + h - cut}, {x + w - cut, y + h},
+    {x + cut, y + h}, {x, y + h - cut}, {x, y + cut}}};
+  for (std::size_t n = 0; n < points.size(); ++n)
+    addLine(drawList, points[n], points[(n + 1) % points.size()], border, 1.0F);
+}
+
+void addGlideDuelPanel(DrawList2D& drawList, int width, int height, const HudRenderState& hud) {
+  const auto& panel = hud.glideDuel;
+  if (!panel.active || hud.killcam.active) return;
+  const float scale = std::min(std::clamp(height / 900.0F, .7F, 1.5F), (width - 24.0F) / 460.0F);
+  const float w = 460 * scale, h = 86 * scale;
+  const float x = (width - w) * .5F, y = 24 * scale, cx = width * .5F;
+  const RenderColor white{237, 243, 248, 255}, muted{160, 179, 193, 255};
+  const RenderColor cyan{48, 207, 222, 255}, coral{242, 125, 119, 255};
+  const RenderColor accent = panel.overdrive ? RenderColor{255, 194, 94, 255} : cyan;
+  // The smaller status tab sits behind the main scoreboard.
+  addBeveledHudPanel(drawList, x + 72 * scale, y + h - 1, w - 144 * scale,
+    32 * scale, 15 * scale, {13, 23, 35, 205}, {64, 82, 101, 175});
+  addBeveledHudPanel(drawList, x, y, w, h, 10 * scale,
+    {14, 23, 34, 222}, {74, 96, 111, 170});
+  for (const bool left : {true, false}) {
+    const float edge = left ? x : x + w;
+    const float inward = left ? 1.0F : -1.0F;
+    const RenderColor edgeColor = panel.overdrive ? accent : left ? cyan : coral;
+    addLine(drawList, {edge + inward * 10 * scale, y}, {edge, y + 10 * scale}, edgeColor, 3 * scale);
+    addLine(drawList, {edge, y + 10 * scale}, {edge, y + h - 10 * scale}, edgeColor, 3 * scale);
+    addLine(drawList, {edge, y + h - 10 * scale}, {edge + inward * 10 * scale, y + h}, edgeColor, 3 * scale);
+  }
+  for (const float offset : {-74.0F, 74.0F})
+    addLine(drawList, {cx + offset * scale, y + 17 * scale},
+      {cx + offset * scale, y + h - 17 * scale}, {66, 86, 104, 135}, 1);
+  const auto label = [&](float px, float py, const std::string& text, RenderColor color, float size,
+                         float maxWidth = 420.0F) {
+    const float fittedSize = std::min(size, maxWidth / std::max(1.0F, textWidth(text, 1.0F)));
+    addText(drawList, px, py, text, color, fittedSize * scale, TextHorizontalAlignment::Center);
+  };
+  // Bound display names to each score column; the full names remain on Tab.
+  label(x + 80 * scale, y + 17 * scale, panel.leftName.substr(0, 12), muted, 1.65F, 124);
+  label(x + w - 80 * scale, y + 17 * scale, panel.rightName.substr(0, 12), muted, 1.65F, 124);
+  label(x + 80 * scale, y + 39 * scale, std::to_string(panel.leftScore), white, 4.2F);
+  label(x + w - 80 * scale, y + 39 * scale, std::to_string(panel.rightScore), white, 4.2F);
+  label(cx, y + (panel.timer.empty() ? 25 : 17) * scale,
+    panel.timer.empty() ? "GLIDE DUEL" : panel.timer, panel.overdrive ? accent : white,
+    panel.timer.empty() ? 1.65F : 3.3F, 136);
+  label(cx, y + 57 * scale, panel.stakes.empty() ? "FIRST TO " + std::to_string(panel.target) : panel.stakes,
+    panel.stakes.empty() ? muted : RenderColor{255, 194, 94, 255}, 1.2F, 136);
+  for (const bool left : {true, false}) {
+    const float column = left ? x + 80 * scale : x + w - 80 * scale;
+    const RenderColor color = left ? cyan : coral;
+    if (panel.readiness) {
+      const bool ready = left ? panel.leftReady : panel.rightReady;
+      label(column, y + 75 * scale, ready ? "READY" : "NOT READY", ready ? color : muted, 1.1F, 124);
+    } else {
+      const int score = left ? panel.leftScore : panel.rightScore;
+      for (int round = 0; round < panel.target; ++round) {
+        addRect(drawList, column + (round - (panel.target - 1) * .5F) * 10 * scale - 3 * scale,
+          y + 76 * scale, 6 * scale, 3 * scale,
+          round < score ? color : RenderColor{64, 82, 101, 150});
+      }
+    }
+  }
+  if (panel.roundFraction >= 0.0F) {
+    const float barX = x + 12 * scale, barY = y + h - 3 * scale, barW = w - 24 * scale;
+    addRect(drawList, barX, barY, barW, 2 * scale, {64, 82, 101, 110});
+    addRect(drawList, barX, barY, barW * std::clamp(panel.roundFraction, 0.0F, 1.0F), 2 * scale, accent);
+    addLine(drawList, {barX + barW / 3, barY - 2 * scale},
+      {barX + barW / 3, barY + 2 * scale}, {255, 194, 94, 200}, scale);
+  }
+  label(cx, y + h + 10 * scale, panel.status, accent, 1.2F, 286);
+  label(cx, y + h + 42 * scale, panel.hint, muted, 1.05F);
+}
+
+void addLocalHealthBar(
+  DrawList2D& drawList, int width, int height, const PlayerState& player,
+  const HudRenderState& hud, const RenderSettings& settings
+) {
+  const float scale = std::min({std::clamp(height / 900.0F, .7F, 1.5F) *
+    std::clamp(settings.healthTextScale * .5F, .5F, 10.0F), (width - 16.0F) / 340.0F,
+    (height - 16.0F) / 36.0F});
+  const float x = 20.0F;
+  const float y = height - 24.0F - 36 * scale;
+  addBeveledHudPanel(drawList, x, y, 340 * scale, 36 * scale, 5 * scale,
+    {15, 25, 32, 180}, {147, 173, 181, 105});
+  addText(drawList, x + 10 * scale, y + 11 * scale, "+", {227, 243, 248, 255}, 1.8F * scale);
+  addText(drawList, x + 27 * scale, y + 9 * scale, std::to_string(std::max(0, player.health)),
+    {237, 245, 249, 255}, 2.2F * scale);
+  const float bx = x + 83 * scale, by = y + 12 * scale, bw = 245 * scale;
+  addRect(drawList, bx, by, bw, 12 * scale, {31, 56, 66, 200});
+  const float ratio = std::clamp(player.health / std::max(1.0F, static_cast<float>(hud.healthAmount)), 0.0F, 1.0F);
+  if (ratio > 0) {
+    const float filled = bw * ratio, cut = std::min(5 * scale, filled * .25F);
+    const RenderColor color = ratio <= .25F ? RenderColor{244, 109, 104, 245} : RenderColor{41, 197, 212, 245};
+    drawList.overlayCommands.emplace_back(FilledQuad2D{{{{bx + cut, by}, {bx + filled, by},
+      {bx + filled - cut, by + 12 * scale}, {bx, by + 12 * scale}}}, color});
+    addLine(drawList, {bx + cut, by + scale}, {bx + filled, by + scale},
+      {178, 248, 249, 210}, scale);
+  }
 }
 
 void addArtHealthBar(
@@ -2317,50 +2355,38 @@ void addKillFeed(
     return;
   }
 
-  constexpr float textScale = 2.25F;
-  constexpr float rowHeight = 31.5F;
-  constexpr float rightPadding = 10.0F;
-  constexpr float textIconGap = 12.0F;
-  constexpr float iconWidth = 30.0F;
-  constexpr float iconScale = 0.51F;
-  constexpr RenderColor baseText = {235, 242, 250, 245};
 
+  constexpr float textScale = 1.65F, rowHeight = 31.5F, iconWidth = 30.0F;
   float y = startY;
   for (const HudRenderState::KillFeedLine& line : hud.killFeedLines) {
     const float alpha = std::clamp(line.alpha, 0.0F, 1.0F);
-    if (alpha <= 0.0F) {
-      y += rowHeight;
-      continue;
+    if (alpha <= 0.0F) { y += rowHeight; continue; }
+    std::string killer = line.killerName.substr(0, 16), victim = line.killedName.substr(0, 16);
+    const float nameBudget = std::max(0.0F, width - 24.0F - iconWidth - 42 - (line.headshot ? 76 : 0));
+    while (textWidth(killer, textScale) + textWidth(victim, textScale) > nameBudget &&
+           (!killer.empty() || !victim.empty())) {
+      if (killer.size() >= victim.size()) killer.pop_back();
+      else victim.pop_back();
     }
-
-    const float killerWidth = textWidth(line.killerName, textScale);
-    const float killedWidth = textWidth(line.killedName, textScale);
-    const bool selfKill = line.killedName.empty();
-    const float rowWidth =
-      killerWidth + iconWidth + textIconGap +
-      (selfKill ? 0.0F : killedWidth + textIconGap);
-    float x = static_cast<float>(width) - rightPadding - rowWidth;
-    x = std::max(12.0F, x);
-    const float textY = y + 3.0F;
-    const RenderColor textColor = withAlpha(baseText, alpha);
-    const RenderColor weaponColor =
-      withAlpha(quakeLiveWeaponColor(line.weapon), alpha);
-
-    addText(drawList, x, textY, line.killerName, textColor, textScale);
-    x += killerWidth + textIconGap;
-    addWeaponIcon(
-      drawList,
-      x + iconWidth * 0.5F,
-      y + rowHeight * 0.5F,
-      line.weapon,
-      weaponColor,
-      iconScale
-    );
-    if (!selfKill) {
-      x += iconWidth + textIconGap;
-      addText(drawList, x, textY, line.killedName, textColor, textScale);
+    const float killerWidth = textWidth(killer, textScale), victimWidth = textWidth(victim, textScale);
+    const float rowWidth = killerWidth + victimWidth + iconWidth + 42 + (line.headshot ? 76 : 0);
+    const float left = std::max(10.0F, width - 14.0F - rowWidth);
+    const RenderColor accent = line.headshot ? RenderColor{255, 194, 94, 255} : RenderColor{71, 202, 218, 255};
+    addBeveledHudPanel(drawList, left, y, rowWidth, 27, 4,
+      withAlpha({12, 22, 32, 205}, alpha), withAlpha({69, 90, 107, 110}, alpha));
+    addLine(drawList, {left, y + 5}, {left, y + 22}, withAlpha(accent, alpha), 2);
+    float x = left + 10;
+    addText(drawList, x, y + 7, killer, withAlpha({199, 229, 238, 255}, alpha), textScale);
+    x += killerWidth + 8;
+    addWeaponIcon(drawList, x + iconWidth * .5F, y + 13.5F, line.weapon,
+      withAlpha(quakeLiveWeaponColor(line.weapon), alpha), .46F);
+    x += iconWidth + 8;
+    if (!victim.empty()) addText(drawList, x, y + 7, victim, withAlpha({240, 163, 160, 255}, alpha), textScale);
+    if (line.headshot) {
+      const float bx = left + rowWidth - 72;
+      addRect(drawList, bx, y + 5, 66, 17, withAlpha({102, 69, 24, 175}, alpha));
+      addText(drawList, bx + 33, y + 9, "HEADSHOT", withAlpha(accent, alpha), 1.2F, TextHorizontalAlignment::Center);
     }
-
     y += rowHeight;
   }
 }
@@ -3631,38 +3657,45 @@ void addHud(
     }
   }
 
+
   if (hud.killcam.active) {
-    const float panelWidth = std::min(
-      620.0F,
-      std::max(260.0F, static_cast<float>(width) - 24.0F)
-    );
-    const float panelHeight = 126.0F;
-    const float panelX = (static_cast<float>(width) - panelWidth) * 0.5F;
-    constexpr float panelY = 34.0F;
-    addRect(drawList, panelX, panelY, panelWidth, panelHeight, {7, 11, 17, 232});
-    addOutline(drawList, panelX, panelY, panelWidth, panelHeight,
-               {235, 90, 70, 245});
-    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 8.0F,
-            "KILLCAM", {255, 225, 190, 255}, 2.6F,
-            TextHorizontalAlignment::Center);
-    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 38.0F,
-            "KILLED BY " + hud.killcam.killer + " - " + hud.killcam.weapon,
-            {235, 242, 250, 255}, 1.75F, TextHorizontalAlignment::Center);
-    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 59.0F,
-            hud.killcam.cause, {225, 195, 170, 245}, 1.5F,
-            TextHorizontalAlignment::Center);
-    constexpr float barXPadding = 28.0F;
-    constexpr float barY = panelY + 83.0F;
-    const float barWidth = panelWidth - barXPadding * 2.0F;
-    addRect(drawList, panelX + barXPadding, barY, barWidth, 8.0F,
-            {35, 39, 48, 255});
-    addRect(drawList, panelX + barXPadding, barY,
-            barWidth * std::clamp(hud.killcam.progress, 0.0F, 1.0F), 8.0F,
-            {235, 90, 70, 255});
-    addText(drawList, static_cast<float>(width) * 0.5F, panelY + 98.0F,
-            hud.killcam.prompt, {255, 240, 220, 255}, 1.35F,
-            TextHorizontalAlignment::Center);
+    const float scale = std::min(std::clamp(height / 900.0F, .75F, 1.5F), (width - 24.0F) / 460.0F);
+    const float panelWidth = 460 * scale, panelHeight = 82 * scale;
+    const float panelX = (width - panelWidth) * .5F, panelY = 24 * scale;
+    const RenderColor accent = hud.killcam.headshot ? RenderColor{255, 194, 94, 255} : RenderColor{235, 129, 119, 255};
+    const RenderColor text{237, 243, 248, 255}, muted{164, 184, 198, 255};
+    addBeveledHudPanel(drawList, panelX, panelY, panelWidth, panelHeight, 9 * scale,
+      {13, 23, 34, 218}, {73, 95, 112, 180});
+    addLine(drawList, {panelX + 10 * scale, panelY}, {panelX + panelWidth - 10 * scale, panelY}, accent, 2 * scale);
+    addText(drawList, panelX + 16 * scale, panelY + 13 * scale, "KILLCAM", accent, 1.7F * scale);
+    addText(drawList, panelX + 123 * scale, panelY + 15 * scale, "KILLER POV", muted, 1.15F * scale);
+    addText(drawList, panelX + 16 * scale, panelY + 40 * scale, hud.killcam.killer.substr(0, 20), text, 2.5F * scale);
+    const float badgeX = panelX + panelWidth - 139 * scale;
+    addBeveledHudPanel(drawList, badgeX, panelY + 13 * scale, 122 * scale, 25 * scale, 4 * scale,
+      hud.killcam.headshot ? RenderColor{71, 48, 23, 195} : RenderColor{41, 35, 39, 195},
+      hud.killcam.headshot ? RenderColor{166, 119, 51, 180} : RenderColor{97, 72, 74, 150});
+    addText(drawList, badgeX + 61 * scale, panelY + 20 * scale,
+      hud.killcam.headshot ? "HEADSHOT" : "ELIMINATION", accent, 1.35F * scale, TextHorizontalAlignment::Center);
+    addText(drawList, badgeX + 61 * scale, panelY + 49 * scale,
+      hud.killcam.weapon + (hud.killcam.headshot ? " - FINAL HIT" : " - " + hud.killcam.cause),
+      muted, 1.05F * scale, TextHorizontalAlignment::Center);
+
+    const float barWidth = std::min(340 * scale, width - 32.0F), barX = (width - barWidth) * .5F;
+    const float barY = height - 48 * scale;
+    addBeveledHudPanel(drawList, barX - 12 * scale, barY - 22 * scale,
+      barWidth + 24 * scale, 49 * scale, 5 * scale, {12, 21, 31, 195}, {64, 85, 102, 140});
+    char time[32];
+    std::snprintf(time, sizeof(time), "%.1f S", std::max(0.0F, hud.killcam.remainingSeconds));
+    addText(drawList, barX, barY - 15 * scale, "REPLAY", muted, 1.1F * scale);
+    addText(drawList, barX + barWidth, barY - 15 * scale, time, muted, 1.1F * scale, TextHorizontalAlignment::Right);
+    addRect(drawList, barX, barY, barWidth, 3 * scale, {48, 65, 78, 220});
+    addRect(drawList, barX, barY, barWidth * std::clamp(hud.killcam.progress, 0.0F, 1.0F), 3 * scale, accent);
+    const float hitX = barX + barWidth * std::clamp(hud.killcam.lethalProgress, 0.0F, 1.0F);
+    addDiamond(drawList, {hitX, barY + 1.5F * scale}, 4 * scale, accent);
+    addText(drawList, width * .5F, barY + 11 * scale, hud.killcam.prompt, text, 1.1F * scale, TextHorizontalAlignment::Center);
   }
+
+  addGlideDuelPanel(drawList, width, height, hud);
 
   float y = 12.0F;
   for (const std::string& line : hud.topLeftLines) {
@@ -3688,6 +3721,11 @@ void addHud(
     ? 12.0F
     : std::max(24.0F, fpsTopOffset + kGlyphSize *
         std::clamp(settings.fpsTextScale, 0.5F, 6.0F) + 6.0F);
+  if (hud.glideDuel.active || hud.killcam.active) {
+    const float panelScale = std::min(std::clamp(height / 900.0F, .7F, 1.5F), (width - 24.0F) / 460.0F);
+    y = std::max(y, (hud.killcam.active ? 120.0F : 166.0F) * panelScale);
+  }
+  y = std::max(y, 16.0F + 20.0F * static_cast<float>(hud.topCenterLines.size()));
   addKillFeed(drawList, width, y, hud);
   y += static_cast<float>(hud.killFeedLines.size()) * 31.5F;
   for (const std::string& line : hud.topRightLines) {
@@ -3757,8 +3795,14 @@ void addHud(
   }
 
   const float bottomY = static_cast<float>(height) - 24.0F;
-  if (settings.healthStyle >= 3) {
-    addArtHealthBar(drawList, width, height, localPlayer, hud, settings);
+  const std::size_t healthBegin = drawList.overlayCommands.size();
+  RenderSettings healthSettings = settings;
+  healthSettings.healthGroupOffsetX = 0;
+  healthSettings.healthGroupOffsetY = 0;
+  if (hud.killcam.active || (hud.glideDuel.active && !hud.glideDuel.showHealth)) {
+    // Replays and a Glide observer without a followed body have no local HP.
+  } else if (settings.healthStyle >= 3) {
+    addArtHealthBar(drawList, width, height, localPlayer, hud, healthSettings);
   } else if (settings.healthStyle == 2) {
     addCrosshairHealthAndAmmo(
       drawList,
@@ -3766,10 +3810,10 @@ void addHud(
       height,
       localPlayer,
       hud,
-      settings
+      healthSettings
     );
   } else if (settings.healthStyle == 1) {
-    addLocalHealthNumber(drawList, width, height, localPlayer, hud, settings);
+    addLocalHealthNumber(drawList, width, height, localPlayer, hud, healthSettings);
   } else {
     addLocalHealthBar(
       drawList,
@@ -3777,9 +3821,27 @@ void addHud(
       height,
       localPlayer,
       hud,
-      settings,
-      bottomY
+      healthSettings
     );
+  }
+
+  // Apply one shared translation to the entire health group in every style.
+  const auto move = [&](ScreenPoint& point) {
+    point.x += settings.healthGroupOffsetX;
+    point.y += settings.healthGroupOffsetY;
+  };
+  for (std::size_t index = healthBegin; index < drawList.overlayCommands.size(); ++index) {
+    auto& command = drawList.overlayCommands[index];
+    if (auto* quad = std::get_if<FilledQuad2D>(&command)) {
+      for (auto& point : quad->points) move(point);
+    } else if (auto* line = std::get_if<Line2D>(&command)) {
+      move(line->start); move(line->end);
+    } else if (auto* text = std::get_if<Text2D>(&command)) {
+      move(text->position);
+    } else if (auto* image = std::get_if<Image2D>(&command)) {
+      image->destination.x += settings.healthGroupOffsetX;
+      image->destination.y += settings.healthGroupOffsetY;
+    }
   }
 
   std::vector<std::string> bottomLines;

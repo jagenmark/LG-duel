@@ -699,7 +699,7 @@ bool permitsRemoteKillcam(const ReplayMetadata& metadata,
                           bool localOrDeveloper) {
   if (localOrDeveloper) return true;
   return metadata.visibility == ReplayVisibility::DuelOnly &&
-         metadata.gameMode == GameMode::Duel;
+         isDuelGameMode(metadata.gameMode);
 }
 
 } // namespace lg::replay

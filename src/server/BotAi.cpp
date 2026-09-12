@@ -2021,6 +2021,7 @@ void BotBrain::reset(std::uint32_t seed) {
   traits_.aimBiasScale = 0.90F + randomUnit(traitState) * 0.20F;
   hasCarrierObjectiveDestination_ = false;
   targetWasVisible_ = false;
+  slideRequested_ = false;
   initialized_ = false;
 }
 
@@ -2059,7 +2060,7 @@ std::uint64_t BotBrain::deterministicHash() const {
   mix(static_cast<std::uint32_t>(patrolNode_));
   mixFloat(carrierObjectiveDestination_.x); mixFloat(carrierObjectiveDestination_.y);
   mixFloat(carrierObjectiveDestination_.z); mix(hasCarrierObjectiveDestination_);
-  mix(targetWasVisible_); mix(initialized_);
+  mix(targetWasVisible_); mix(slideRequested_); mix(initialized_);
   mixFloat(traits_.aggression); mixFloat(traits_.risk); mixFloat(traits_.preferredRangeBias);
   mixFloat(traits_.movementCadenceBias); mixFloat(traits_.reactionLatencyOffsetSeconds);
   mixFloat(traits_.aimBiasScale);
@@ -2448,6 +2449,8 @@ BotMotor BotBrain::tick(
   const BotDifficultyProfile& profile,
   const BotNavigationMap& navigation
 ) {
+  const bool wasSliding = slideRequested_;
+  slideRequested_ = false;
   BotMotor output;
   UserCommand& command = output.command;
   command.viewYawRadians = sense.self.viewYawRadians;
@@ -2788,6 +2791,28 @@ BotMotor BotBrain::tick(
       -kMaxPitchRadians, kMaxPitchRadians);
   }
 
+  if (sense.self.glideEnabled && output.goal == BotGoalKind::Chase &&
+      targetVisible && targetDecisionAllowed) {
+    // Fight at a weapon-appropriate distance instead of running into the
+    // enemy's body. The destination still goes through the proven nav graph.
+    const float range = std::max(2.0F, std::min(
+      profile.preferredRange * traits_.preferredRangeBias,
+      activeWeapon.effectiveRange * 0.60F));
+    if (targetDistance < range + 8.0F && targetDistance > 0.01F) {
+      strafeSeconds_ -= dt;
+      if (strafeSeconds_ <= 0.0F) {
+        strafeDirection_ = (randomU32(RandomStream::Movement) & 1U) == 0U ? -1 : 1;
+        strafeSeconds_ = randomFloat(RandomStream::Movement, 0.8F, 1.5F);
+      }
+      Vec3 away = sense.self.position - combatTarget;
+      away.z = 0.0F;
+      away = away / targetDistance;
+      const Vec3 side = {-away.y, away.x, 0.0F};
+      movementGoal = combatTarget + away * range + side *
+        (3.5F * static_cast<float>(strafeDirection_));
+    }
+  }
+
   Vec3 moveTarget = movementGoal;
   // Combat movement uses the same movement-proven graph as every other goal.
   // Direct visible-target steering used to bypass it completely, which let a
@@ -2887,6 +2912,34 @@ BotMotor BotBrain::tick(
         command.dash = true;
       }
     }
+    if (sense.self.glideEnabled && sense.self.onGround &&
+        output.waypointNode < navigation.nodeCount && pathCursor_ > 0) {
+      const Vec3 planarVelocity = {sense.self.velocity.x, sense.self.velocity.y, 0.0F};
+      const float speed = length(planarVelocity);
+      const auto kind = linkKind(navigation, path_[pathCursor_ - 1U], output.waypointNode);
+      // Count collinear proven walk links as runway. Individual graph edges
+      // are short, so looking only at the next node would never allow a slide.
+      float runway = moveLength;
+      for (std::size_t cursor = pathCursor_; cursor + 1U < pathCount_; ++cursor) {
+        if (linkKind(navigation, path_[cursor], path_[cursor + 1U]) != BotNavLinkKind::Walk) break;
+        Vec3 edge = navigation.nodes[path_[cursor + 1U]].position -
+          navigation.nodes[path_[cursor]].position;
+        edge.z = 0.0F;
+        const float edgeLength = length(edge);
+        if (edgeLength < 0.001F || dot(edge / edgeLength, direction) < 0.98F) break;
+        runway += edgeLength;
+        if (runway > 12.0F) break;
+      }
+      // Release crouch early enough to brake before the next route corner.
+      // Require extra margin to start, but retain an existing slide down to
+      // the original safety limits. Small speed/alignment changes must not
+      // repeatedly toggle crouch, especially while nearing a route corner.
+      const float entryMargin = wasSliding ? 0.0F : 1.0F;
+      command.crouch = kind == BotNavLinkKind::Walk &&
+        speed > (wasSliding ? 6.0F : 7.0F) &&
+        runway > std::max(3.0F, speed * 0.65F) + entryMargin &&
+        dot(planarVelocity, direction) > speed * (wasSliding ? 0.96F : 0.98F);
+    }
     if (output.waypointNode < navigation.nodeCount && pathCursor_ > 0) {
       const BotNavLinkKind kind = linkKind(navigation, path_[pathCursor_ - 1U],
         output.waypointNode);
@@ -2897,6 +2950,7 @@ BotMotor BotBrain::tick(
     // Recovery already clears the stale route and forces an immediate replan.
     // The former blind sideways jump was useful against a wall but dangerous
     // at a ledge, so do not add unproved movement while the new path is chosen.
+    command.crouch = false;
     command.forwardMove = 0.0F;
     command.rightMove = 0.0F;
     command.jump = false;
@@ -2931,11 +2985,13 @@ BotMotor BotBrain::tick(
     output.noFireReason = BotNoFireReason::None;
   }
   if (sense.standstill) {
+    command.crouch = false;
     command.forwardMove = 0.0F;
     command.rightMove = 0.0F;
     command.jump = false;
     command.dash = false;
   }
+  slideRequested_ = command.crouch;
   return output;
 }
 

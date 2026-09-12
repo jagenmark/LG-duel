@@ -341,10 +341,25 @@ int main() {
   failures += expect(
     started.active && started.hasContext && hud.active &&
       hud.killer == "KILLER" && hud.weapon == "rl" &&
-      hud.cause == "SPLASH DAMAGE",
+      hud.cause == "SPLASH DAMAGE" && !hud.headshot,
     "active playback should retain context and expose killer and cause HUD data"
   );
 
+  {
+    auto headshotDemo = demo;
+    headshotDemo.lethalEvents[0].headshot = true;
+    headshotDemo.lethalEvents[0].kind = lg::replay::LethalKind::Direct;
+    headshotDemo.lethalEvents[0].weapon = lg::Weapon::Railgun;
+    std::vector<std::uint8_t> headshotBytes;
+    lg::replay::ClientKillcamCoordinator headshotCoordinator("maps");
+    failures += expect(lg::replay::encodeDemo(headshotDemo, headshotBytes, &error) &&
+      startKillcam(headshotCoordinator, headshotBytes, live, 20U, nowMilliseconds),
+      "headshot metadata should survive trusted remote replay transfer and decoding");
+    const auto headshotHud = headshotCoordinator.hud();
+    failures += expect(headshotHud.active && headshotHud.headshot && headshotHud.cause == "HEADSHOT" &&
+      headshotHud.weapon == "sr" && headshotHud.lethalProgress == 1.0F && headshotHud.remainingSeconds > 0,
+      "killcam should identify the fatal headshot and its position on the replay timeline");
+  }
   constexpr std::array blockedCommands = {
     lg::replay::ClientReplayCommand::DemoPlay,
     lg::replay::ClientReplayCommand::DemoStop,

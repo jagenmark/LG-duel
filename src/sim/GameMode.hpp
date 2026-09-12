@@ -10,7 +10,15 @@ enum class GameMode : std::uint8_t {
   ClanArena = 1,
   McGuffin = 2,
   FreeForAll = 3,
+  GlideDuel = 4,
 };
+
+[[nodiscard]] constexpr bool isDuelGameMode(GameMode mode) {
+  return mode == GameMode::Duel || mode == GameMode::GlideDuel;
+}
+
+inline constexpr std::uint16_t kGlideRoundTicks = 45U * 125U;
+inline constexpr std::uint16_t kGlideOverdriveTicks = 15U * 125U;
 
 using PlayerScore = std::int16_t;
 
@@ -26,7 +34,7 @@ enum class Team : std::uint8_t {
 inline constexpr std::size_t kPlayableTeamCount = 2;
 
 [[nodiscard]] constexpr bool isValidGameMode(GameMode gameMode) {
-  return gameMode == GameMode::Duel ||
+  return isDuelGameMode(gameMode) ||
     gameMode == GameMode::ClanArena ||
     gameMode == GameMode::McGuffin ||
     gameMode == GameMode::FreeForAll;
@@ -37,7 +45,7 @@ inline constexpr std::size_t kPlayableTeamCount = 2;
 }
 
 [[nodiscard]] constexpr bool isIndividualGameMode(GameMode gameMode) {
-  return gameMode == GameMode::Duel || gameMode == GameMode::FreeForAll;
+  return isDuelGameMode(gameMode) || gameMode == GameMode::FreeForAll;
 }
 
 [[nodiscard]] constexpr bool isValidTeam(Team team) {

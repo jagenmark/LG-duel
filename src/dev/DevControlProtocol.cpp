@@ -79,7 +79,7 @@ namespace {
   if (name == "exec_console") return ControlOperation::ExecConsole;
   if (name == "get_cvar") return ControlOperation::GetCvar;
   if (name == "set_cvar") return ControlOperation::SetCvar;
-  if (name == "send_input") return ControlOperation::SendInput;
+  if (name == "send_input" || name == "send_input_sequence") return ControlOperation::SendInput;
   if (name == "wait_frames") return ControlOperation::WaitFrames;
   if (name == "get_client_state") return ControlOperation::GetClientState;
   if (name == "set_network_simulation") return ControlOperation::SetNetworkSimulation;
@@ -202,6 +202,33 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
     return {{}, false, "unknown operation '" + *operationName + "'"};
   }
   request.operation = *operation;
+  if (*operationName == "send_input_sequence") {
+    if (!hasOnlyMembers(root, {"id", "control_protocol", "operation", "segments"})) {
+      return {{}, false, "send_input_sequence contains an unknown parameter"};
+    }
+    const JsonValue* segments = root.find("segments");
+    if (segments == nullptr || segments->type != JsonValue::Type::Array ||
+        segments->array.empty() || segments->array.size() > 64) {
+      return {{}, false, "segments must contain 1..64 input objects"};
+    }
+    std::uint32_t totalTicks = 0;
+    for (const JsonValue& segment : segments->array) {
+      if (segment.type != JsonValue::Type::Object || segment.find("operation") != nullptr ||
+          segment.find("control_protocol") != nullptr || segment.find("id") != nullptr) {
+        return {{}, false, "each segment must contain input fields only"};
+      }
+      JsonValue input = segment;
+      input.object["operation"] = JsonValue::stringValue("send_input");
+      const auto parsedInput = parseControlRequest(input);
+      if (!parsedInput.ok) return {{}, false, "invalid segment: " + parsedInput.error};
+      totalTicks += parsedInput.request.playerInput.ticks;
+      if (totalTicks > 1250) return {{}, false, "sequence exceeds 1250 total ticks"};
+      request.playerInputSequence.push_back(parsedInput.request.playerInput);
+    }
+    request.playerInput = request.playerInputSequence.front();
+    return {std::move(request), true, {}};
+  }
+
   request.mapName = stringMember(root, "map").value_or("");
   request.presetName = stringMember(root, "preset").value_or("");
   request.captureName = stringMember(root, "name").value_or("");
@@ -218,6 +245,7 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
             "operation",
             "name",
             "phase",
+            "at_input_tick",
             "hide_hud",
             "hide_overlays",
           })) {
@@ -232,7 +260,21 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
     if (!isSafeCaptureName(request.captureName)) {
       return {{}, false, "capture name may only use letters, numbers, _ and -"};
     }
-    if (request.capturePhase != "local_rocket_launcher_muzzle" &&
+    if (request.capturePhase == "input_tick") {
+      const auto tick = numberMember(root, "at_input_tick");
+      if (!tick.has_value() || !std::isfinite(*tick) || std::floor(*tick) != *tick ||
+          *tick < 1 || *tick > 1249) {
+        return {{}, false, "input_tick capture requires at_input_tick in 1..1249"};
+      }
+      request.captureInputTick = static_cast<std::uint32_t>(*tick);
+    } else if (root.find("at_input_tick") != nullptr) {
+      return {{}, false, "at_input_tick is only valid for input_tick captures"};
+    }
+    if (request.capturePhase != "input_tick" &&
+        request.capturePhase != "killcam" &&
+        request.capturePhase != "headshot_killcam" &&
+        request.capturePhase != "headshot_feed" &&
+        request.capturePhase != "local_rocket_launcher_muzzle" &&
         request.capturePhase != "local_rocket_launcher_projectile" &&
         request.capturePhase != "local_rocket_launcher_impact" &&
         request.capturePhase != "local_surface_impact" &&
@@ -245,7 +287,7 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
       return {
         {},
         false,
-        "phase must name a supported local fire, surface-impact, or local/remote weapon-switch frame",
+        "phase must name input_tick, killcam, headshot_killcam, headshot_feed, supported local fire, surface-impact, or local/remote weapon-switch frame",
       };
     }
   }

@@ -1265,13 +1265,14 @@ bool writeLethal(Writer& writer, const ReplayLethalEvent& event) {
   return event.victim < kDuelPlayerCount && (event.killer < kDuelPlayerCount || event.killer == kNoReplayPlayer) &&
     event.replayGeneration != 0U && event.sequence != 0U && validWeapon(event.weapon) &&
     validLethalKind(event.kind) &&
+    (!event.headshot || (event.kind == LethalKind::Direct && event.killer != event.victim)) &&
     ((event.kind == LethalKind::Self && event.killer == event.victim) ||
       (event.kind == LethalKind::World && event.killer == kNoReplayPlayer) ||
       (event.kind == LethalKind::Direct && event.killer != kNoReplayPlayer) ||
       (event.kind == LethalKind::Splash && event.killer != kNoReplayPlayer)) && writer.u32(event.tick) &&
     writer.u32(event.replayGeneration) && writer.u8(event.victim) && writer.u8(event.killer) &&
     writer.u8(static_cast<std::uint8_t>(event.weapon)) && writer.u32(event.projectileSequence) &&
-    writer.u8(static_cast<std::uint8_t>(event.kind)) && writer.u32(event.sequence);
+    writer.u8(static_cast<std::uint8_t>(event.kind)) && writer.u32(event.sequence) && writer.boolean(event.headshot);
 }
 
 bool readLethal(Reader& reader, ReplayLethalEvent& event) {
@@ -1279,12 +1280,14 @@ bool readLethal(Reader& reader, ReplayLethalEvent& event) {
   std::uint8_t kind = 0;
   if (!reader.u32(event.tick) || !reader.u32(event.replayGeneration) || !reader.u8(event.victim) ||
       !reader.u8(event.killer) || !reader.u8(weapon) || !reader.u32(event.projectileSequence) ||
-      !reader.u8(kind) || !reader.u32(event.sequence)) return false;
+      !reader.u8(kind) || !reader.u32(event.sequence) ||
+      !reader.boolean(event.headshot)) return false;
   event.weapon = static_cast<Weapon>(weapon);
   event.kind = static_cast<LethalKind>(kind);
   return event.victim < kDuelPlayerCount && (event.killer < kDuelPlayerCount || event.killer == kNoReplayPlayer) &&
     event.replayGeneration != 0U && event.sequence != 0U && validWeapon(event.weapon) &&
     validLethalKind(event.kind) &&
+    (!event.headshot || (event.kind == LethalKind::Direct && event.killer != event.victim)) &&
     ((event.kind == LethalKind::Self && event.killer == event.victim) ||
       (event.kind == LethalKind::World && event.killer == kNoReplayPlayer) ||
       (event.kind == LethalKind::Direct && event.killer != kNoReplayPlayer) ||

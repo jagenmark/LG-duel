@@ -1,4 +1,5 @@
 #include "app/GameModeConsole.hpp"
+#include "app/GlideDuelHud.hpp"
 #include "app/HudPresentation.hpp"
 
 #include <cmath>
@@ -72,6 +73,76 @@ int main() {
   snapshot.playerNames[2] = "ENEMY";
 
   int failures = 0;
+  {
+    lg::ServerSnapshot glide;
+    glide.gameMode = lg::GameMode::GlideDuel;
+    glide.matchPhase = lg::MatchPhase::Live;
+    glide.phaseTicksRemaining = lg::kGlideOverdriveTicks;
+    glide.scores = {2, 5};
+    glide.playerNames[0] = "ALPHA";
+    glide.playerNames[1] = "BRAVO";
+    lg::HudRenderState panelHud;
+    panelHud.topLeftLines = {"OLD MODE LABEL"};
+    panelHud.countdownText = "1";
+    lg::populateGlideDuelHud(panelHud, glide, 1, false);
+    failures += expect(panelHud.glideDuel.leftName == "YOU" && panelHud.glideDuel.rightName == "ALPHA" &&
+      panelHud.glideDuel.leftScore == 5 && panelHud.glideDuel.rightScore == 2 &&
+      panelHud.glideDuel.timer == "0:15" && panelHud.glideDuel.overdrive &&
+      panelHud.topLeftLines.empty() && panelHud.countdownText.empty(),
+      "Glide panel must present authoritative scores and overdrive without legacy HUD duplicates");
+    glide.matchPhase = lg::MatchPhase::Countdown;
+    glide.phaseTicksRemaining = 125;
+    panelHud = {};
+    lg::populateGlideDuelHud(panelHud, glide, std::nullopt, true);
+    failures += expect(!panelHud.glideDuel.showHealth && panelHud.glideDuel.leftName == "ALPHA" &&
+      panelHud.glideDuel.status.find("STARTING IN 1") != std::string::npos,
+      "observer panel must show player names and countdown without invented local health");
+    // Reuse the render state across phases to catch stale timer/Overdrive fields.
+    glide.matchPhase = lg::MatchPhase::Live;
+    glide.phaseTicksRemaining = 125;
+    glide.scores = {6, 6};
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(panelHud.glideDuel.stakes == "DECIDING ROUND" &&
+      panelHud.glideDuel.roundFraction > 0.0F && panelHud.glideDuel.roundFraction < .03F,
+      "deciding round and remaining time must use authoritative state");
+    glide.matchPhase = lg::MatchPhase::RoundEnd;
+    glide.roundWinner = 0;
+    glide.players[0].health = 60; glide.players[1].health = 40;
+    glide.phaseTicksRemaining = 250;
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(panelHud.glideDuel.timer.empty() && !panelHud.glideDuel.overdrive &&
+      panelHud.glideDuel.roundFraction < 0 && panelHud.glideDuel.hint == "WON ON HEALTH - NEXT IN 2",
+      "timeout results explain the win and clear the live clock");
+    glide.roundWinner = 255;
+    glide.players[0].health = glide.players[1].health = 0;
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(panelHud.glideDuel.hint == "DOUBLE KO - REPLAY IN 2",
+      "simultaneous eliminations must not be described as a health timeout");
+    glide.matchPhase = lg::MatchPhase::WaitingForReady;
+    glide.readyPlayers = {true, false};
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(panelHud.glideDuel.readiness && panelHud.glideDuel.leftReady &&
+      !panelHud.glideDuel.rightReady, "ready check must identify which player is ready");
+    glide.matchPhase = lg::MatchPhase::MatchEnd;
+    glide.scores = {7, 6};
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(panelHud.glideDuel.status == "YOU WIN" && panelHud.glideDuel.stakes.empty() &&
+      panelHud.glideDuel.hint.find("REMATCH READY CHECK") != std::string::npos,
+      "match completion must explain rematch flow");
+    glide.gameMode = lg::GameMode::Duel;
+    lg::populateGlideDuelHud(panelHud, glide, 0, false);
+    failures += expect(!panelHud.glideDuel.active, "leaving glide must clear its panel");
+    glide.gameMode = lg::GameMode::GlideDuel;
+    glide.matchPhase = lg::MatchPhase::Live;
+    glide.phaseTicksRemaining = lg::kGlideOverdriveTicks;
+    glide.scores = {2, 5};
+
+    failures += expect(lg::hudScoreLine(glide, 0) == "ROUNDS 2-5 / 7" &&
+      lg::hudScoreLine(glide, 1) == "ROUNDS 5-2 / 7", "glide HUD shows both round scores");
+    failures += expect(lg::gameModeForConsoleToken("glide") == lg::GameMode::GlideDuel &&
+      lg::matchTimeLine(glide).find("OVERDRIVE 2X DAMAGE") != std::string::npos,
+      "glide mode is discoverable and its pressure phase is visible");
+  }
   failures += expect(
     lg::gameModeForConsoleToken("ffa") == lg::GameMode::FreeForAll,
     "the console should parse gamemode ffa"

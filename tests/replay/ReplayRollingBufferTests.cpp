@@ -209,7 +209,7 @@ int main() {
   failures += expect(!buffer.extractSegment(lethal, 1U, 1U, &error).has_value(),
     "prior-generation lethal events must not cross a reset boundary");
 
-  {
+  for (const bool headshot : {false, true}) {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     lg::Arena arena;
@@ -245,7 +245,7 @@ int main() {
     rail.command.attack = true;
     rail.command.planarAim = false;
     rail.command.viewYawRadians = 0.0F;
-    rail.command.viewPitchRadians = -0.041F;
+    rail.command.viewPitchRadians = headshot ? 0.0F : -0.041F;
     rail.command.weapon = lg::Weapon::Railgun;
     rail.viewedServerTick = server.snapshot().serverTick;
     transport.sendCommand(rail);
@@ -254,7 +254,8 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     const std::optional<lg::replay::ReplayLethalEvent> serverLethal = server.latestReplayLethal();
     failures += expect(serverLethal.has_value() && serverLethal->victim == 1U &&
-      serverLethal->killer == 0U && serverLethal->weapon == lg::Weapon::Railgun,
+      serverLethal->killer == 0U && serverLethal->weapon == lg::Weapon::Railgun &&
+      serverLethal->headshot == headshot && server.snapshot().fragEvents[0].headshot == headshot,
       "authoritative death should add rolling lethal metadata at the damage seam");
     if (serverLethal.has_value()) {
       failures += expect(server.extractRollingReplaySegment(*serverLethal, 0U, 2U, &error).has_value(),

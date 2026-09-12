@@ -37,9 +37,7 @@ constexpr float kJumpPoseArmPitchRadians = 2.0F * kDegreesToRadians;
 constexpr float kJumpPoseLegPitchRadians = -30.0F * kDegreesToRadians;
 constexpr float kTwoPi = 6.28318530718F;
 constexpr float kQuarterTurnRadians = 1.57079632679F;
-constexpr float kDuelistMaleHeight = 1.67400002F;
 constexpr float kDuelistMaleHalfWidth = 0.42503331F;
-constexpr float kDuelistMaleDepthCenter = 0.07100000F;
 constexpr std::size_t kMaxRocketProjectileLights = 4U;
 constexpr Vec3 kRocketProjectileLightColor = {1.0F, 0.48F, 0.20F};
 constexpr float kRocketProjectileLightIntensity = 1.15F;
@@ -1921,7 +1919,7 @@ struct DuelistPoseRequests {
   float animationTimeSeconds,
   const PlayerPresentationFrame* presentation
 ) {
-  const bool workerModel = &model == &workerPlayerModel();
+  const bool workerModel = usesPipPlayerRig(model);
   if (presentation == nullptr || presentation->poseLayerCount == 0U) {
     return duelistPoseRequests(
       player,
@@ -1991,21 +1989,25 @@ struct DuelistPoseRequests {
 }
 
 [[nodiscard]] WeaponModelFrame workerWeaponAttachmentFrame(
+  const GltfSkinnedModel& model,
   const PlayerState& player,
   float leanScale,
   float aimPitch,
-  const GltfSkinnedModel::Matrix4& socket
+  const GltfSkinnedModel::Matrix4& socket,
+  float standingHalfHeight
 ) {
   const PlayerModelBasis basis =
     playerModelBasis(player, false, leanScale, 0.0F);
-  constexpr float kWorkerAuthoredHeight = 1.86643112F;
-  constexpr float kWorkerAuthoredDepthCenter = 0.09206353F;
-  const float verticalScale = basis.height / kWorkerAuthoredHeight;
+  const GltfModelBounds authoredBounds = model.localBounds();
+  const float authoredHeight = std::max(0.001F, authoredBounds.max.y);
+  const float standingHeight = standingHalfHeight > 0.0F ? standingHalfHeight * 2.0F
+    : basis.height / (player.crouched ? kCrouchHeightScale : 1.0F);
+  const float verticalScale = standingHeight / authoredHeight;
   const float horizontalScale =
     basis.radius / kDuelistMaleHalfWidth * 0.94F;
   const Vec3 base = player.position - basis.up * basis.halfHeight;
   const Vec3 translation = base -
-    basis.forward * (kWorkerAuthoredDepthCenter * horizontalScale);
+    basis.forward * (((authoredBounds.min.z + authoredBounds.max.z) * 0.5F) * horizontalScale);
 
   WeaponModelFrame attachment;
   attachment.basis = basis;
@@ -2049,10 +2051,16 @@ void addGltfPlayerModelInstance(
 
   const PlayerModelBasis basis =
     playerModelBasis(player, false, leanScale, 0.0F);
-  const bool workerModel = &model == &workerPlayerModel();
-  const float authoredHeight = workerModel ? 1.86643112F : kDuelistMaleHeight;
-  const float authoredDepthCenter = workerModel ? 0.09206353F : kDuelistMaleDepthCenter;
-  const float verticalScale = basis.height / authoredHeight;
+  const bool workerModel = usesPipPlayerRig(model);
+  const float authoredHeight = std::max(0.001F, model.localBounds().max.y);
+  const float authoredDepthCenter = ((model.localBounds().min.z + model.localBounds().max.z) * 0.5F);
+  // Crouch clips bend the skeleton at full body size. Scaling to the reduced
+  // collision capsule as well would compress every limb a second time.
+  // Keep the feet anchored to the capsule bottom while preserving proportions.
+  const float standingHeight = presentation != nullptr && presentation->standingHalfHeight > 0.0F
+    ? presentation->standingHalfHeight * 2.0F
+    : basis.height / (player.crouched ? kCrouchHeightScale : 1.0F);
+  const float verticalScale = standingHeight / authoredHeight;
   const float horizontalScale = basis.radius / kDuelistMaleHalfWidth * 0.94F;
   const Vec3 base = player.position - basis.up * basis.halfHeight;
   const Vec3 translation = base -
@@ -2089,10 +2097,12 @@ void addGltfPlayerModelInstance(
     if (model.nodeGlobalMatrix("weapon_socket", poseScratch, socket)) {
       weaponAttachment->emplace(
         workerWeaponAttachmentFrame(
+          model,
           player,
           leanScale,
           combinedAimPitch,
-          socket
+          socket,
+          standingHeight * 0.5F
         )
       );
     }
@@ -2195,7 +2205,7 @@ void addGltfPlayerModelInstance(
     return genericFrame;
   }
 
-  const GltfSkinnedModel& model = workerPlayerModel();
+  const GltfSkinnedModel& model = playerModelForSetting(settings.playerModel);
   if (!model.loaded() || model.primitives().empty()) {
     return genericFrame;
   }
@@ -2247,10 +2257,12 @@ void addGltfPlayerModelInstance(
     return genericFrame;
   }
   return workerWeaponAttachmentFrame(
+    model,
     remote.player,
     leanScale,
     combinedAimPitch,
-    socket
+    socket,
+    presentation != nullptr ? presentation->standingHalfHeight : 0.0F
   );
 }
 
@@ -5397,6 +5409,7 @@ void addTransientTracerInstances(
   case TransientEffectType::PlasmaExplosionFlash:
   case TransientEffectType::PlasmaExplosionHalo:
   case TransientEffectType::GrenadeExplosionFlash:
+  case TransientEffectType::GlideFootTrail:
   case TransientEffectType::MachineGunMuzzleLight:
   case TransientEffectType::RocketLauncherMuzzleLight:
   case TransientEffectType::MachineGunMuzzleSmoke:
@@ -5426,6 +5439,7 @@ void addTransientTracerInstances(
   case TransientEffectType::GrenadeExplosionFlash:
   case TransientEffectType::GrenadeExplosionCore:
     return true;
+  case TransientEffectType::GlideFootTrail:
   case TransientEffectType::MachineGunMuzzleLight:
   case TransientEffectType::RocketLauncherMuzzleLight:
   case TransientEffectType::MachineGunMuzzleSmoke:
@@ -5458,6 +5472,7 @@ void addTransientTracerInstances(
   case TransientEffectType::PlasmaExplosionCore:
   case TransientEffectType::GrenadeExplosionCore:
     break;
+  case TransientEffectType::GlideFootTrail:
   case TransientEffectType::MachineGunMuzzleLight:
   case TransientEffectType::RocketLauncherMuzzleLight:
   case TransientEffectType::MachineGunMuzzleSmoke:
@@ -5661,7 +5676,8 @@ void addTransientEffectInstances(
     }
     if (
       settings.frustumCullRemotePlayers &&
-      !sphereIntersectsPerspectiveFrustum(scene.camera, effect.position, scale)
+      !sphereIntersectsPerspectiveFrustum(scene.camera, effect.position,
+        scale + (effect.type == TransientEffectType::GlideFootTrail ? length(effect.direction) + .15F : 0.0F))
     ) {
       if (explosion) {
         ++scene.transientVfxStats.explosionFrustumCulled;
@@ -5674,6 +5690,35 @@ void addTransientEffectInstances(
       0.0F,
       255.0F
     ));
+    if (effect.type == TransientEffectType::GlideFootTrail) {
+      const Vec3 along = normalize(effect.direction);
+      const Vec3 side = normalize(cross(along, scene.camera.position - effect.position));
+      // Overlapping elliptical wisps feather in every direction, including
+      // the leading edge below the toe. There is no rectangular ribbon end.
+      const float halfLength = length(effect.direction) + .15F;
+      const float birth = std::clamp(effect.ageSeconds / .045F, 0.0F, 1.0F);
+      color.alpha = static_cast<std::uint8_t>(color.alpha * birth * birth * (3.0F - 2.0F * birth));
+      RenderColor inner = color;
+      inner.alpha = static_cast<std::uint8_t>(color.alpha * .65F);
+      RenderColor edge = color;
+      edge.alpha = 0;
+      constexpr int sides = 16;
+      for (int i = 0; i < sides; ++i) {
+        const float a = kTwoPi * static_cast<float>(i) / sides;
+        const float b = kTwoPi * static_cast<float>(i + 1) / sides;
+        const Vec3 da = along * (std::cos(a) * halfLength) + side * (std::sin(a) * scale);
+        const Vec3 db = along * (std::cos(b) * halfLength) + side * (std::sin(b) * scale);
+        const Vec3 ia = effect.position + da * .4F;
+        const Vec3 ib = effect.position + db * .4F;
+        const Vec3 oa = effect.position + da;
+        const Vec3 ob = effect.position + db;
+        addTranslucentGradientTriangle(scene, effect.position, ia, ib, color, inner, inner);
+        addTranslucentGradientTriangle(scene, ia, oa, ob, inner, edge, edge);
+        addTranslucentGradientTriangle(scene, ia, ob, ib, inner, edge, inner);
+      }
+      ++scene.transientVfxStats.transparentEffectsSubmitted;
+      continue;
+    }
     if (effect.type == TransientEffectType::MachineGunCasing) {
       ++scene.transientVfxStats.activeCasings;
       Vec3 forward = normalize(effect.velocity);
@@ -6703,7 +6748,7 @@ Scene3D buildPerspectiveScene(
   appendCollisionDebugGeometry(scene, arena, settings.showCollision);
   GltfSkinnedModel::PoseScratch gltfPoseScratch;
   const GltfSkinnedModel* gltfPlayerModel = settings.playerModel > 0
-    ? &workerPlayerModel()
+    ? &playerModelForSetting(settings.playerModel)
     : nullptr;
   if (gltfPlayerModel != nullptr && gltfPlayerModel->loaded()) {
     scene.gltfBonePalette.reserve(
@@ -6954,7 +6999,7 @@ Scene3D buildPerspectiveScene(
           ),
           remote.weaponSwitchPresentation.upperBodyPitchRadians,
           gltfPoseScratch,
-          gltfPlayerModel == &workerPlayerModel() ? &weaponAttachment : nullptr
+          usesPipPlayerRig(*gltfPlayerModel) ? &weaponAttachment : nullptr
         );
         for (
           std::size_t index = firstGltfInstance;

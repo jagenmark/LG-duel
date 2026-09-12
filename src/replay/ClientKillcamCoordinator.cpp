@@ -7,6 +7,7 @@
 #include "replay/ReplayRuntime.hpp"
 #include "sim/WeaponCatalog.hpp"
 
+#include <algorithm>
 #include <deque>
 #include <utility>
 
@@ -88,7 +89,7 @@ bool liveStateMatches(
   }
   const ServerSnapshot& snapshot = *live.snapshot;
   const std::size_t player = live.playerIndex;
-  return snapshot.gameMode == GameMode::Duel &&
+  return isDuelGameMode(snapshot.gameMode) &&
     snapshot.mapRevision == context.mapRevision &&
     snapshot.map.contentHash == context.mapContentHash &&
     snapshot.matchPhase == context.matchPhase &&
@@ -497,7 +498,14 @@ ClientKillcamHud ClientKillcamCoordinator::hud() const {
   case LethalKind::Direct:
     break;
   }
-  result.progress = impl_->runtime->state().progress;
+  const auto& state = impl_->runtime->state();
+  result.progress = state.progress;
+  result.headshot = lethal->headshot;
+  if (result.headshot) result.cause = "HEADSHOT";
+  const auto duration = std::max(1U, state.endTick - state.startTick);
+  result.lethalProgress = std::clamp(
+    static_cast<float>(static_cast<double>(lethal->tick) + 1.0 - state.startTick) / duration, 0.0F, 1.0F);
+  result.remainingSeconds = static_cast<float>(state.endTick - std::min(state.currentTick, state.endTick)) / kReplayTickRate;
   return result;
 }
 

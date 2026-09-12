@@ -32,7 +32,7 @@ def send_request(
     timeout: float = 60.0,
     **parameters: Any,
 ) -> dict[str, Any]:
-    if timeout <= 0:
+    if not 0 < timeout < float("inf"):
         raise ControlError("control request timeout must be greater than zero")
     request = {
         "id": str(uuid.uuid4()),
@@ -98,9 +98,14 @@ def send_request(
         code = detail.get("code", "control_error") if isinstance(detail, dict) else "control_error"
         message = detail.get("message", str(detail)) if isinstance(detail, dict) else str(detail)
         raise ControlError(f"{code}: {message}")
+    if response.get("id") != request["id"]:
+        raise ControlError("game response did not match the request id")
     result = response.get("result")
     if not isinstance(result, dict):
         raise ControlError("game response did not contain an object result")
+    expected = parameters.get("expected_control_session")
+    if expected is not None and result.get("control_session_id") != expected:
+        raise ControlError("game response did not match the pinned control session")
     return result
 
 
@@ -198,6 +203,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--start-if-needed", action="store_true",
+                        help="explicitly permit launcher recovery; ordinary commands only attach")
+    parser.add_argument("--server-port", type=bounded_integer(1, 65535),
+                        help="required with --start-if-needed; never infer the server from a control port")
+    parser.add_argument("--session-id", help="reject a replacement control session before acting")
     parser.add_argument("--json", action="store_true", help="emit compact machine-readable JSON")
     parser.add_argument(
         "--allow-fallback", action="store_true",
@@ -205,10 +215,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--aim-trainer", action="store_true",
-        help="attach to or launch the local aim trainer instead of the network client",
+        help="attach to the local aim trainer instead of the network client",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
+    commands.add_parser("get-client-state")
     console = commands.add_parser("exec-console")
     console.add_argument("console_command", type=bounded_text(1024, "console command"))
     get_cvar = commands.add_parser("get-cvar")
@@ -228,6 +239,8 @@ def build_parser() -> argparse.ArgumentParser:
             f"--{action}", action=argparse.BooleanOptionalAction, default=None
         )
     send_input.add_argument("--weapon", type=bounded_text(32, "weapon"))
+    sequence = commands.add_parser("send-input-sequence")
+    sequence.add_argument("segments_json", help="JSON array of consecutive input segments, released only once at the end")
     wait_frames = commands.add_parser("wait-frames")
     wait_frames.add_argument("frames", type=bounded_integer(1, 600))
     player_view = commands.add_parser("set-player-view")
@@ -261,8 +274,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def execute(arguments: argparse.Namespace) -> dict[str, Any]:
     common = {"host": arguments.host, "port": arguments.port, "timeout": arguments.timeout}
+    if arguments.session_id:
+        common["expected_control_session"] = arguments.session_id
     if arguments.command == "status":
-        if arguments.host != DEFAULT_HOST:
+        if arguments.host != DEFAULT_HOST or arguments.session_id:
             return send_request("status", **common)
         from lg_launch import status_with_state
         return status_with_state(port=arguments.port, timeout=arguments.timeout)
@@ -270,17 +285,33 @@ def execute(arguments: argparse.Namespace) -> dict[str, Any]:
         raise ControlError("send-input requires --yaw and --pitch together")
     if arguments.host != DEFAULT_HOST:
         raise ControlError("development-control launch and visual verification require host 127.0.0.1")
-    from lg_launch import LaunchError, ensure_client
+    from lg_launch import LaunchError, attach_client, ensure_client
     try:
-        ensure_client(
+        if arguments.start_if_needed:
+            if arguments.server_port is None:
+                raise ControlError("--start-if-needed requires an explicit --server-port")
+            if arguments.session_id:
+                raise ControlError("a pinned session cannot use --start-if-needed")
+            ensure_client(
+                renderer="fallback" if arguments.allow_fallback else "gpu",
+                allow_fallback=arguments.allow_fallback, aim_trainer=arguments.aim_trainer,
+                control_port=arguments.port, server_port=arguments.server_port,
+                timeout=min(arguments.timeout, 30.0),
+            )
+        attachment = attach_client(
             renderer="fallback" if arguments.allow_fallback else "gpu",
             allow_fallback=arguments.allow_fallback,
             aim_trainer=arguments.aim_trainer,
             control_port=arguments.port,
-            timeout=min(arguments.timeout, 30.0),
+            timeout=min(arguments.timeout, 5.0),
+            expected_control_session=arguments.session_id,
         )
+        if attachment.get("control_session_id"):
+            common["expected_control_session"] = attachment["control_session_id"]
     except LaunchError as error:
         raise ControlError(str(error)) from error
+    if arguments.command == "get-client-state":
+        return send_request("get_client_state", **common)
     if arguments.command == "load-map":
         return send_request("load_map", map=arguments.map, **common)
     if arguments.command == "exec-console":
@@ -296,6 +327,16 @@ def execute(arguments: argparse.Namespace) -> dict[str, Any]:
         )
         values = {field: getattr(arguments, field) for field in fields if getattr(arguments, field) is not None}
         return send_request("send_input", **values, **common)
+    if arguments.command == "send-input-sequence":
+        from lg_playtest import validate_step
+        try:
+            segments = json.loads(arguments.segments_json)
+        except json.JSONDecodeError as error:
+            raise ControlError("segments must be a JSON array") from error
+        if not isinstance(segments, list):
+            raise ControlError("segments must be a JSON array")
+        validate_step({"input": segments})
+        return send_request("send_input_sequence", segments=segments, **common)
     if arguments.command == "wait-frames":
         return send_request("wait_frames", frames=arguments.frames, **common)
     if arguments.command == "set-player-view":

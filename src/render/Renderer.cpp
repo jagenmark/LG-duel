@@ -13301,7 +13301,8 @@ void Renderer::render(
     auto* pointShadowTexture =
       static_cast<SDL_GPUTexture*>(gpuPointShadowTexture_);
     auto* staticWorld = static_cast<StaticWorldMesh*>(gpuStaticWorld_);
-    const GltfSkinnedModel* requestedPlayerModel = &workerPlayerModel();
+    const GltfSkinnedModel* requestedPlayerModel =
+      &playerModelForSetting(settings.playerModel);
     auto* gltfPlayerResources =
       static_cast<GpuGltfPlayerResources*>(gpuGltfPlayerResources_);
     if (
