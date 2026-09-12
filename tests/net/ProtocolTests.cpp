@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -2378,6 +2379,47 @@ int main() {
         }
         failures += expect(!lg::encodeServerSnapshot(source, wire), "invalid Glide state must not encode");
       }
+    }
+  }
+
+  {
+    lg::ServerSnapshot source;
+    source.map = testMapDescriptor();
+    source.gameMode = lg::GameMode::GlideDuel;
+    source.glide = glideFixture();
+    source.movementTuning.gravity = 16.8F;
+    source.hasConfiguration = true;
+    lg::WirePacket wire;
+    lg::ServerSnapshot decoded;
+    failures += expect(lg::encodeServerSnapshot(source, wire) &&
+      lg::decodeServerSnapshot(wire, decoded) && decoded.movementTuning.gravity == 16.8F,
+      "FLOAT gravity round trips exactly in snapshot configuration");
+    lg::WirePacket expanded;
+    failures += expect(expandSnapshotForMutation(wire, expanded), "expand gravity snapshot for corruption");
+    const auto bits = std::bit_cast<std::uint32_t>(16.8F);
+    const std::array<std::uint8_t, 4> marker = {
+      static_cast<std::uint8_t>(bits), static_cast<std::uint8_t>(bits >> 8U),
+      static_cast<std::uint8_t>(bits >> 16U), static_cast<std::uint8_t>(bits >> 24U)};
+    const auto found = std::search(expanded.begin(), expanded.end(), marker.begin(), marker.end());
+    failures += expect(found != expanded.end(), "snapshot contains serialized gravity");
+    if (found != expanded.end()) {
+      const auto offset = static_cast<std::size_t>(found - expanded.begin());
+      for (const float gravity : {-1.0F, 100001.0F, std::numeric_limits<float>::quiet_NaN(),
+          std::numeric_limits<float>::infinity()}) {
+        auto corrupt = expanded;
+        const auto invalidBits = std::bit_cast<std::uint32_t>(gravity);
+        for (unsigned i = 0; i < 4; ++i) corrupt[offset + i] = static_cast<std::uint8_t>(invalidBits >> (i * 8U));
+        failures += expect(compactSnapshotForMutation(corrupt, offset) &&
+          !lg::decodeServerSnapshot(corrupt, decoded), "invalid snapshot gravity must not decode");
+        source.movementTuning.gravity = gravity;
+        failures += expect(!lg::encodeServerSnapshot(source, wire), "invalid snapshot gravity must not encode");
+      }
+    }
+    for (const float gravity : {0.0F, 100000.0F}) {
+      source.movementTuning.gravity = gravity;
+      failures += expect(lg::encodeServerSnapshot(source, wire) &&
+        lg::decodeServerSnapshot(wire, decoded) && decoded.movementTuning.gravity == gravity,
+        "snapshot gravity accepts replay-compatible boundary values");
     }
   }
 

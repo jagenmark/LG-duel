@@ -2338,6 +2338,9 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.movementTuning.airAcceleration) &&
     writer.writeFloat(snapshot.movementTuning.groundFriction) &&
     writer.writeFloat(snapshot.movementTuning.stopSpeed) &&
+    std::isfinite(snapshot.movementTuning.gravity) &&
+    snapshot.movementTuning.gravity >= 0.0F && snapshot.movementTuning.gravity <= 100000.0F &&
+    writer.writeFloat(snapshot.movementTuning.gravity) &&
     writer.writeFloat(snapshot.movementTuning.maxGroundSpeed) &&
     writer.writeFloat(snapshot.movementTuning.dashTargetSpeed) &&
     writer.writeFloat(snapshot.movementTuning.dashMaxSpeed) &&
@@ -2770,6 +2773,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.movementTuning.airAcceleration) ||
     !reader.readFloat(decoded.movementTuning.groundFriction) ||
     !reader.readFloat(decoded.movementTuning.stopSpeed) ||
+    !reader.readFloat(decoded.movementTuning.gravity) ||
+    decoded.movementTuning.gravity < 0.0F || decoded.movementTuning.gravity > 100000.0F ||
     !reader.readFloat(decoded.movementTuning.maxGroundSpeed) ||
     !reader.readFloat(decoded.movementTuning.dashTargetSpeed) ||
     !reader.readFloat(decoded.movementTuning.dashMaxSpeed) ||
