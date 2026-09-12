@@ -406,6 +406,8 @@ PlayerPresentationFrame updatePlayerPresentation(
   const float previousWeight = blending ? 1.0F - currentWeight : 0.0F;
 
   PlayerPresentationFrame frame;
+  frame.standingHalfHeight = positiveOr(config.standingHalfHeight,
+    player.bounds.halfHeight / (player.crouched ? kCrouchHeightScale : 1.0F));
   if (previousWeight > 0.0F) {
     frame.poseLayers[frame.poseLayerCount++] = {
       clipName(

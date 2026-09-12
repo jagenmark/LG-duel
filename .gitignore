@@ -30,3 +30,10 @@ maps/autosave/
 assets/models/revolver/*.blend1
 assets/models/revolver/*_Export.zip
 assets/models/revolver/lg_duel_revolver_stainless
+
+# Ratch editable source backups and generated export intermediates.
+/art/source/ratch/*.blend1
+/art/source/pip_fuse/*.blend1
+/art/exports/ratch/*.glb
+/art/exports/ratch/runtime/*.glb
+/art/exports/ratch/runtime/*.png

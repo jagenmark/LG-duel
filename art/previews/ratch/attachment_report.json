@@ -1,0 +1,4722 @@
+[
+  {
+    "object": "Coat hem unraveling",
+    "max_original_gap_m": 0.008405443280935287,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.001",
+    "max_original_gap_m": 0.006956042256206274,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.002",
+    "max_original_gap_m": 0.021955879405140877,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.003",
+    "max_original_gap_m": 0.004923251923173666,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.004",
+    "max_original_gap_m": 0.0053953309543430805,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.005",
+    "max_original_gap_m": 0.011961777694523335,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.006",
+    "max_original_gap_m": 0.0010671872878447175,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.007",
+    "max_original_gap_m": 0.01159735582768917,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.008",
+    "max_original_gap_m": 0.006268834695219994,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.009",
+    "max_original_gap_m": 0.00690003065392375,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.010",
+    "max_original_gap_m": 0.052879221737384796,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.011",
+    "max_original_gap_m": 0.0046357447281479836,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.012",
+    "max_original_gap_m": 0.005333241540938616,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.013",
+    "max_original_gap_m": 0.013150923885405064,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.014",
+    "max_original_gap_m": 0.00424357783049345,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.015",
+    "max_original_gap_m": 0.005941912531852722,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.016",
+    "max_original_gap_m": 0.014792255125939846,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.017",
+    "max_original_gap_m": 0.00258559244684875,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.018",
+    "max_original_gap_m": 0.008515429683029652,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.019",
+    "max_original_gap_m": 0.0054807597771286964,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.020",
+    "max_original_gap_m": 0.006124678999185562,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.021",
+    "max_original_gap_m": 0.03373832628130913,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.022",
+    "max_original_gap_m": 0.003615042893216014,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.023",
+    "max_original_gap_m": 0.005929345265030861,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.024",
+    "max_original_gap_m": 0.014292513020336628,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.025",
+    "max_original_gap_m": 0.004068024922162294,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.026",
+    "max_original_gap_m": 0.006817915011197329,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.027",
+    "max_original_gap_m": 0.025884190574288368,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.028",
+    "max_original_gap_m": 0.002248086966574192,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.029",
+    "max_original_gap_m": 0.01122555136680603,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.030",
+    "max_original_gap_m": 0.01556509267538786,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.031",
+    "max_original_gap_m": 0.003387629520148039,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.032",
+    "max_original_gap_m": 0.020095938816666603,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.033",
+    "max_original_gap_m": 0.011170568875968456,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.034",
+    "max_original_gap_m": 0.007950963452458382,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.035",
+    "max_original_gap_m": 0.016261009499430656,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.036",
+    "max_original_gap_m": 0.009194019250571728,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.037",
+    "max_original_gap_m": 0.004971200134605169,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.038",
+    "max_original_gap_m": 0.027848538011312485,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.039",
+    "max_original_gap_m": 0.004668770357966423,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.040",
+    "max_original_gap_m": 0.01940164342522621,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.041",
+    "max_original_gap_m": 0.009279459714889526,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.042",
+    "max_original_gap_m": 0.0033568155486136675,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.043",
+    "max_original_gap_m": 0.04333873465657234,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.044",
+    "max_original_gap_m": 0.014226741157472134,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.045",
+    "max_original_gap_m": 0.010618318803608418,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.046",
+    "max_original_gap_m": 0.029254667460918427,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.047",
+    "max_original_gap_m": 0.005059909075498581,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.048",
+    "max_original_gap_m": 0.00440831808373332,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.049",
+    "max_original_gap_m": 0.017986472696065903,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.050",
+    "max_original_gap_m": 0.0019088786793872714,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.051",
+    "max_original_gap_m": 0.019037382677197456,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.052",
+    "max_original_gap_m": 0.007522971369326115,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.053",
+    "max_original_gap_m": 0.007277060300111771,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.054",
+    "max_original_gap_m": 0.02558475360274315,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.055",
+    "max_original_gap_m": 0.006421052850782871,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.056",
+    "max_original_gap_m": 0.0023895211052149534,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.057",
+    "max_original_gap_m": 0.014585197903215885,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.058",
+    "max_original_gap_m": 0.008652727119624615,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.059",
+    "max_original_gap_m": 0.004910410847514868,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.060",
+    "max_original_gap_m": 0.015954798087477684,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.061",
+    "max_original_gap_m": 0.004932425916194916,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.062",
+    "max_original_gap_m": 0.015507613308727741,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.063",
+    "max_original_gap_m": 0.004819768480956554,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.064",
+    "max_original_gap_m": 0.004847722593694925,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.065",
+    "max_original_gap_m": 0.010683570988476276,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.066",
+    "max_original_gap_m": 0.00651119090616703,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.067",
+    "max_original_gap_m": 0.006912777666002512,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.068",
+    "max_original_gap_m": 0.03162849321961403,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.069",
+    "max_original_gap_m": 0.0050584180280566216,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.070",
+    "max_original_gap_m": 0.013097316026687622,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.071",
+    "max_original_gap_m": 0.004526142496615648,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.072",
+    "max_original_gap_m": 0.002020426094532013,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.073",
+    "max_original_gap_m": 0.0025377070996910334,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.074",
+    "max_original_gap_m": 0.0012857241090387106,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.075",
+    "max_original_gap_m": 0.004785401280969381,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.076",
+    "max_original_gap_m": 0.004753826651722193,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.077",
+    "max_original_gap_m": 0.005482449661940336,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.078",
+    "max_original_gap_m": 0.010075115598738194,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.079",
+    "max_original_gap_m": 0.029744504019618034,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.080",
+    "max_original_gap_m": 0.003579012118279934,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.081",
+    "max_original_gap_m": 0.01890728622674942,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.082",
+    "max_original_gap_m": 0.015888962894678116,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.083",
+    "max_original_gap_m": 0.004139290191233158,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.084",
+    "max_original_gap_m": 0.02573850005865097,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.085",
+    "max_original_gap_m": 0.03141620382666588,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.086",
+    "max_original_gap_m": 0.005276348441839218,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.087",
+    "max_original_gap_m": 0.01687757857143879,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.088",
+    "max_original_gap_m": 0.006981446873396635,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.089",
+    "max_original_gap_m": 0.008725658059120178,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.090",
+    "max_original_gap_m": 0.027598191052675247,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.091",
+    "max_original_gap_m": 0.0038957265205681324,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.092",
+    "max_original_gap_m": 0.006835984997451305,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.093",
+    "max_original_gap_m": 0.015179651789367199,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.094",
+    "max_original_gap_m": 0.0020623612217605114,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.095",
+    "max_original_gap_m": 0.009547504596412182,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.096",
+    "max_original_gap_m": 0.013971133157610893,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.097",
+    "max_original_gap_m": 0.004800439812242985,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.098",
+    "max_original_gap_m": 0.013849866576492786,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.099",
+    "max_original_gap_m": 0.002324105240404606,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.100",
+    "max_original_gap_m": 0.003595873015001416,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.101",
+    "max_original_gap_m": 0.03433425724506378,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.102",
+    "max_original_gap_m": 0.00575349060818553,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.103",
+    "max_original_gap_m": 0.010608404874801636,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.104",
+    "max_original_gap_m": 0.009414350613951683,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.105",
+    "max_original_gap_m": 0.0029203782323747873,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.106",
+    "max_original_gap_m": 0.006714214105159044,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.107",
+    "max_original_gap_m": 0.010427335277199745,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.108",
+    "max_original_gap_m": 0.003607462625950575,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.109",
+    "max_original_gap_m": 0.017565883696079254,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.110",
+    "max_original_gap_m": 0.003671966725960374,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.111",
+    "max_original_gap_m": 0.006267386954277754,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.112",
+    "max_original_gap_m": 0.01463995035737753,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.113",
+    "max_original_gap_m": 0.004619304556399584,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.114",
+    "max_original_gap_m": 0.009902257472276688,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.115",
+    "max_original_gap_m": 0.013722235336899757,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.116",
+    "max_original_gap_m": 0.005739075597375631,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.117",
+    "max_original_gap_m": 0.010464651510119438,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.118",
+    "max_original_gap_m": 0.01435571163892746,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.119",
+    "max_original_gap_m": 0.0076515101827681065,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.120",
+    "max_original_gap_m": 0.025812599807977676,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.121",
+    "max_original_gap_m": 0.0030192832928150892,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.122",
+    "max_original_gap_m": 0.005172549746930599,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.123",
+    "max_original_gap_m": 0.01499968022108078,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.124",
+    "max_original_gap_m": 0.00735135842114687,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.125",
+    "max_original_gap_m": 0.007146263029426336,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.126",
+    "max_original_gap_m": 0.038052499294281006,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.127",
+    "max_original_gap_m": 0.007680473383516073,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.128",
+    "max_original_gap_m": 0.00755308335646987,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.129",
+    "max_original_gap_m": 0.014810195192694664,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.130",
+    "max_original_gap_m": 0.003061681054532528,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.131",
+    "max_original_gap_m": 0.024608589708805084,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.132",
+    "max_original_gap_m": 0.011649807915091515,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.133",
+    "max_original_gap_m": 0.0026271578390151262,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.134",
+    "max_original_gap_m": 0.015183156356215477,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.135",
+    "max_original_gap_m": 0.0048779272474348545,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.136",
+    "max_original_gap_m": 0.006247748155146837,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.137",
+    "max_original_gap_m": 0.022843195125460625,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.138",
+    "max_original_gap_m": 0.011549582704901695,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.139",
+    "max_original_gap_m": 0.017712414264678955,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.140",
+    "max_original_gap_m": 0.017212016507983208,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.141",
+    "max_original_gap_m": 0.002514320658519864,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.142",
+    "max_original_gap_m": 0.03353114426136017,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.143",
+    "max_original_gap_m": 0.014530264772474766,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat hem unraveling.144",
+    "max_original_gap_m": 0.004951936192810535,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat vertical welt",
+    "max_original_gap_m": 0.004240234382450581,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat vertical welt.001",
+    "max_original_gap_m": 0.004234358202666044,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat vertical welt.002",
+    "max_original_gap_m": 0.0042966739274561405,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat vertical welt.003",
+    "max_original_gap_m": 0.0047434596344828606,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Waistcoat front",
+    "max_original_gap_m": 0.07533576339483261,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Notched coat lapel",
+    "max_original_gap_m": 0.05735049024224281,
+    "surface_offset_m": 0.006
+  },
+  {
+    "object": "Lapel saddle seam",
+    "max_original_gap_m": 0.02979147620499134,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.001",
+    "max_original_gap_m": 0.032475944608449936,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.002",
+    "max_original_gap_m": 0.03538644313812256,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.003",
+    "max_original_gap_m": 0.03429558500647545,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.004",
+    "max_original_gap_m": 0.03439231961965561,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.005",
+    "max_original_gap_m": 0.03502776846289635,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.006",
+    "max_original_gap_m": 0.035490214824676514,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.007",
+    "max_original_gap_m": 0.03869892284274101,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.008",
+    "max_original_gap_m": 0.04379638284444809,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.009",
+    "max_original_gap_m": 0.04575425013899803,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.010",
+    "max_original_gap_m": 0.046781111508607864,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.011",
+    "max_original_gap_m": 0.04971041530370712,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.012",
+    "max_original_gap_m": 0.05338973551988602,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.013",
+    "max_original_gap_m": 0.05894077196717262,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.014",
+    "max_original_gap_m": 0.06080193445086479,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.015",
+    "max_original_gap_m": 0.06120328605175018,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.016",
+    "max_original_gap_m": 0.061765555292367935,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.017",
+    "max_original_gap_m": 0.060047246515750885,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.018",
+    "max_original_gap_m": 0.05880940333008766,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.019",
+    "max_original_gap_m": 0.05738712474703789,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.020",
+    "max_original_gap_m": 0.05625122785568237,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.021",
+    "max_original_gap_m": 0.05470583587884903,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.022",
+    "max_original_gap_m": 0.05435827746987343,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.023",
+    "max_original_gap_m": 0.05522958189249039,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.024",
+    "max_original_gap_m": 0.05626519396901131,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.025",
+    "max_original_gap_m": 0.05752568691968918,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.026",
+    "max_original_gap_m": 0.059722352772951126,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.027",
+    "max_original_gap_m": 0.062349237501621246,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.028",
+    "max_original_gap_m": 0.06258966773748398,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Open linen collar",
+    "max_original_gap_m": 0.03429938852787018,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Antique coat button",
+    "max_original_gap_m": 0.05402186140418053,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Button inset",
+    "max_original_gap_m": 0.054967161267995834,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Antique coat button.001",
+    "max_original_gap_m": 0.04919459670782089,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Button inset.001",
+    "max_original_gap_m": 0.05019410699605942,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Antique coat button.002",
+    "max_original_gap_m": 0.05623244121670723,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Button inset.002",
+    "max_original_gap_m": 0.056776706129312515,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Antique coat button.003",
+    "max_original_gap_m": 0.0642811506986618,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Button inset.003",
+    "max_original_gap_m": 0.06443186849355698,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Slant pocket welt",
+    "max_original_gap_m": 0.04102941229939461,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Waistcoat front.001",
+    "max_original_gap_m": 0.07090111076831818,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Notched coat lapel.001",
+    "max_original_gap_m": 0.06993564963340759,
+    "surface_offset_m": 0.006
+  },
+  {
+    "object": "Lapel saddle seam.029",
+    "max_original_gap_m": 0.030583083629608154,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.030",
+    "max_original_gap_m": 0.03256554901599884,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.031",
+    "max_original_gap_m": 0.03388572111725807,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.032",
+    "max_original_gap_m": 0.03487350419163704,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.033",
+    "max_original_gap_m": 0.03598518669605255,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.034",
+    "max_original_gap_m": 0.037322502583265305,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.035",
+    "max_original_gap_m": 0.03811042010784149,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.036",
+    "max_original_gap_m": 0.03988052159547806,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.037",
+    "max_original_gap_m": 0.04231299087405205,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.038",
+    "max_original_gap_m": 0.044905923306941986,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.039",
+    "max_original_gap_m": 0.04910152405500412,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.040",
+    "max_original_gap_m": 0.05515012890100479,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.041",
+    "max_original_gap_m": 0.06189050152897835,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.042",
+    "max_original_gap_m": 0.06402426958084106,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.043",
+    "max_original_gap_m": 0.06650032848119736,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.044",
+    "max_original_gap_m": 0.06735577434301376,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.045",
+    "max_original_gap_m": 0.06651496887207031,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.046",
+    "max_original_gap_m": 0.06698711961507797,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.047",
+    "max_original_gap_m": 0.06395342200994492,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.048",
+    "max_original_gap_m": 0.05952925607562065,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.049",
+    "max_original_gap_m": 0.056172389537096024,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.050",
+    "max_original_gap_m": 0.05404486134648323,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.051",
+    "max_original_gap_m": 0.05328601971268654,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.052",
+    "max_original_gap_m": 0.05375927686691284,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.053",
+    "max_original_gap_m": 0.05527959391474724,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.054",
+    "max_original_gap_m": 0.055933449417352676,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.055",
+    "max_original_gap_m": 0.057422295212745667,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.056",
+    "max_original_gap_m": 0.059856437146663666,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Lapel saddle seam.057",
+    "max_original_gap_m": 0.06309720873832703,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Open linen collar.001",
+    "max_original_gap_m": 0.04077159985899925,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Antique coat button.004",
+    "max_original_gap_m": 0.0470089390873909,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Button inset.004",
+    "max_original_gap_m": 0.04775393381714821,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Antique coat button.005",
+    "max_original_gap_m": 0.05375238507986069,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Button inset.005",
+    "max_original_gap_m": 0.05469902232289314,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Antique coat button.006",
+    "max_original_gap_m": 0.06204436719417572,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Button inset.006",
+    "max_original_gap_m": 0.06255505234003067,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Antique coat button.007",
+    "max_original_gap_m": 0.06452453881502151,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Button inset.007",
+    "max_original_gap_m": 0.06477274745702744,
+    "surface_offset_m": 0.008
+  },
+  {
+    "object": "Slant pocket welt.001",
+    "max_original_gap_m": 0.0410718098282814,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Shirt mother of pearl button",
+    "max_original_gap_m": 0.024991853162646294,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Shirt placket",
+    "max_original_gap_m": 0.023996813222765923,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Shirt mother of pearl button.001",
+    "max_original_gap_m": 0.023759039118885994,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Shirt placket.001",
+    "max_original_gap_m": 0.025395141914486885,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Shirt mother of pearl button.002",
+    "max_original_gap_m": 0.024483300745487213,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Shirt placket.002",
+    "max_original_gap_m": 0.021305078640580177,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Shirt mother of pearl button.003",
+    "max_original_gap_m": 0.017452135682106018,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Shirt placket.003",
+    "max_original_gap_m": 0.02074231579899788,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Shirt mother of pearl button.004",
+    "max_original_gap_m": 0.023755008354783058,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Shirt placket.004",
+    "max_original_gap_m": 0.02629917673766613,
+    "surface_offset_m": 0.004
+  },
+  {
+    "object": "Coat patch",
+    "max_original_gap_m": 0.05328142270445824,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending",
+    "max_original_gap_m": 0.014717625454068184,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.001",
+    "max_original_gap_m": 0.004864773713052273,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.002",
+    "max_original_gap_m": 0.005394835490733385,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.003",
+    "max_original_gap_m": 0.009539732709527016,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.004",
+    "max_original_gap_m": 0.017161795869469643,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.005",
+    "max_original_gap_m": 0.023827584460377693,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.006",
+    "max_original_gap_m": 0.03248509019613266,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.007",
+    "max_original_gap_m": 0.04215610399842262,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.008",
+    "max_original_gap_m": 0.045631956309080124,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.009",
+    "max_original_gap_m": 0.048416610807180405,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.010",
+    "max_original_gap_m": 0.05358594283461571,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.011",
+    "max_original_gap_m": 0.05739794299006462,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.012",
+    "max_original_gap_m": 0.059562474489212036,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.013",
+    "max_original_gap_m": 0.059752512723207474,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.014",
+    "max_original_gap_m": 0.055792443454265594,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.015",
+    "max_original_gap_m": 0.04524359479546547,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.016",
+    "max_original_gap_m": 0.033143334090709686,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.017",
+    "max_original_gap_m": 0.02300092950463295,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.018",
+    "max_original_gap_m": 0.015444306656718254,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.019",
+    "max_original_gap_m": 0.008786756545305252,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.020",
+    "max_original_gap_m": 0.0023870605509728193,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.021",
+    "max_original_gap_m": 0.0018552106339484453,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.022",
+    "max_original_gap_m": 0.00487305736169219,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.023",
+    "max_original_gap_m": 0.0071478914469480515,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.024",
+    "max_original_gap_m": 0.00959291122853756,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.025",
+    "max_original_gap_m": 0.013640428893268108,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.026",
+    "max_original_gap_m": 0.01751076802611351,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.027",
+    "max_original_gap_m": 0.020518161356449127,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray",
+    "max_original_gap_m": 0.01850217767059803,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.001",
+    "max_original_gap_m": 0.00846240296959877,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.002",
+    "max_original_gap_m": 0.0022634402848780155,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.003",
+    "max_original_gap_m": 0.007569984998553991,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.004",
+    "max_original_gap_m": 0.015217015519738197,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.005",
+    "max_original_gap_m": 0.026482706889510155,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.006",
+    "max_original_gap_m": 0.04026324301958084,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch.001",
+    "max_original_gap_m": 0.03719092160463333,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.028",
+    "max_original_gap_m": 0.03282136470079422,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.029",
+    "max_original_gap_m": 0.021837785840034485,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.030",
+    "max_original_gap_m": 0.011519062332808971,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.031",
+    "max_original_gap_m": 0.007454106118530035,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.032",
+    "max_original_gap_m": 0.005648331250995398,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.033",
+    "max_original_gap_m": 0.013379068113863468,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.034",
+    "max_original_gap_m": 0.02208235301077366,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.035",
+    "max_original_gap_m": 0.028714869171380997,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.036",
+    "max_original_gap_m": 0.028497429564595222,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.037",
+    "max_original_gap_m": 0.029864029958844185,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.038",
+    "max_original_gap_m": 0.030362248420715332,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.039",
+    "max_original_gap_m": 0.029426489025354385,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.040",
+    "max_original_gap_m": 0.029434576630592346,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.041",
+    "max_original_gap_m": 0.02688630484044552,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.042",
+    "max_original_gap_m": 0.020875200629234314,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.043",
+    "max_original_gap_m": 0.009562398307025433,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.044",
+    "max_original_gap_m": 0.003833457827568054,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.045",
+    "max_original_gap_m": 0.01402820274233818,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.046",
+    "max_original_gap_m": 0.022924350574612617,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.047",
+    "max_original_gap_m": 0.031032999977469444,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.048",
+    "max_original_gap_m": 0.038304876536130905,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.049",
+    "max_original_gap_m": 0.04380671679973602,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.050",
+    "max_original_gap_m": 0.043707896023988724,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.051",
+    "max_original_gap_m": 0.04415799677371979,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.052",
+    "max_original_gap_m": 0.042478784918785095,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.053",
+    "max_original_gap_m": 0.040528278797864914,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.054",
+    "max_original_gap_m": 0.041403044015169144,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.055",
+    "max_original_gap_m": 0.04152168706059456,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.007",
+    "max_original_gap_m": 0.03225236013531685,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.008",
+    "max_original_gap_m": 0.019250160083174706,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.009",
+    "max_original_gap_m": 0.005705105606466532,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.010",
+    "max_original_gap_m": 0.0023107079323381186,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.011",
+    "max_original_gap_m": 0.012306038290262222,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.012",
+    "max_original_gap_m": 0.022383978590369225,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.013",
+    "max_original_gap_m": 0.03436947613954544,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch.002",
+    "max_original_gap_m": 0.053620677441358566,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.056",
+    "max_original_gap_m": 0.005732073914259672,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.057",
+    "max_original_gap_m": 0.007291336078196764,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.058",
+    "max_original_gap_m": 0.011137804016470909,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.059",
+    "max_original_gap_m": 0.016577545553445816,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.060",
+    "max_original_gap_m": 0.025905001908540726,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.061",
+    "max_original_gap_m": 0.040325265377759933,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.062",
+    "max_original_gap_m": 0.05093010887503624,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.063",
+    "max_original_gap_m": 0.05650152266025543,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.064",
+    "max_original_gap_m": 0.05395561456680298,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.065",
+    "max_original_gap_m": 0.052007246762514114,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.066",
+    "max_original_gap_m": 0.04724348708987236,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.067",
+    "max_original_gap_m": 0.04144839197397232,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.068",
+    "max_original_gap_m": 0.03690199926495552,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.069",
+    "max_original_gap_m": 0.034397441893815994,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.070",
+    "max_original_gap_m": 0.02601439133286476,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.071",
+    "max_original_gap_m": 0.020008325576782227,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.072",
+    "max_original_gap_m": 0.016281357035040855,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.073",
+    "max_original_gap_m": 0.010224027559161186,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.074",
+    "max_original_gap_m": 0.004744040314108133,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.075",
+    "max_original_gap_m": 0.007922539487481117,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.076",
+    "max_original_gap_m": 0.015575357712805271,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.077",
+    "max_original_gap_m": 0.01606377400457859,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.078",
+    "max_original_gap_m": 0.015780875459313393,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.079",
+    "max_original_gap_m": 0.01577935926616192,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.080",
+    "max_original_gap_m": 0.015729105100035667,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.081",
+    "max_original_gap_m": 0.012292461469769478,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.082",
+    "max_original_gap_m": 0.008765120059251785,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.083",
+    "max_original_gap_m": 0.005628486163914204,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.014",
+    "max_original_gap_m": 0.002650050912052393,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.015",
+    "max_original_gap_m": 0.002967182081192732,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.016",
+    "max_original_gap_m": 0.008485093712806702,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.017",
+    "max_original_gap_m": 0.01610385999083519,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.018",
+    "max_original_gap_m": 0.033233653753995895,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.019",
+    "max_original_gap_m": 0.0457756482064724,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.020",
+    "max_original_gap_m": 0.05629448592662811,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch.003",
+    "max_original_gap_m": 0.03545541688799858,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.084",
+    "max_original_gap_m": 0.026605404913425446,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.085",
+    "max_original_gap_m": 0.0204841960221529,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.086",
+    "max_original_gap_m": 0.013571669347584248,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.087",
+    "max_original_gap_m": 0.008844535797834396,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.088",
+    "max_original_gap_m": 0.0026332675479352474,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.089",
+    "max_original_gap_m": 0.003659134032204747,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.090",
+    "max_original_gap_m": 0.006075706332921982,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.091",
+    "max_original_gap_m": 0.007045073434710503,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.092",
+    "max_original_gap_m": 0.00689687067642808,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.093",
+    "max_original_gap_m": 0.007027764338999987,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.094",
+    "max_original_gap_m": 0.007987591437995434,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.095",
+    "max_original_gap_m": 0.009689352475106716,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.096",
+    "max_original_gap_m": 0.012021004222333431,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.097",
+    "max_original_gap_m": 0.015690574422478676,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.098",
+    "max_original_gap_m": 0.018532296642661095,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.099",
+    "max_original_gap_m": 0.01892068237066269,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.100",
+    "max_original_gap_m": 0.023812441155314445,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.101",
+    "max_original_gap_m": 0.02581871673464775,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.102",
+    "max_original_gap_m": 0.030497658997774124,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.103",
+    "max_original_gap_m": 0.03844470903277397,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.104",
+    "max_original_gap_m": 0.03732831031084061,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.105",
+    "max_original_gap_m": 0.03462957963347435,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.106",
+    "max_original_gap_m": 0.03085816651582718,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.107",
+    "max_original_gap_m": 0.027928302064538002,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.108",
+    "max_original_gap_m": 0.026612823829054832,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.109",
+    "max_original_gap_m": 0.02716176025569439,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.110",
+    "max_original_gap_m": 0.02703365869820118,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.111",
+    "max_original_gap_m": 0.02696271799504757,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.021",
+    "max_original_gap_m": 0.023530181497335434,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.022",
+    "max_original_gap_m": 0.017040517181158066,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.023",
+    "max_original_gap_m": 0.009235338307917118,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.024",
+    "max_original_gap_m": 0.0034957739990204573,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.025",
+    "max_original_gap_m": 0.0020672192331403494,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.026",
+    "max_original_gap_m": 0.0021064591128379107,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.027",
+    "max_original_gap_m": 0.003668733173981309,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch.004",
+    "max_original_gap_m": 0.04212033003568649,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.112",
+    "max_original_gap_m": 0.03876695781946182,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.113",
+    "max_original_gap_m": 0.02900617942214012,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.114",
+    "max_original_gap_m": 0.013666396029293537,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.115",
+    "max_original_gap_m": 0.005005315877497196,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.116",
+    "max_original_gap_m": 0.0023955374490469694,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.117",
+    "max_original_gap_m": 0.0044077057391405106,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.118",
+    "max_original_gap_m": 0.01132387388497591,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.119",
+    "max_original_gap_m": 0.0159642081707716,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.120",
+    "max_original_gap_m": 0.015464517287909985,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.121",
+    "max_original_gap_m": 0.01509077474474907,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.122",
+    "max_original_gap_m": 0.013572528026998043,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.123",
+    "max_original_gap_m": 0.010999465361237526,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.124",
+    "max_original_gap_m": 0.00983105506747961,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.125",
+    "max_original_gap_m": 0.010358870029449463,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.126",
+    "max_original_gap_m": 0.007640132214874029,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.127",
+    "max_original_gap_m": 0.00351004209369421,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.128",
+    "max_original_gap_m": 0.0028134912718087435,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.129",
+    "max_original_gap_m": 0.008109088987112045,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.130",
+    "max_original_gap_m": 0.019336091354489326,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.131",
+    "max_original_gap_m": 0.02981252782046795,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.132",
+    "max_original_gap_m": 0.03522971644997597,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.133",
+    "max_original_gap_m": 0.03977866843342781,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.134",
+    "max_original_gap_m": 0.040844619274139404,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.135",
+    "max_original_gap_m": 0.043249353766441345,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.136",
+    "max_original_gap_m": 0.0442567877471447,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.137",
+    "max_original_gap_m": 0.04447280988097191,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.138",
+    "max_original_gap_m": 0.04530800133943558,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.139",
+    "max_original_gap_m": 0.044635772705078125,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.028",
+    "max_original_gap_m": 0.03826221451163292,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.029",
+    "max_original_gap_m": 0.02833118662238121,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.030",
+    "max_original_gap_m": 0.010345390066504478,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.031",
+    "max_original_gap_m": 0.002742035547271371,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.032",
+    "max_original_gap_m": 0.005949672311544418,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.033",
+    "max_original_gap_m": 0.011076809838414192,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.034",
+    "max_original_gap_m": 0.022806167602539062,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch.005",
+    "max_original_gap_m": 0.04019521549344063,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.140",
+    "max_original_gap_m": 0.009855210781097412,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.141",
+    "max_original_gap_m": 0.0018995004938915372,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.142",
+    "max_original_gap_m": 0.0018154665594920516,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.143",
+    "max_original_gap_m": 0.004091110546141863,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.144",
+    "max_original_gap_m": 0.010186155326664448,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.145",
+    "max_original_gap_m": 0.01761033572256565,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.146",
+    "max_original_gap_m": 0.02748473919928074,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.147",
+    "max_original_gap_m": 0.037025243043899536,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.148",
+    "max_original_gap_m": 0.03725174441933632,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.149",
+    "max_original_gap_m": 0.039585817605257034,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.150",
+    "max_original_gap_m": 0.041715867817401886,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.151",
+    "max_original_gap_m": 0.040464699268341064,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.152",
+    "max_original_gap_m": 0.04056280478835106,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.153",
+    "max_original_gap_m": 0.04372682422399521,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.154",
+    "max_original_gap_m": 0.03686482831835747,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.155",
+    "max_original_gap_m": 0.026474501937627792,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.156",
+    "max_original_gap_m": 0.0218015406280756,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.157",
+    "max_original_gap_m": 0.018559442833065987,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.158",
+    "max_original_gap_m": 0.015489720739424229,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.159",
+    "max_original_gap_m": 0.007550420705229044,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.160",
+    "max_original_gap_m": 0.006900715176016092,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.161",
+    "max_original_gap_m": 0.009016153402626514,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.162",
+    "max_original_gap_m": 0.010605144314467907,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.163",
+    "max_original_gap_m": 0.011767805553972721,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.164",
+    "max_original_gap_m": 0.01300971768796444,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.165",
+    "max_original_gap_m": 0.015198364853858948,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.166",
+    "max_original_gap_m": 0.01641768589615822,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch mending.167",
+    "max_original_gap_m": 0.016289927065372467,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.035",
+    "max_original_gap_m": 0.013349431566894054,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.036",
+    "max_original_gap_m": 0.004401046317070723,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.037",
+    "max_original_gap_m": 0.004007532726973295,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.038",
+    "max_original_gap_m": 0.0016123463865369558,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.039",
+    "max_original_gap_m": 0.009703912772238255,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.040",
+    "max_original_gap_m": 0.022052571177482605,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Coat patch fray.041",
+    "max_original_gap_m": 0.03385952487587929,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Faded hat band",
+    "max_original_gap_m": 0.008319602347910404,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch",
+    "max_original_gap_m": 0.06297153979539871,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending",
+    "max_original_gap_m": 0.010158252902328968,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.001",
+    "max_original_gap_m": 0.012950414791703224,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.002",
+    "max_original_gap_m": 0.018160415813326836,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.003",
+    "max_original_gap_m": 0.02253776602447033,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.004",
+    "max_original_gap_m": 0.028813492506742477,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.005",
+    "max_original_gap_m": 0.03268539533019066,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.006",
+    "max_original_gap_m": 0.03940736874938011,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.007",
+    "max_original_gap_m": 0.0453888475894928,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.008",
+    "max_original_gap_m": 0.047894950956106186,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.009",
+    "max_original_gap_m": 0.05195353925228119,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.010",
+    "max_original_gap_m": 0.05421978980302811,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.011",
+    "max_original_gap_m": 0.05753064528107643,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.012",
+    "max_original_gap_m": 0.06211560592055321,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.013",
+    "max_original_gap_m": 0.06660477817058563,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.014",
+    "max_original_gap_m": 0.06695566326379776,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.015",
+    "max_original_gap_m": 0.060835324227809906,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.016",
+    "max_original_gap_m": 0.0553937628865242,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.017",
+    "max_original_gap_m": 0.049000196158885956,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.018",
+    "max_original_gap_m": 0.04461243376135826,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.019",
+    "max_original_gap_m": 0.04186427220702171,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.020",
+    "max_original_gap_m": 0.03975996375083923,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.021",
+    "max_original_gap_m": 0.037280868738889694,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.022",
+    "max_original_gap_m": 0.03394167870283127,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.023",
+    "max_original_gap_m": 0.029701193794608116,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.024",
+    "max_original_gap_m": 0.025384794920682907,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.025",
+    "max_original_gap_m": 0.021237090229988098,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.026",
+    "max_original_gap_m": 0.017734378576278687,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch mending.027",
+    "max_original_gap_m": 0.01307689305394888,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch fray",
+    "max_original_gap_m": 0.003420101245865226,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch fray.001",
+    "max_original_gap_m": 0.005810716655105352,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch fray.002",
+    "max_original_gap_m": 0.012334327213466167,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch fray.003",
+    "max_original_gap_m": 0.020247681066393852,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch fray.004",
+    "max_original_gap_m": 0.02518574148416519,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch fray.005",
+    "max_original_gap_m": 0.030815787613391876,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat burgundy patch fray.006",
+    "max_original_gap_m": 0.038585592061281204,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn",
+    "max_original_gap_m": 0.023999633267521858,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending",
+    "max_original_gap_m": 0.027538908645510674,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.001",
+    "max_original_gap_m": 0.02446887269616127,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.002",
+    "max_original_gap_m": 0.022531168535351753,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.003",
+    "max_original_gap_m": 0.021922940388321877,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.004",
+    "max_original_gap_m": 0.018691612407565117,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.005",
+    "max_original_gap_m": 0.015755124390125275,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.006",
+    "max_original_gap_m": 0.015135988593101501,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.007",
+    "max_original_gap_m": 0.017041588202118874,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.008",
+    "max_original_gap_m": 0.01768481358885765,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.009",
+    "max_original_gap_m": 0.019594108685851097,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.010",
+    "max_original_gap_m": 0.022023221477866173,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.011",
+    "max_original_gap_m": 0.02276632748544216,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.012",
+    "max_original_gap_m": 0.025906872004270554,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.013",
+    "max_original_gap_m": 0.02989386022090912,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.014",
+    "max_original_gap_m": 0.030431654304265976,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.015",
+    "max_original_gap_m": 0.028244812041521072,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.016",
+    "max_original_gap_m": 0.02678411453962326,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.017",
+    "max_original_gap_m": 0.02729647420346737,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.018",
+    "max_original_gap_m": 0.02850055880844593,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.019",
+    "max_original_gap_m": 0.02814294584095478,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.020",
+    "max_original_gap_m": 0.027650289237499237,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.021",
+    "max_original_gap_m": 0.027042655274271965,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.022",
+    "max_original_gap_m": 0.026470275595784187,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.023",
+    "max_original_gap_m": 0.026931501924991608,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.024",
+    "max_original_gap_m": 0.02769983559846878,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.025",
+    "max_original_gap_m": 0.028795553371310234,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.026",
+    "max_original_gap_m": 0.028651587665081024,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn mending.027",
+    "max_original_gap_m": 0.029240937903523445,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn fray",
+    "max_original_gap_m": 0.022726451978087425,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn fray.001",
+    "max_original_gap_m": 0.0182734876871109,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn fray.002",
+    "max_original_gap_m": 0.015660248696804047,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn fray.003",
+    "max_original_gap_m": 0.014312094077467918,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn fray.004",
+    "max_original_gap_m": 0.010264857672154903,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn fray.005",
+    "max_original_gap_m": 0.007890099659562111,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Hat crown darn fray.006",
+    "max_original_gap_m": 0.009574439376592636,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Abraded coat yarn",
+    "max_original_gap_m": 0.002534908475354314,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.001",
+    "max_original_gap_m": 0.00281544029712677,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.002",
+    "max_original_gap_m": 0.0023429386783391237,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.003",
+    "max_original_gap_m": 0.008541161194443703,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.004",
+    "max_original_gap_m": 0.0019490548875182867,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.005",
+    "max_original_gap_m": 0.0017390556167811155,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.006",
+    "max_original_gap_m": 0.0018088266951963305,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.007",
+    "max_original_gap_m": 0.0027768928557634354,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.008",
+    "max_original_gap_m": 0.007860461249947548,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.009",
+    "max_original_gap_m": 0.00874367170035839,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.010",
+    "max_original_gap_m": 0.006163525395095348,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.011",
+    "max_original_gap_m": 0.0050507900305092335,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.012",
+    "max_original_gap_m": 0.003959379158914089,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.013",
+    "max_original_gap_m": 0.007267635781317949,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.014",
+    "max_original_gap_m": 0.0022047506645321846,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.015",
+    "max_original_gap_m": 0.0018208479741588235,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.016",
+    "max_original_gap_m": 0.002287328476086259,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.017",
+    "max_original_gap_m": 0.0063734883442521095,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.018",
+    "max_original_gap_m": 0.004589269869029522,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.019",
+    "max_original_gap_m": 0.002914069453254342,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.020",
+    "max_original_gap_m": 0.003011138178408146,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.021",
+    "max_original_gap_m": 0.0036914802622050047,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.022",
+    "max_original_gap_m": 0.0035109855234622955,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.023",
+    "max_original_gap_m": 0.004188869148492813,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.024",
+    "max_original_gap_m": 0.002395957475528121,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.025",
+    "max_original_gap_m": 0.0020947789307683706,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.026",
+    "max_original_gap_m": 0.0023235585540533066,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.027",
+    "max_original_gap_m": 0.0029425460379570723,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.028",
+    "max_original_gap_m": 0.0051626162603497505,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.029",
+    "max_original_gap_m": 0.002479537157341838,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.030",
+    "max_original_gap_m": 0.003023924771696329,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.031",
+    "max_original_gap_m": 0.002250113058835268,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.032",
+    "max_original_gap_m": 0.0030559569131582975,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.033",
+    "max_original_gap_m": 0.004916786681860685,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.034",
+    "max_original_gap_m": 0.0030443461146205664,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.035",
+    "max_original_gap_m": 0.0025376309640705585,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.036",
+    "max_original_gap_m": 0.0023722206242382526,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.037",
+    "max_original_gap_m": 0.0023174015805125237,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.038",
+    "max_original_gap_m": 0.002077216049656272,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.039",
+    "max_original_gap_m": 0.001862008823081851,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.040",
+    "max_original_gap_m": 0.0063640642911195755,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.041",
+    "max_original_gap_m": 0.002573037054389715,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.042",
+    "max_original_gap_m": 0.004673515446484089,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.043",
+    "max_original_gap_m": 0.005650825798511505,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.044",
+    "max_original_gap_m": 0.0043039447627961636,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.045",
+    "max_original_gap_m": 0.005489317234605551,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.046",
+    "max_original_gap_m": 0.0018851819913834333,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.047",
+    "max_original_gap_m": 0.002149259904399514,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.048",
+    "max_original_gap_m": 0.003525617765262723,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.049",
+    "max_original_gap_m": 0.0020121869165450335,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.050",
+    "max_original_gap_m": 0.0032798508182168007,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.051",
+    "max_original_gap_m": 0.002870507538318634,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.052",
+    "max_original_gap_m": 0.006448736879974604,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.053",
+    "max_original_gap_m": 0.00625736964866519,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.054",
+    "max_original_gap_m": 0.0073262834921479225,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.055",
+    "max_original_gap_m": 0.0024365175049751997,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.056",
+    "max_original_gap_m": 0.002070764312520623,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.057",
+    "max_original_gap_m": 0.0025009808596223593,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.058",
+    "max_original_gap_m": 0.009322444908320904,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.059",
+    "max_original_gap_m": 0.0023115738295018673,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.060",
+    "max_original_gap_m": 0.004525192081928253,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.061",
+    "max_original_gap_m": 0.0030477792024612427,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.062",
+    "max_original_gap_m": 0.0032400700729340315,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Abraded coat yarn.063",
+    "max_original_gap_m": 0.0034119761548936367,
+    "surface_offset_m": 0.0013
+  },
+  {
+    "object": "Felt moth hole",
+    "max_original_gap_m": 0.02595936693251133,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.001",
+    "max_original_gap_m": 0.030020587146282196,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.002",
+    "max_original_gap_m": 0.04001765698194504,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.003",
+    "max_original_gap_m": 0.026341170072555542,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.004",
+    "max_original_gap_m": 0.015186674892902374,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.005",
+    "max_original_gap_m": 0.013699107803404331,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.006",
+    "max_original_gap_m": 0.01553305797278881,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.007",
+    "max_original_gap_m": 0.012601835653185844,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.008",
+    "max_original_gap_m": 0.028884217143058777,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.009",
+    "max_original_gap_m": 0.005927449092268944,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.010",
+    "max_original_gap_m": 0.017104586586356163,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.011",
+    "max_original_gap_m": 0.006864776369184256,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.012",
+    "max_original_gap_m": 0.021630549803376198,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.013",
+    "max_original_gap_m": 0.005565148778259754,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.014",
+    "max_original_gap_m": 0.04398450627923012,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.015",
+    "max_original_gap_m": 0.02970404550433159,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.016",
+    "max_original_gap_m": 0.040238652378320694,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Felt moth hole.017",
+    "max_original_gap_m": 0.01475549302995205,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Knee repair L",
+    "max_original_gap_m": 0.02114447019994259,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending",
+    "max_original_gap_m": 0.024991048499941826,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.001",
+    "max_original_gap_m": 0.01736600697040558,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.002",
+    "max_original_gap_m": 0.013053696602582932,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.003",
+    "max_original_gap_m": 0.016339821740984917,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.004",
+    "max_original_gap_m": 0.017250075936317444,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.005",
+    "max_original_gap_m": 0.020746976137161255,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.006",
+    "max_original_gap_m": 0.02171289548277855,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.007",
+    "max_original_gap_m": 0.02340329997241497,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.008",
+    "max_original_gap_m": 0.025585537776350975,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.009",
+    "max_original_gap_m": 0.027654137462377548,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.010",
+    "max_original_gap_m": 0.027350686490535736,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.011",
+    "max_original_gap_m": 0.026330964639782906,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.012",
+    "max_original_gap_m": 0.022946475073695183,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.013",
+    "max_original_gap_m": 0.01911623775959015,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.014",
+    "max_original_gap_m": 0.01655670814216137,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.015",
+    "max_original_gap_m": 0.012352216988801956,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.016",
+    "max_original_gap_m": 0.007300199940800667,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.017",
+    "max_original_gap_m": 0.005764380097389221,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.018",
+    "max_original_gap_m": 0.005616962444037199,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.019",
+    "max_original_gap_m": 0.012128498405218124,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.020",
+    "max_original_gap_m": 0.017359724268317223,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.021",
+    "max_original_gap_m": 0.019865883514285088,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.022",
+    "max_original_gap_m": 0.020512176677584648,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.023",
+    "max_original_gap_m": 0.02264426089823246,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.024",
+    "max_original_gap_m": 0.023079166188836098,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.025",
+    "max_original_gap_m": 0.021488148719072342,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.026",
+    "max_original_gap_m": 0.022413345053792,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L mending.027",
+    "max_original_gap_m": 0.025388721376657486,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L fray",
+    "max_original_gap_m": 0.02157524786889553,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L fray.001",
+    "max_original_gap_m": 0.011505989357829094,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L fray.002",
+    "max_original_gap_m": 0.00830402597784996,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L fray.003",
+    "max_original_gap_m": 0.010403776541352272,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L fray.004",
+    "max_original_gap_m": 0.013142761774361134,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L fray.005",
+    "max_original_gap_m": 0.015215124003589153,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair L fray.006",
+    "max_original_gap_m": 0.02016930840909481,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L",
+    "max_original_gap_m": 0.015213511884212494,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending",
+    "max_original_gap_m": 0.020840348675847054,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.001",
+    "max_original_gap_m": 0.018474282696843147,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.002",
+    "max_original_gap_m": 0.01396078523248434,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.003",
+    "max_original_gap_m": 0.01241904404014349,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.004",
+    "max_original_gap_m": 0.01404460147023201,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.005",
+    "max_original_gap_m": 0.018159588798880577,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.006",
+    "max_original_gap_m": 0.01885637454688549,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.007",
+    "max_original_gap_m": 0.019119583070278168,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.008",
+    "max_original_gap_m": 0.01889382116496563,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.009",
+    "max_original_gap_m": 0.01828313060104847,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.010",
+    "max_original_gap_m": 0.01786588877439499,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.011",
+    "max_original_gap_m": 0.017750076949596405,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.012",
+    "max_original_gap_m": 0.016673050820827484,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.013",
+    "max_original_gap_m": 0.015460237860679626,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.014",
+    "max_original_gap_m": 0.01222811546176672,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.015",
+    "max_original_gap_m": 0.012254592031240463,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.016",
+    "max_original_gap_m": 0.013658616691827774,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.017",
+    "max_original_gap_m": 0.01592112146317959,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.018",
+    "max_original_gap_m": 0.01402326114475727,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.019",
+    "max_original_gap_m": 0.015734277665615082,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.020",
+    "max_original_gap_m": 0.018296418711543083,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.021",
+    "max_original_gap_m": 0.019467420876026154,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.022",
+    "max_original_gap_m": 0.020112760365009308,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.023",
+    "max_original_gap_m": 0.019244439899921417,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.024",
+    "max_original_gap_m": 0.020677844062447548,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.025",
+    "max_original_gap_m": 0.021060001105070114,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.026",
+    "max_original_gap_m": 0.021289650350809097,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L mending.027",
+    "max_original_gap_m": 0.022263500839471817,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L fray",
+    "max_original_gap_m": 0.015781616792082787,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L fray.001",
+    "max_original_gap_m": 0.012676065787672997,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L fray.002",
+    "max_original_gap_m": 0.0076050725765526295,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L fray.003",
+    "max_original_gap_m": 0.006920911371707916,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L fray.004",
+    "max_original_gap_m": 0.011521579697728157,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L fray.005",
+    "max_original_gap_m": 0.012176749296486378,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair L fray.006",
+    "max_original_gap_m": 0.015145940706133842,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L",
+    "max_original_gap_m": 0.025441450998187065,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending",
+    "max_original_gap_m": 0.014097730629146099,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.001",
+    "max_original_gap_m": 0.006667453330010176,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.002",
+    "max_original_gap_m": 0.008374089375138283,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.003",
+    "max_original_gap_m": 0.012160323560237885,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.004",
+    "max_original_gap_m": 0.014577575959265232,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.005",
+    "max_original_gap_m": 0.01950492151081562,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.006",
+    "max_original_gap_m": 0.021315233781933784,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.007",
+    "max_original_gap_m": 0.02323007956147194,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.008",
+    "max_original_gap_m": 0.023423196747899055,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.009",
+    "max_original_gap_m": 0.02131081558763981,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.010",
+    "max_original_gap_m": 0.018227746710181236,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.011",
+    "max_original_gap_m": 0.01578788459300995,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.012",
+    "max_original_gap_m": 0.017238495871424675,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.013",
+    "max_original_gap_m": 0.015904590487480164,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.014",
+    "max_original_gap_m": 0.012852153740823269,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.015",
+    "max_original_gap_m": 0.0159201230853796,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.016",
+    "max_original_gap_m": 0.01705707237124443,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.017",
+    "max_original_gap_m": 0.01803729496896267,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.018",
+    "max_original_gap_m": 0.02048603817820549,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.019",
+    "max_original_gap_m": 0.022900709882378578,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.020",
+    "max_original_gap_m": 0.02892574481666088,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.021",
+    "max_original_gap_m": 0.031230885535478592,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.022",
+    "max_original_gap_m": 0.02894776687026024,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.023",
+    "max_original_gap_m": 0.028001569211483,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.024",
+    "max_original_gap_m": 0.023414069786667824,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.025",
+    "max_original_gap_m": 0.018683791160583496,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.026",
+    "max_original_gap_m": 0.016418706625699997,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L mending.027",
+    "max_original_gap_m": 0.01674582064151764,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L fray",
+    "max_original_gap_m": 0.010461555793881416,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L fray.001",
+    "max_original_gap_m": 0.001793065806850791,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L fray.002",
+    "max_original_gap_m": 0.003806496737524867,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L fray.003",
+    "max_original_gap_m": 0.007345186080783606,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L fray.004",
+    "max_original_gap_m": 0.013127033598721027,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L fray.005",
+    "max_original_gap_m": 0.014943444170057774,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn L fray.006",
+    "max_original_gap_m": 0.023639237508177757,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Boot tongue",
+    "max_original_gap_m": 0.060634009540081024,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet",
+    "max_original_gap_m": 0.03569941967725754,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.001",
+    "max_original_gap_m": 0.03612903878092766,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace",
+    "max_original_gap_m": 0.031198065727949142,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.001",
+    "max_original_gap_m": 0.03202754631638527,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace eyelet.002",
+    "max_original_gap_m": 0.016006292775273323,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.003",
+    "max_original_gap_m": 0.017583034932613373,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace.002",
+    "max_original_gap_m": 0.010893394239246845,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.003",
+    "max_original_gap_m": 0.012007749639451504,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace eyelet.004",
+    "max_original_gap_m": 0.012480619363486767,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.005",
+    "max_original_gap_m": 0.010364197194576263,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace.004",
+    "max_original_gap_m": 0.023416513577103615,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.005",
+    "max_original_gap_m": 0.02622959576547146,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace eyelet.006",
+    "max_original_gap_m": 0.02628750167787075,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.007",
+    "max_original_gap_m": 0.023305321112275124,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace.006",
+    "max_original_gap_m": 0.0326991006731987,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.007",
+    "max_original_gap_m": 0.035316966474056244,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace eyelet.008",
+    "max_original_gap_m": 0.03080798126757145,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.009",
+    "max_original_gap_m": 0.028173329308629036,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace.008",
+    "max_original_gap_m": 0.03556216508150101,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.009",
+    "max_original_gap_m": 0.037691399455070496,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace bow",
+    "max_original_gap_m": 0.07746271044015884,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Scuffed toe repair",
+    "max_original_gap_m": 0.027037713676691055,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending",
+    "max_original_gap_m": 0.017666496336460114,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.001",
+    "max_original_gap_m": 0.014578942209482193,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.002",
+    "max_original_gap_m": 0.012160995043814182,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.003",
+    "max_original_gap_m": 0.010860308073461056,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.004",
+    "max_original_gap_m": 0.01097713503986597,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.005",
+    "max_original_gap_m": 0.013261253945529461,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.006",
+    "max_original_gap_m": 0.016798922792077065,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.007",
+    "max_original_gap_m": 0.01902267336845398,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.008",
+    "max_original_gap_m": 0.020106367766857147,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.009",
+    "max_original_gap_m": 0.02227764204144478,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.010",
+    "max_original_gap_m": 0.02461753971874714,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.011",
+    "max_original_gap_m": 0.02602412737905979,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.012",
+    "max_original_gap_m": 0.02865065261721611,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.013",
+    "max_original_gap_m": 0.03282078355550766,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.014",
+    "max_original_gap_m": 0.03355781361460686,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.015",
+    "max_original_gap_m": 0.03002682328224182,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.016",
+    "max_original_gap_m": 0.02715969644486904,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.017",
+    "max_original_gap_m": 0.02799627184867859,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.018",
+    "max_original_gap_m": 0.029964540153741837,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.019",
+    "max_original_gap_m": 0.030498860403895378,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.020",
+    "max_original_gap_m": 0.030893079936504364,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.021",
+    "max_original_gap_m": 0.028561720624566078,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.022",
+    "max_original_gap_m": 0.027757836505770683,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.023",
+    "max_original_gap_m": 0.026264259591698647,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.024",
+    "max_original_gap_m": 0.02352556213736534,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.025",
+    "max_original_gap_m": 0.022299999371170998,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.026",
+    "max_original_gap_m": 0.021459288895130157,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.027",
+    "max_original_gap_m": 0.020635103806853294,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray",
+    "max_original_gap_m": 0.012516152113676071,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.001",
+    "max_original_gap_m": 0.008157793432474136,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.002",
+    "max_original_gap_m": 0.005220912396907806,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.003",
+    "max_original_gap_m": 0.0036778992507606745,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.004",
+    "max_original_gap_m": 0.005229068920016289,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.005",
+    "max_original_gap_m": 0.009109314531087875,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.006",
+    "max_original_gap_m": 0.013820423744618893,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Knee repair R",
+    "max_original_gap_m": 0.02264120802283287,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending",
+    "max_original_gap_m": 0.02659515291452408,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.001",
+    "max_original_gap_m": 0.018254393711686134,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.002",
+    "max_original_gap_m": 0.013034457340836525,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.003",
+    "max_original_gap_m": 0.015787217766046524,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.004",
+    "max_original_gap_m": 0.016621876507997513,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.005",
+    "max_original_gap_m": 0.01987866684794426,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.006",
+    "max_original_gap_m": 0.02158534526824951,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.007",
+    "max_original_gap_m": 0.022423289716243744,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.008",
+    "max_original_gap_m": 0.024893557652831078,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.009",
+    "max_original_gap_m": 0.027203049510717392,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.010",
+    "max_original_gap_m": 0.028760718181729317,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.011",
+    "max_original_gap_m": 0.028581300750374794,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.012",
+    "max_original_gap_m": 0.027269477024674416,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.013",
+    "max_original_gap_m": 0.02379988133907318,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.014",
+    "max_original_gap_m": 0.019141068682074547,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.015",
+    "max_original_gap_m": 0.016197700053453445,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.016",
+    "max_original_gap_m": 0.011482448317110538,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.017",
+    "max_original_gap_m": 0.007323415484279394,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.018",
+    "max_original_gap_m": 0.006488892715424299,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.019",
+    "max_original_gap_m": 0.004936347249895334,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.020",
+    "max_original_gap_m": 0.011356432922184467,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.021",
+    "max_original_gap_m": 0.01706707291305065,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.022",
+    "max_original_gap_m": 0.019360480830073357,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.023",
+    "max_original_gap_m": 0.02109098620712757,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.024",
+    "max_original_gap_m": 0.022007085382938385,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.025",
+    "max_original_gap_m": 0.023071857169270515,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.026",
+    "max_original_gap_m": 0.024855172261595726,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R mending.027",
+    "max_original_gap_m": 0.027939703315496445,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R fray",
+    "max_original_gap_m": 0.02302245795726776,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R fray.001",
+    "max_original_gap_m": 0.01390873547643423,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R fray.002",
+    "max_original_gap_m": 0.007609563879668713,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R fray.003",
+    "max_original_gap_m": 0.010322685353457928,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R fray.004",
+    "max_original_gap_m": 0.012102610431611538,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R fray.005",
+    "max_original_gap_m": 0.014939707703888416,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Knee repair R fray.006",
+    "max_original_gap_m": 0.017673606052994728,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R",
+    "max_original_gap_m": 0.01511363871395588,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending",
+    "max_original_gap_m": 0.01780294068157673,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.001",
+    "max_original_gap_m": 0.014061173424124718,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.002",
+    "max_original_gap_m": 0.011891936883330345,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.003",
+    "max_original_gap_m": 0.013396836817264557,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.004",
+    "max_original_gap_m": 0.01740419864654541,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.005",
+    "max_original_gap_m": 0.01860976591706276,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.006",
+    "max_original_gap_m": 0.020103463903069496,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.007",
+    "max_original_gap_m": 0.01998080126941204,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.008",
+    "max_original_gap_m": 0.019577838480472565,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.009",
+    "max_original_gap_m": 0.019644981250166893,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.010",
+    "max_original_gap_m": 0.019327988848090172,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.011",
+    "max_original_gap_m": 0.020381998270750046,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.012",
+    "max_original_gap_m": 0.02164154127240181,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.013",
+    "max_original_gap_m": 0.022126885131001472,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.014",
+    "max_original_gap_m": 0.021067000925540924,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.015",
+    "max_original_gap_m": 0.01661435328423977,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.016",
+    "max_original_gap_m": 0.012055112980306149,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.017",
+    "max_original_gap_m": 0.011887355707585812,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.018",
+    "max_original_gap_m": 0.01347974594682455,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.019",
+    "max_original_gap_m": 0.015255080536007881,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.020",
+    "max_original_gap_m": 0.014074915088713169,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.021",
+    "max_original_gap_m": 0.014736472629010677,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.022",
+    "max_original_gap_m": 0.014098542742431164,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.023",
+    "max_original_gap_m": 0.013571574352681637,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.024",
+    "max_original_gap_m": 0.01365326065570116,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.025",
+    "max_original_gap_m": 0.015168247744441032,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.026",
+    "max_original_gap_m": 0.01742667332291603,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R mending.027",
+    "max_original_gap_m": 0.01886819675564766,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R fray",
+    "max_original_gap_m": 0.014295920729637146,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R fray.001",
+    "max_original_gap_m": 0.009778277948498726,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R fray.002",
+    "max_original_gap_m": 0.005760189611464739,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R fray.003",
+    "max_original_gap_m": 0.009042661637067795,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R fray.004",
+    "max_original_gap_m": 0.012695474550127983,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R fray.005",
+    "max_original_gap_m": 0.013725929893553257,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Shin repair R fray.006",
+    "max_original_gap_m": 0.01754981093108654,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R",
+    "max_original_gap_m": 0.03105751797556877,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending",
+    "max_original_gap_m": 0.02664477750658989,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.001",
+    "max_original_gap_m": 0.020293867215514183,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.002",
+    "max_original_gap_m": 0.01727483607828617,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.003",
+    "max_original_gap_m": 0.010684825479984283,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.004",
+    "max_original_gap_m": 0.0061081452295184135,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.005",
+    "max_original_gap_m": 0.00984286330640316,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.006",
+    "max_original_gap_m": 0.01256013847887516,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.007",
+    "max_original_gap_m": 0.014855511486530304,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.008",
+    "max_original_gap_m": 0.016336709260940552,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.009",
+    "max_original_gap_m": 0.017677271738648415,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.010",
+    "max_original_gap_m": 0.020306149497628212,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.011",
+    "max_original_gap_m": 0.024216657504439354,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.012",
+    "max_original_gap_m": 0.029744954779744148,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.013",
+    "max_original_gap_m": 0.03432369604706764,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.014",
+    "max_original_gap_m": 0.03438059985637665,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.015",
+    "max_original_gap_m": 0.02864259108901024,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.016",
+    "max_original_gap_m": 0.02467411197721958,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.017",
+    "max_original_gap_m": 0.018094893544912338,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.018",
+    "max_original_gap_m": 0.01225955318659544,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.019",
+    "max_original_gap_m": 0.014022326096892357,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.020",
+    "max_original_gap_m": 0.017347242683172226,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.021",
+    "max_original_gap_m": 0.015636328607797623,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.022",
+    "max_original_gap_m": 0.013859291560947895,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.023",
+    "max_original_gap_m": 0.014104187488555908,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.024",
+    "max_original_gap_m": 0.016702506691217422,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.025",
+    "max_original_gap_m": 0.02095244824886322,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.026",
+    "max_original_gap_m": 0.027206862345337868,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R mending.027",
+    "max_original_gap_m": 0.02959851175546646,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R fray",
+    "max_original_gap_m": 0.023945719003677368,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R fray.001",
+    "max_original_gap_m": 0.015571806579828262,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R fray.002",
+    "max_original_gap_m": 0.011907311156392097,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R fray.003",
+    "max_original_gap_m": 0.003638849128037691,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R fray.004",
+    "max_original_gap_m": 0.002044086577370763,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R fray.005",
+    "max_original_gap_m": 0.005538185592740774,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Elbow darn R fray.006",
+    "max_original_gap_m": 0.010391026735305786,
+    "surface_offset_m": 0.0014
+  },
+  {
+    "object": "Boot tongue.001",
+    "max_original_gap_m": 0.060717664659023285,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.010",
+    "max_original_gap_m": 0.03663413226604462,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.011",
+    "max_original_gap_m": 0.03519373759627342,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace.010",
+    "max_original_gap_m": 0.03216804191470146,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.011",
+    "max_original_gap_m": 0.031001508235931396,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace eyelet.012",
+    "max_original_gap_m": 0.017325233668088913,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.013",
+    "max_original_gap_m": 0.01610332541167736,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace.012",
+    "max_original_gap_m": 0.012334483675658703,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.013",
+    "max_original_gap_m": 0.01083076186478138,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace eyelet.014",
+    "max_original_gap_m": 0.010235193185508251,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.015",
+    "max_original_gap_m": 0.012427552603185177,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace.014",
+    "max_original_gap_m": 0.02655767649412155,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.015",
+    "max_original_gap_m": 0.02337706834077835,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace eyelet.016",
+    "max_original_gap_m": 0.023178620263934135,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.017",
+    "max_original_gap_m": 0.026789389550685883,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace.016",
+    "max_original_gap_m": 0.03290250524878502,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.017",
+    "max_original_gap_m": 0.03439740091562271,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace eyelet.018",
+    "max_original_gap_m": 0.027959879487752914,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Lace eyelet.019",
+    "max_original_gap_m": 0.03127674385905266,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Crossed bootlace.018",
+    "max_original_gap_m": 0.035253360867500305,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Crossed bootlace.019",
+    "max_original_gap_m": 0.037411872297525406,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Lace bow.001",
+    "max_original_gap_m": 0.0742490291595459,
+    "surface_offset_m": 0.005
+  },
+  {
+    "object": "Scuffed toe repair.001",
+    "max_original_gap_m": 0.02769816853106022,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.028",
+    "max_original_gap_m": 0.01727507822215557,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.029",
+    "max_original_gap_m": 0.01461413037031889,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.030",
+    "max_original_gap_m": 0.012451228685677052,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.031",
+    "max_original_gap_m": 0.010918661020696163,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.032",
+    "max_original_gap_m": 0.010682079009711742,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.033",
+    "max_original_gap_m": 0.012768981046974659,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.034",
+    "max_original_gap_m": 0.016656337305903435,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.035",
+    "max_original_gap_m": 0.01966693624854088,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.036",
+    "max_original_gap_m": 0.02050200290977955,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.037",
+    "max_original_gap_m": 0.021229207515716553,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.038",
+    "max_original_gap_m": 0.023711252957582474,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.039",
+    "max_original_gap_m": 0.026635348796844482,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.040",
+    "max_original_gap_m": 0.02921084687113762,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.041",
+    "max_original_gap_m": 0.03121217153966427,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.042",
+    "max_original_gap_m": 0.033884406089782715,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.043",
+    "max_original_gap_m": 0.03168420493602753,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.044",
+    "max_original_gap_m": 0.028321323916316032,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.045",
+    "max_original_gap_m": 0.027746111154556274,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.046",
+    "max_original_gap_m": 0.028970493003726006,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.047",
+    "max_original_gap_m": 0.02914983406662941,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.048",
+    "max_original_gap_m": 0.030998501926660538,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.049",
+    "max_original_gap_m": 0.030548306182026863,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.050",
+    "max_original_gap_m": 0.026132846251130104,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.051",
+    "max_original_gap_m": 0.025286801159381866,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.052",
+    "max_original_gap_m": 0.023455986753106117,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.053",
+    "max_original_gap_m": 0.021953431889414787,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.054",
+    "max_original_gap_m": 0.02027144469320774,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair mending.055",
+    "max_original_gap_m": 0.019265515729784966,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.007",
+    "max_original_gap_m": 0.012516152113676071,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.008",
+    "max_original_gap_m": 0.008157793432474136,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.009",
+    "max_original_gap_m": 0.005220912396907806,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.010",
+    "max_original_gap_m": 0.0036778992507606745,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.011",
+    "max_original_gap_m": 0.005229068920016289,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.012",
+    "max_original_gap_m": 0.009109314531087875,
+    "surface_offset_m": 0.003
+  },
+  {
+    "object": "Scuffed toe repair fray.013",
+    "max_original_gap_m": 0.013820423744618893,
+    "surface_offset_m": 0.003
+  }
+]

@@ -7,6 +7,9 @@
 
 namespace lg {
 
+// Shared by collision sizing and skinned-model presentation.
+inline constexpr float kCrouchHeightScale = 0.62F;
+
 struct CollisionBounds {
   float radius = 0.35F;
   float halfHeight = 0.9F;

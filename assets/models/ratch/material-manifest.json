@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "model": "ratch.glb",
+  "model_sha256": "6b42d12791201ea48f00dce9f7ff0092ae68e0c6d24f69e8f1a47d740b564992",
+  "opaque": true,
+  "uv_mode": "texcoord0",
+  "albedo_mode": "replace",
+  "mip_policy": "runtime_generate",
+  "textures": {
+    "albedo": {
+      "path": "ratch_albedo.png",
+      "color_space": "srgb",
+      "width": 2048,
+      "height": 2048
+    },
+    "packed_mask": {
+      "path": "ratch_material_mask.png",
+      "color_space": "linear",
+      "width": 2048,
+      "height": 2048
+    }
+  },
+  "packed_mask_contract": {
+    "r": "team_tint_weight",
+    "g": "perceptual_roughness",
+    "b": "metallic_weight",
+    "a": "emissive_weight_reserved_zero"
+  },
+  "require_material_coverage": true,
+  "materials": [
+    {
+      "index": 0,
+      "name": "pants.001",
+      "flat_tint_weight": 0.02
+    },
+    {
+      "index": 1,
+      "name": "shirt",
+      "flat_tint_weight": 0.06
+    },
+    {
+      "index": 2,
+      "name": "skin.001",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 3,
+      "name": "coat",
+      "flat_tint_weight": 0.04
+    },
+    {
+      "index": 4,
+      "name": "coat_edge",
+      "flat_tint_weight": 0.03
+    },
+    {
+      "index": 5,
+      "name": "vest",
+      "flat_tint_weight": 0.65
+    },
+    {
+      "index": 6,
+      "name": "thread",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 7,
+      "name": "brass",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 8,
+      "name": "leather.001",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 9,
+      "name": "crease",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 10,
+      "name": "patch_red",
+      "flat_tint_weight": 0.035
+    },
+    {
+      "index": 11,
+      "name": "patch_plaid",
+      "flat_tint_weight": 0.035
+    },
+    {
+      "index": 12,
+      "name": "patch_blue",
+      "flat_tint_weight": 0.035
+    },
+    {
+      "index": 13,
+      "name": "sole",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 14,
+      "name": "face",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 15,
+      "name": "eye",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 16,
+      "name": "iris.001",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 17,
+      "name": "black.001",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 18,
+      "name": "hair_light",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 19,
+      "name": "hair.001",
+      "flat_tint_weight": 0
+    },
+    {
+      "index": 20,
+      "name": "hair_gray",
+      "flat_tint_weight": 0
+    }
+  ]
+}

@@ -12,7 +12,6 @@
 namespace lg {
 namespace {
 
-constexpr float kCrouchHeightScale = 0.62F;
 constexpr float kCrouchGroundSpeedScale = 0.35F;
 constexpr float kSneakGroundSpeedScale = 0.52F;
 constexpr float kSlideMinimumSpeedScale = 0.55F;

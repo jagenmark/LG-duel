@@ -176,6 +176,15 @@ int main() {
     frame.diagnostics.currentState == lg::PlayerLocomotionState::CrouchWalk,
     "moving crouch should select crouch walk"
   );
+  lg::PlayerPresentationConfig stableSizeConfig = config;
+  stableSizeConfig.standingHalfHeight = 0.9F;
+  player.bounds.halfHeight = 0.81F; // interpolated between standing and crouched bounds
+  frame = lg::updatePlayerPresentation(postureState, player, 0.016F, 5U, stableSizeConfig);
+  failures += expect(
+    std::fabs(frame.standingHalfHeight - 0.9F) < 0.0001F,
+    "interpolated crouch bounds should preserve the authoritative skeleton size"
+  );
+  player.bounds.halfHeight = 0.9F;
   player.crouched = false;
   player.sneaking = true;
   frame = lg::updatePlayerPresentation(postureState, player, 0.016F, 5U, config);
